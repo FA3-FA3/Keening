@@ -1,0 +1,25 @@
+{
+  "name": "keening-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "test:local": "node test/local-stack.mjs",
+    "dev": "node --watch server.js"
+  },
+  "overrides": {
+    "gaxios@6.7.1": { "uuid": "^11.1.1" }
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "dotenv": "^18.0.4",
+    "fastify": "^5.12.5",
+    "firebase-admin": "^14.5.0",
+    "pg": "^8.23.0"
+  }
+}
