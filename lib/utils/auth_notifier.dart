@@ -16,7 +16,9 @@ class AuthNotifier extends ChangeNotifier {
   StreamSubscription<User?>? _subscription;
 
   bool get isSignedIn =>
-      Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null;
+      Firebase.apps.isNotEmpty &&
+      FirebaseAuth.instance.currentUser != null &&
+      !FirebaseAuth.instance.currentUser!.isAnonymous;
 
   @override
   void dispose() {

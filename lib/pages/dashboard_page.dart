@@ -1,20 +1,47 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../utils/api_client.dart';
+import 'package:go_router/go_router.dart';
 
+import '../utils/app_colors.dart';
+import '../widgets/profile_avatar.dart';
+import '../utils/api_client.dart';
+import '../utils/account_service.dart';
+import 'settings_page.dart';
+import 'gantt_page.dart';
+import 'boards_page.dart';
+import 'calendar_page.dart';
+import 'schedule_page.dart';
+
+const _dashboardTabs = ['Gantt', 'Calendar', 'Boards', 'Schedule'];
+const _navigationRadius = BorderRadius.all(Radius.circular(22));
+const _navigationHeight = 48.0;
+const _navigationWidth = 144.0;
+
+/// Authenticated dashboard shell: sidebar nav + a workspace area. Tabs and
+/// workspace are placeholders — swap in real content per tab as features
+/// are built.
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  const DashboardPage({super.key, this.loadProfile});
+  final Future<Map<String, dynamic>> Function()? loadProfile;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  String? _status;
-  bool _busy = false;
+  String? _selectedTab = 'Gantt';
+  String? _hoveredTab;
   final _api = ApiClient();
+  Map<String, dynamic>? _profile;
+  bool _profileLoading = false;
+  String? _profileError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
 
   @override
   void dispose() {
@@ -22,110 +49,469 @@ class _DashboardPageState extends State<DashboardPage> {
     super.dispose();
   }
 
-  Future<void> _checkApi() async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  Future<void> _loadProfile() async {
+    if (widget.loadProfile == null && Firebase.apps.isEmpty) return;
+    setState(() {
+      _profileLoading = true;
+      _profileError = null;
+    });
     try {
-      final user = _user;
-      final token = await user?.getIdToken();
-      if (user == null || token == null) throw StateError('Sign-in required');
-      final profile = await _api.whoami(token);
-      if (profile['firebaseUid'] != user.uid) throw StateError('User mismatch');
-      if (mounted) {
-        setState(() => _status = 'API connected. Your profile is ready.');
+      Map<String, dynamic> profile;
+      if (widget.loadProfile != null) {
+        profile = await widget.loadProfile!();
+      } else {
+        await FirebaseAuth.instance.currentUser?.reload();
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        if (token == null) throw StateError('Please sign in again.');
+        profile = await _api.whoami(token);
       }
+      if (mounted) setState(() => _profile = profile);
     } catch (_) {
       if (mounted) {
         setState(
-          () => _status = 'Unable to connect to the API. Please try again.',
+          () =>
+              _profileError = 'Unable to load your profile. Please try again.',
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _profileLoading = false);
     }
   }
 
-  User? get _user =>
-      Firebase.apps.isEmpty ? null : FirebaseAuth.instance.currentUser;
-
-  Future<void> _checkToken() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final user = _user;
-      final token = await user?.getIdToken();
-      if (user == null || token == null || token.isEmpty) {
-        throw StateError('No signed-in user');
-      }
-      final result = await user.getIdTokenResult();
-      if (result.claims?['sub'] != user.uid) {
-        throw StateError('Unexpected token subject');
-      }
-      if (!user.isAnonymous || result.signInProvider != 'anonymous') {
-        throw StateError('Expected anonymous sign-in');
-      }
-      if (mounted) {
-        setState(
-          () => _status = 'Anonymous ID token retrieved. User ID matches.',
-        );
-      }
-    } catch (_) {
-      if (mounted) setState(() => _status = 'Unable to retrieve an ID token.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+  Future<String> _changeAccount(
+    String action,
+    Map<String, String> values,
+  ) async {
+    if (action == 'username') {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) throw StateError('Please sign in again.');
+      final result = await _api.changeUsername(token, values['username']!);
+      if (mounted) setState(() => _profile = {...?_profile, ...result});
+      return 'Username changed.';
     }
+    return AccountService().change(action, values);
   }
 
-  Future<void> _signOut() async {
-    if (Firebase.apps.isEmpty || _busy) return;
-    setState(() => _busy = true);
+  Future<void> _savePicture(String? image) async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    if (token == null) throw StateError('Please sign in again.');
+    final result = await _api.saveProfilePicture(token, image);
+    if (mounted) setState(() => _profile = {...?_profile, ...result});
+  }
+
+  Color _tabColor(String tab) {
+    final base = tab == _selectedTab
+        ? AppColors.primary(context).withValues(alpha: .15)
+        : AppColors.text(context).withValues(alpha: .06);
+    return _hoveredTab == tab
+        ? Color.alphaBlend(
+            AppColors.primary(context).withValues(alpha: .12),
+            base,
+          )
+        : base;
+  }
+
+  DateTime _scheduleDate = DateTime.now();
+  int _scheduleRequest = 0;
+  void _openSchedule(DateTime date) {
+    _scheduleDate = date;
+    _scheduleRequest++;
+    _openTab('Schedule');
+  }
+
+  final List<String> _openTabs = ['Gantt'];
+  final Map<String, GlobalKey> _tabKeys = {'Gantt': GlobalKey()};
+
+  void _openTab(String tab) {
+    setState(() {
+      if (!_openTabs.contains(tab)) {
+        _openTabs.add(tab);
+        _tabKeys[tab] = GlobalKey();
+      }
+      _selectedTab = tab;
+    });
+    _revealActiveTab();
+  }
+
+  void _revealActiveTab() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = _tabKeys[_selectedTab]?.currentContext;
+      if (context != null) {
+        Scrollable.ensureVisible(context, alignment: 0.5);
+      }
+    });
+  }
+
+  void _closeTab(String tab) {
+    if (!_openTabs.contains(tab)) return;
+    setState(() {
+      final index = _openTabs.indexOf(tab);
+      _openTabs.removeAt(index);
+      _tabKeys.remove(tab);
+      if (_hoveredTab == tab) _hoveredTab = null;
+      if (_selectedTab == tab) {
+        _selectedTab = _openTabs.isEmpty
+            ? null
+            : _openTabs[index < _openTabs.length ? index : index - 1];
+      }
+    });
+    _revealActiveTab();
+  }
+
+  Future<void> _logOut() async {
+    if (Firebase.apps.isEmpty) return;
     try {
       await FirebaseAuth.instance.signOut();
+      if (mounted) context.go('/');
     } catch (_) {
       if (mounted) {
-        setState(() => _status = 'Unable to sign out. Please try again.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to sign out. Please try again.'),
+          ),
+        );
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Keening'),
-      actions: [
-        TextButton(
-          onPressed: _busy ? null : _signOut,
-          child: const Text('Sign out'),
-        ),
-      ],
-    ),
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background(context),
+      body: Column(
         children: [
-          Text('Dashboard', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 16),
-          Text(
-            _user?.isAnonymous == true ? 'Signed in anonymously' : 'Signed in',
+          _TopBar(
+            username: (_profile?['username'] as String?) ?? 'Account',
+            picture: _profile?['profilePicture'] as String?,
+            onSettings: () => _openTab('Settings'),
+            onLogOut: _logOut,
           ),
-          if (kDebugMode) ...[
-            const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: _busy ? null : _checkToken,
-              child: const Text('Check sign-in token'),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Sidebar(selectedTab: _selectedTab, onSelect: _openTab),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Material(
+                        color: AppColors.surface(context),
+                        child: SingleChildScrollView(
+                          key: const ValueKey('workspace-tab-strip'),
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final tab in _openTabs)
+                                Padding(
+                                  key: _tabKeys[tab],
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 8,
+                                  ),
+                                  child: MouseRegion(
+                                    onEnter: (_) =>
+                                        setState(() => _hoveredTab = tab),
+                                    onExit: (_) {
+                                      if (mounted && _hoveredTab == tab) {
+                                        setState(() => _hoveredTab = null);
+                                      }
+                                    },
+                                    child: Material(
+                                      key: ValueKey('tab-surface-$tab'),
+                                      color: _tabColor(tab),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: _navigationRadius,
+                                        side: BorderSide(
+                                          color: tab == _selectedTab
+                                              ? AppColors.primary(context)
+                                              : AppColors.text(
+                                                  context,
+                                                ).withValues(alpha: 0.12),
+                                        ),
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: SizedBox(
+                                        height: _navigationHeight,
+                                        width: _navigationWidth,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Expanded(
+                                              child: Semantics(
+                                                selected: tab == _selectedTab,
+                                                child: TextButton(
+                                                  key: ValueKey(
+                                                    'workspace-tab-$tab',
+                                                  ),
+                                                  onPressed: () =>
+                                                      _openTab(tab),
+                                                  style:
+                                                      TextButton.styleFrom(
+                                                        shape: const RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              _navigationRadius,
+                                                        ),
+                                                        foregroundColor:
+                                                            tab == _selectedTab
+                                                            ? AppColors.primary(
+                                                                context,
+                                                              )
+                                                            : AppColors.text(
+                                                                context,
+                                                              ),
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 16,
+                                                              vertical: 14,
+                                                            ),
+                                                      ).copyWith(
+                                                        overlayColor:
+                                                            WidgetStateProperty.resolveWith(
+                                                              (states) =>
+                                                                  states.contains(
+                                                                    WidgetState
+                                                                        .hovered,
+                                                                  )
+                                                                  ? Colors
+                                                                        .transparent
+                                                                  : null,
+                                                            ),
+                                                      ),
+                                                  child: Text(
+                                                    tab.split('/').last,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              style: IconButton.styleFrom(
+                                                hoverColor: Colors.transparent,
+                                              ),
+                                              key: ValueKey('close-tab-$tab'),
+                                              tooltip:
+                                                  'Close ${tab.split('/').last}',
+                                              onPressed: () => _closeTab(tab),
+                                              icon: const Icon(
+                                                Icons.close,
+                                                size: 18,
+                                              ),
+                                              color: AppColors.text(context),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: _openTabs.isEmpty
+                            ? const SizedBox.expand(
+                                key: ValueKey('workspace-empty'),
+                              )
+                            : IndexedStack(
+                                index: _openTabs.indexOf(_selectedTab!),
+                                alignment: Alignment.topLeft,
+                                children: [
+                                  for (final tab in _openTabs)
+                                    tab == 'Gantt'
+                                        ? const GanttPage(
+                                            key: ValueKey(
+                                              'workspace-page-Gantt',
+                                            ),
+                                          )
+                                        : tab == 'Boards'
+                                        ? const BoardsPage(
+                                            key: ValueKey(
+                                              'workspace-page-Boards',
+                                            ),
+                                          )
+                                        : tab == 'Settings'
+                                        ? SettingsPage(
+                                            key: const ValueKey(
+                                              'workspace-page-Settings',
+                                            ),
+                                            profile: _profile,
+                                            loading: _profileLoading,
+                                            error: _profileError,
+                                            onRefresh: _loadProfile,
+                                            onSavePicture: _savePicture,
+                                            onChangeAccount: _changeAccount,
+                                          )
+                                        : tab == 'Schedule'
+                                        ? SchedulePage(
+                                            key: const ValueKey(
+                                              'workspace-page-Schedule',
+                                            ),
+                                            date: _scheduleDate,
+                                            openRequest: _scheduleRequest,
+                                          )
+                                        : CalendarPage(
+                                            key: const ValueKey(
+                                              'workspace-page-Calendar',
+                                            ),
+                                            onOpenSchedule: _openSchedule,
+                                          ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-          const SizedBox(height: 16),
-          OutlinedButton(
-            onPressed: _busy ? null : _checkApi,
-            child: const Text('Check API connection'),
           ),
-          if (_status != null) ...[const SizedBox(height: 16), Text(_status!)],
         ],
       ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.username,
+    this.picture,
+    required this.onSettings,
+    required this.onLogOut,
+  });
+
+  final String username;
+  final String? picture;
+  final VoidCallback onSettings;
+  final VoidCallback onLogOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 64,
+      width: double.infinity,
+      color: AppColors.navBackground,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          Text(
+            'Keening',
+            style: TextStyle(
+              color: AppColors.navBrand,
+              fontSize: 18,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const Spacer(),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width < 600 ? 150 : 280,
+            ),
+            child: TextButton.icon(
+              key: const ValueKey('account-settings'),
+              onPressed: onSettings,
+              icon: ProfileAvatar(picture: picture, radius: 15),
+              label: Text(
+                username,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.navText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w300,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          TextButton(
+            onPressed: onLogOut,
+            child: Text(
+              'Log Out',
+              style: TextStyle(
+                color: AppColors.navTextActive,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({required this.selectedTab, required this.onSelect});
+
+  final String? selectedTab;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: MediaQuery.sizeOf(context).width < 600 ? 124 : 190,
+    color: AppColors.navBackground,
+    child: ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      children: [
+        for (final tab in _dashboardTabs)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: SizedBox(
+              height: 40,
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    left: -24,
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: Semantics(
+                      selected: selectedTab == tab,
+                      button: true,
+                      child: Material(
+                        color: selectedTab == tab
+                            ? AppColors.navTextActive.withValues(alpha: 0.15)
+                            : AppColors.navText.withValues(alpha: 0.06),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: _navigationRadius,
+                          side: BorderSide(
+                            color: selectedTab == tab
+                                ? AppColors.navTextActive
+                                : AppColors.navText.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          key: ValueKey('nav-$tab'),
+                          onTap: () => onSelect(tab),
+                          child: Container(
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.only(left: 40, right: 16),
+                            child: Text(
+                              tab,
+                              style: TextStyle(
+                                color: selectedTab == tab
+                                    ? AppColors.navTextActive
+                                    : AppColors.navText,
+                                fontSize: 15,
+                                fontWeight: selectedTab == tab
+                                    ? FontWeight.w600
+                                    : FontWeight.w300,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     ),
   );
 }

@@ -18,7 +18,7 @@ export async function ensureUserProfile(pool, token) {
     `INSERT INTO public.users (firebase_uid, email)
      VALUES ($1, $2)
      ON CONFLICT (firebase_uid) DO UPDATE SET email = EXCLUDED.email
-     RETURNING id, firebase_uid, email`,
+     RETURNING id, firebase_uid, email, username, profile_picture`,
     [token.uid, typeof token.email === 'string' ? token.email : null],
   );
   return rows[0];

@@ -1,5 +1,11 @@
 # Backend setup sequence
 
+## Current authentication update (2026-09-29)
+
+Email/password login and invite-code registration now replace the anonymous test flow described in the historical phases below. Registration collects email, unique username, password and code. Code validation happens in Cloud Run using Secret Manager; direct Firebase signup is disabled. The additive username migration is applied to Neon. See deployment.md for current settings.
+
+## Historical implementation
+
 All phases are complete. On 2026-09-29 the owner confirmed billing was attached
 and authorized the remaining deployment and live verification steps.
 

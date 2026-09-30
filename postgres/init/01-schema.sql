@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firebase_uid TEXT UNIQUE NOT NULL,
     email TEXT,
+    username TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

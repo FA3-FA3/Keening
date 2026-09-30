@@ -34,4 +34,18 @@ if ($databaseUrl -notmatch '^postgres(ql)?://') {
 if ($LASTEXITCODE -ne 0) {
     throw 'Schema application failed. Review the psql error above.'
 }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\02-usernames.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Username migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\03-gantt.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Gantt migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\04-boards.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Boards migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\05-event-task-links.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Event links migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\06-calendar.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Independent Calendar migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\07-schedule.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Schedule migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\08-profile-picture.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Profile picture migration failed.' }
 Write-Output 'Keening schema applied successfully.'

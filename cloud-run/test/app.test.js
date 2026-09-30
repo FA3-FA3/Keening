@@ -11,7 +11,7 @@ async function fixture(t, { verify, query } = {}) {
     origins: ['http://localhost:3000'],
     verifyIdToken: verify || (async token => {
       assert.equal(token, 'test-token');
-      return { uid: 'anonymous-uid', firebase: { sign_in_provider: 'anonymous' } };
+      return { uid: 'email-uid', firebase: { sign_in_provider: 'password' } };
     }),
     pool: {
       async query(sql, params) {
@@ -53,19 +53,19 @@ test('expired, revoked, and forged tokens are rejected before provisioning', asy
   }
 });
 
-test('anonymous identity provisions nullable email and hides internal UUID', async t => {
+test('email identity hides internal UUID', async t => {
   const { app, calls } = await fixture(t);
   const response = await app.inject({ url: '/whoami?firebaseUid=attacker', headers: { authorization: 'Bearer test-token' } });
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { firebaseUid: 'anonymous-uid', email: null, anonymous: true });
-  assert.deepEqual(calls[0].params, ['anonymous-uid', null]);
+  assert.deepEqual(response.json(), { firebaseUid: 'email-uid', email: null, profilePicture: null, anonymous: false });
+  assert.deepEqual(calls[0].params, ['email-uid', null]);
   assert.ok(!response.body.includes('private-uuid'));
   assert.equal(response.headers['cache-control'], 'no-store');
 });
 
 test('only verified email claims are persisted using SQL parameters', async t => {
   const uid = "uid'; DROP TABLE users; --";
-  const { app, calls } = await fixture(t, { verify: async () => ({ uid, email: 'user@example.test' }) });
+  const { app, calls } = await fixture(t, { verify: async () => ({ uid, email: 'user@example.test', firebase: { sign_in_provider: 'password' } }) });
   const response = await app.inject({ url: '/whoami', headers: { authorization: 'Bearer test-token' } });
   assert.equal(response.statusCode, 200);
   assert.deepEqual(calls[0].params, [uid, 'user@example.test']);
@@ -105,4 +105,30 @@ test('production requires explicit CORS and remote database encryption', () => {
   assert.throws(() => readConfig({ ...live, CORS_ORIGINS: '*' }));
   assert.throws(() => readConfig({ ...live, CORS_ORIGINS: 'https://keening.example', DATABASE_URL: 'postgresql://example.neon.tech/neondb' }));
   assert.equal(readConfig({ ...live, CORS_ORIGINS: 'https://keening.example' }).projectId, 'keening-ece74');
+});
+
+test('old anonymous tokens cannot access profiles', async t => {
+ const {app,calls}=await fixture(t,{verify:async()=>({uid:'old',firebase:{sign_in_provider:'anonymous'}})});
+ assert.equal((await app.inject({url:'/whoami',headers:{authorization:'Bearer old'}})).statusCode,401);
+ assert.equal(calls.length,0);
+});
+
+test('development CORS accepts random loopback ports but not remote lookalikes', async t => {
+ const config=readConfig({DATABASE_URL:'postgresql://localhost/test',NODE_ENV:'development'});
+ const app=await buildApp({logger:false,origins:config.origins,pool:{end:async()=>{}},verifyIdToken:async()=>{}});
+ t.after(()=>app.close());
+ for(const origin of ['http://localhost:55822','http://127.0.0.1:52488','http://[::1]:40001']){
+  const r=await app.inject({method:'OPTIONS',url:'/register',headers:{origin,'access-control-request-method':'POST'}});
+  assert.equal(r.headers['access-control-allow-origin'],origin);
+ }
+ for(const origin of ['http://localhost.evil.test:55822','http://192.168.1.5:55822','null']){
+  const r=await app.inject({url:'/health',headers:{origin}});
+  assert.equal(r.headers['access-control-allow-origin'],undefined);
+ }
+});
+test('production, Cloud Run and non-loopback listeners never enable dynamic localhost CORS',()=>{
+ for(const extra of [{NODE_ENV:'production'},{NODE_ENV:'development',K_SERVICE:'keening-api'},{NODE_ENV:'development',HOST:'0.0.0.0'}]){
+  const config=readConfig({DATABASE_URL:'postgresql://localhost/test',CORS_ORIGINS:'https://keening-ece74.web.app',...extra});
+  assert.deepEqual(config.origins,['https://keening-ece74.web.app']);
+ }
 });

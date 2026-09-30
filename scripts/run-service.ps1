@@ -19,6 +19,8 @@ if ($Service -eq 'auth') {
     $env:DATABASE_URL = 'postgresql://keening_local@127.0.0.1:55440/postgres'
   } else {
     $env:FIREBASE_PROJECT_ID = 'keening-ece74'
+    # User ADC needs a quota project for Firebase Auth admin requests.
+    $env:GOOGLE_CLOUD_QUOTA_PROJECT = 'keening-ece74'
     Remove-Item Env:\FIREBASE_AUTH_EMULATOR_HOST -ErrorAction SilentlyContinue
     # Load Keening's own .env via server.js, ignoring inherited database URLs.
     Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue

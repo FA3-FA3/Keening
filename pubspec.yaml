@@ -7,12 +7,14 @@ environment:
   sdk: ^3.12.2
 
 dependencies:
+  file_selector: ^1.1.0
   firebase_auth: ^6.7.0
   firebase_core: ^4.15.0
   flutter:
     sdk: flutter
   go_router: ^16.1.0
   http: ^1.6.0
+  intl: ^0.20.3
 
 dev_dependencies:
   flutter_test:

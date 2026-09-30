@@ -1,4 +1,7 @@
-param([ValidateSet('emulator','live')][string]$Mode = 'emulator')
+param(
+  [ValidateSet('emulator','live')][string]$Mode = 'emulator',
+  [switch]$BackendOnly
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $stateDir = Join-Path $projectRoot '.local'
@@ -45,6 +48,20 @@ try {
     Save-State
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\01-schema.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
     if ($LASTEXITCODE -ne 0) { throw 'Local schema application failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\02-usernames.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Username migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\03-gantt.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Gantt migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\04-boards.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Boards migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\05-event-task-links.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Event links migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\06-calendar.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Independent Calendar migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\07-schedule.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Schedule migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\08-profile-picture.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Profile picture migration failed' }
     Start-ServiceProcess 'auth'
     Wait-Url 'http://127.0.0.1:9099/'
   }
@@ -52,7 +69,8 @@ try {
   Wait-Url 'http://127.0.0.1:8080/health'
   Write-Output "Keening $Mode stack ready. API: http://localhost:8080"
   $useEmulator = if ($Mode -eq 'emulator') { 'true' } else { 'false' }
-  Write-Output "Run from project root: flutter run -d chrome --web-port=3000 --dart-define=USE_EMULATOR=$useEmulator"
+  Write-Output "Start Flutter separately: flutter run -d chrome --dart-define=USE_EMULATOR=$useEmulator"
+  Write-Output 'The local API accepts any localhost web port. No browser was launched.'
 } catch {
   & (Join-Path $PSScriptRoot 'stop-local-stack.ps1')
   throw

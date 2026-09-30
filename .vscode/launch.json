@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Keening web (live auth, port 3000)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": ["--web-hostname=localhost", "--web-port=3000", "--dart-define=USE_EMULATOR=false", "--dart-define=API_BASE_URL=http://localhost:8080"]
+    },
+    {
+      "name": "Keening web (emulator, port 3000)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": ["--web-hostname=localhost", "--web-port=3000", "--dart-define=USE_EMULATOR=true", "--dart-define=API_BASE_URL=http://localhost:8080"]
+    }
+  ]
+}

@@ -35,12 +35,19 @@ export function readConfig(env = process.env) {
   }
   const port = Number(env.PORT || 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
+  const host = env.K_SERVICE ? '0.0.0.0' : (env.HOST || '127.0.0.1');
+  const allowedOrigins = origins.length ? [...origins] : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  // Flutter chooses an ephemeral web port. Permit loopback origins only when
+  // the development API itself is bound to loopback, never in Cloud Run.
+  if (env.NODE_ENV === 'development' && !env.K_SERVICE && ['localhost', '127.0.0.1', '::1'].includes(host)) {
+    allowedOrigins.push(/^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$/);
+  }
   return {
     databaseUrl: env.DATABASE_URL,
     projectId,
     emulatorHost,
     port,
-    host: env.K_SERVICE ? '0.0.0.0' : (env.HOST || '127.0.0.1'),
-    origins: origins.length ? origins : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    host,
+    origins: allowedOrigins,
   };
 }

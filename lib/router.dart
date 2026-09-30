@@ -14,13 +14,18 @@ final GoRouter appRouter = GoRouter(
         state.uri.path == '/dashboard' ||
         state.uri.path.startsWith('/dashboard/');
     if (!authNotifier.isSignedIn && dashboard) return '/login';
-    if (authNotifier.isSignedIn && state.uri.path == '/login') {
+    if (authNotifier.isSignedIn &&
+        ['/login', '/register'].contains(state.uri.path)) {
       return '/dashboard';
     }
     return null;
   },
   routes: [
     GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
+    GoRoute(
+      path: '/register',
+      builder: (context, state) => const LoginPage(register: true),
+    ),
     GoRoute(
       path: '/dashboard',
       builder: (context, state) => const DashboardPage(),

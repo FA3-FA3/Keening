@@ -13,13 +13,17 @@
     "dev": "node --watch server.js"
   },
   "overrides": {
-    "gaxios@6.7.1": { "uuid": "^11.1.1" }
+    "gaxios@6.7.1": {
+      "uuid": "^11.1.1"
+    }
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^11.2.0",
     "dotenv": "^18.0.4",
     "fastify": "^5.12.5",
     "firebase-admin": "^14.5.0",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "sharp": "^0.35.5"
   }
 }

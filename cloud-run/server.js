@@ -19,6 +19,8 @@ try {
   pool = createPool(config.databaseUrl);
   const app = await buildApp({
     pool,
+    auth: getAuth(firebase),
+    registrationCode: process.env.REGISTRATION_CODE,
     verifyIdToken: token => getAuth(firebase).verifyIdToken(token, true),
     origins: config.origins,
   });
