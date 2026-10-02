@@ -48,4 +48,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Independent Calendar migration failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Schedule migration failed.' }
 & $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\08-profile-picture.sql') $databaseUrl
 if ($LASTEXITCODE -ne 0) { throw 'Profile picture migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\09-calendar-sessions.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Calendar sessions migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\10-calendar-location.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Calendar location migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\11-calendar-tags.sql') $databaseUrl
+    if ($LASTEXITCODE -ne 0) { throw 'Calendar tags migration failed.' }
 Write-Output 'Keening schema applied successfully.'

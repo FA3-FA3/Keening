@@ -97,3 +97,8 @@ Registration requires REGISTRATION_CODE in the ignored cloud-run/.env for local 
 The Gantt workspace supports user-created calendars with saved tasks/events, date ranges, dependencies and row ordering. See [Gantt setup and behavior](docs/gantt.md).
 
 The Boards tab adapts Sorbit tasks into private, user-created workplaces. Panels, draggable tasks, tags, completion, and archive/restore are saved in Neon. See [Boards setup and behavior](docs/boards.md).
+
+UI convention: use `AppDropdownButton` and `AppDropdownButtonFormField` from
+`lib/widgets/app_dropdown.dart` for new dropdowns. Their rounded button highlights
+and menus match the app's rounded action buttons. Material dropdown and popup
+menus also receive the shared shape through both application themes.

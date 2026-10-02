@@ -1,3 +1,4 @@
+import '../widgets/scrollable_workspace.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
@@ -110,8 +111,9 @@ String _formatDateTime(String? iso) {
 }
 
 class BoardsPage extends StatefulWidget {
-  const BoardsPage({super.key, this.service});
+  const BoardsPage({super.key, this.service, this.searchTarget});
   final BoardsService? service;
+  final Map<String, dynamic>? searchTarget;
   @override
   State<BoardsPage> createState() => _BoardsPageState();
 }
@@ -126,11 +128,40 @@ class _BoardsPageState extends State<BoardsPage> {
   String? _selected, _error;
   bool _loading = true, _busy = false, _archived = false;
   int _request = 0;
+  Future<void> _openSearch() async {
+    final target = widget.searchTarget!;
+    _archived = target['archived'] == true;
+    await _loadWorkplaces(preferred: target['parentId'] as String?);
+    if (!mounted || widget.searchTarget != target || _error != null) return;
+    if (target['type'] == 'Task') {
+      final task = _tasks.where((i) => i['id'] == target['id']).firstOrNull;
+      if (task != null) {
+        await _taskDialog(task['column_id'] as String, existing: task);
+      }
+    } else if (target['type'] == 'Panel') {
+      final panel = _columns.where((i) => i['id'] == target['id']).firstOrNull;
+      if (panel != null) await _openPanel(panel);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? BoardsService();
-    _loadWorkplaces();
+    if (widget.searchTarget != null) {
+      _openSearch();
+    } else {
+      _loadWorkplaces();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BoardsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchTarget != oldWidget.searchTarget &&
+        widget.searchTarget != null) {
+      _openSearch();
+    }
   }
 
   @override
@@ -145,9 +176,16 @@ class _BoardsPageState extends State<BoardsPage> {
       : 'Unable to connect. Please try again.';
   List<Map<String, dynamic>> _list(dynamic value) =>
       (value as List).cast<Map<String, dynamic>>();
-  List<Map<String, dynamic>> _inPanel(String id) => _tasks
-      .where((t) => t['column_id'] == id && t['archived'] == _archived)
-      .toList();
+  List<Map<String, dynamic>> _inPanel(String id) {
+    final tasks = _tasks.where(
+      (t) => t['column_id'] == id && t['archived'] == _archived,
+    );
+    // Keep manual ordering within each group while placing completed tasks last.
+    return [
+      ...tasks.where((t) => t['completed'] != true),
+      ...tasks.where((t) => t['completed'] == true),
+    ];
+  }
 
   Future<void> _loadWorkplaces({String? preferred}) async {
     setState(() {
@@ -567,18 +605,20 @@ class _BoardsPageState extends State<BoardsPage> {
     if (changed == true && mounted) await _loadBoard();
   }
 
-  Future<void> _moveTask(String taskId, String columnId) async {
+  Future<void> _moveTask(String taskId, String columnId, [int? index]) async {
     if (_busy) return;
     final task = _tasks.where((t) => t['id'] == taskId).firstOrNull;
-    if (task == null ||
-        task['column_id'] == columnId ||
-        task['archived'] == true) {
+    if (task == null || task['archived'] == true) {
       return;
     }
-    await _run('reorderOrgTasks', {
-      'columnId': columnId,
-      'taskIds': [..._inPanel(columnId).map((t) => t['id']), taskId],
-    });
+    final order = _inPanel(columnId).map((t) => t['id'] as String).toList();
+    final oldIndex = order.indexOf(taskId);
+    var destination = index ?? order.length;
+    if (oldIndex >= 0 && oldIndex < destination) destination--;
+    order.remove(taskId);
+    order.insert(destination.clamp(0, order.length), taskId);
+    if (oldIndex == order.indexOf(taskId)) return;
+    await _run('reorderOrgTasks', {'columnId': columnId, 'taskIds': order});
   }
 
   Future<void> _manageTags() async {
@@ -732,259 +772,269 @@ class _BoardsPageState extends State<BoardsPage> {
   @override
   Widget build(BuildContext context) {
     final disabled = _loading || _busy;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('Boards', style: Theme.of(context).textTheme.headlineMedium),
-              FilledButton.icon(
-                onPressed: disabled || _error != null
-                    ? null
-                    : () => _nameDialog('workplace'),
-                icon: const Icon(Icons.add),
-                label: const Text('Create workplace'),
-              ),
-              IconButton(
-                tooltip: 'Refresh workplaces',
-                onPressed: disabled ? null : _loadWorkplaces,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
-        ),
-        if (_workplaces.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final w in _workplaces)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(w['name'] as String),
-                        selected: w['id'] == _selected,
-                        onSelected: disabled
-                            ? null
-                            : (_) {
-                                if (w['id'] != _selected) {
-                                  _selected = w['id'] as String;
-                                  _archived = false;
-                                  _loadBoard();
-                                }
-                              },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        if (_selected != null)
+    return ScrollableWorkspace(
+      minimumBodyHeight: 520,
+      header: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: Wrap(
               spacing: 12,
               runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                OutlinedButton.icon(
-                  onPressed: disabled ? null : () => _nameDialog('panel'),
+                Text(
+                  'Boards',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                FilledButton.icon(
+                  onPressed: disabled || _error != null
+                      ? null
+                      : () => _nameDialog('workplace'),
                   icon: const Icon(Icons.add),
-                  label: const Text('New panel'),
-                ),
-                TextButton.icon(
-                  onPressed: disabled ? null : _manageTags,
-                  icon: const Icon(Icons.label_outline),
-                  label: const Text('Tags'),
-                ),
-                TextButton.icon(
-                  onPressed: disabled
-                      ? null
-                      : () => setState(() => _archived = !_archived),
-                  icon: Icon(
-                    _archived
-                        ? Icons.view_kanban_outlined
-                        : Icons.archive_outlined,
-                  ),
-                  label: Text(_archived ? 'Back to board' : 'Archive'),
+                  label: const Text('Create workplace'),
                 ),
                 IconButton(
-                  tooltip: 'Rename workplace',
-                  onPressed: disabled
-                      ? null
-                      : () => _nameDialog(
-                          'workplace',
-                          existing: _workplaces.firstWhere(
-                            (w) => w['id'] == _selected,
-                          ),
-                        ),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Delete workplace',
-                  onPressed: disabled
-                      ? null
-                      : () async {
-                          if (!await _confirm(
-                                'Delete workplace?',
-                                'This permanently deletes its panels, tasks, tags, and archived tasks.',
-                              ) ||
-                              !mounted) {
-                            return;
-                          }
-                          setState(() => _busy = true);
-                          try {
-                            await _service.call('deleteWorkplace', {
-                              'workplaceId': _selected,
-                            });
-                            if (mounted) await _loadWorkplaces();
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(_message(e))),
-                              );
-                            }
-                          } finally {
-                            if (mounted) setState(() => _busy = false);
-                          }
-                        },
-                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Refresh workplaces',
+                  onPressed: disabled ? null : _loadWorkplaces,
+                  icon: const Icon(Icons.refresh),
                 ),
               ],
             ),
           ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_error!),
-                      TextButton(
-                        onPressed: _loadWorkplaces,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : _selected == null
-              ? const Center(
-                  child: Text('Create your first workplace to get started.'),
-                )
-              : _archived
-              ? ListView(
-                  padding: const EdgeInsets.all(16),
+          if (_workplaces.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
                   children: [
-                    Text(
-                      'Archived tasks',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    if (!_tasks.any((t) => t['archived'] == true))
-                      const Text('No archived tasks'),
-                    for (final task in _tasks.where(
-                      (t) => t['archived'] == true,
-                    ))
+                    for (final w in _workplaces)
                       Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _TaskCard(
-                              task: task,
-                              expanded: true,
-                              onEdit: () => _taskDialog(
-                                task['column_id'] as String,
-                                existing: task,
-                              ),
-                              onCompletedChanged: (value) => _run(
-                                'updateOrgTask',
-                                {'taskId': task['id'], 'completed': value},
-                              ),
-                            ),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: disabled
-                                    ? null
-                                    : () => _run('updateOrgTask', {
-                                        'taskId': task['id'],
-                                        'archived': false,
-                                      }),
-                                child: const Text('Restore task'),
-                              ),
-                            ),
-                          ],
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(w['name'] as String),
+                          selected: w['id'] == _selected,
+                          onSelected: disabled
+                              ? null
+                              : (_) {
+                                  if (w['id'] != _selected) {
+                                    _selected = w['id'] as String;
+                                    _archived = false;
+                                    _loadBoard();
+                                  }
+                                },
                         ),
                       ),
                   ],
-                )
-              : _columns.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No panels yet. Create a panel to start adding tasks.',
+                ),
+              ),
+            ),
+          if (_selected != null)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: disabled ? null : () => _nameDialog('panel'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('New panel'),
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final column in _columns)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 16),
-                            child: SizedBox(
-                              width: 280,
-                              child: _KanbanColumn(
-                                column: column,
-                                tasks: _inPanel(column['id'] as String),
-                                canManage: !disabled,
-                                onDropTask: (id) =>
-                                    _moveTask(id, column['id'] as String),
-                                onAddTask: () =>
-                                    _taskDialog(column['id'] as String),
-                                onEditTask: (task) => _taskDialog(
-                                  column['id'] as String,
-                                  existing: task,
-                                ),
-                                onTaskCompleted: (task, value) => _run(
-                                  'updateOrgTask',
-                                  {'taskId': task['id'], 'completed': value},
-                                ),
-                                onOpenPanelDetails: () => _openPanel(column),
-                              ),
+                  TextButton.icon(
+                    onPressed: disabled ? null : _manageTags,
+                    icon: const Icon(Icons.label_outline),
+                    label: const Text('Tags'),
+                  ),
+                  TextButton.icon(
+                    onPressed: disabled
+                        ? null
+                        : () => setState(() => _archived = !_archived),
+                    icon: Icon(
+                      _archived
+                          ? Icons.view_kanban_outlined
+                          : Icons.archive_outlined,
+                    ),
+                    label: Text(_archived ? 'Back to board' : 'Archive'),
+                  ),
+                  IconButton(
+                    tooltip: 'Rename workplace',
+                    onPressed: disabled
+                        ? null
+                        : () => _nameDialog(
+                            'workplace',
+                            existing: _workplaces.firstWhere(
+                              (w) => w['id'] == _selected,
                             ),
                           ),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete workplace',
+                    onPressed: disabled
+                        ? null
+                        : () async {
+                            if (!await _confirm(
+                                  'Delete workplace?',
+                                  'This permanently deletes its panels, tasks, tags, and archived tasks.',
+                                ) ||
+                                !mounted) {
+                              return;
+                            }
+                            setState(() => _busy = true);
+                            try {
+                              await _service.call('deleteWorkplace', {
+                                'workplaceId': _selected,
+                              });
+                              if (mounted) await _loadWorkplaces();
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(_message(e))),
+                                );
+                              }
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!),
+                  TextButton(
+                    onPressed: _loadWorkplaces,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : _selected == null
+          ? const Center(
+              child: Text('Create your first workplace to get started.'),
+            )
+          : _archived
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(
+                  'Archived tasks',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (!_tasks.any((t) => t['archived'] == true))
+                  const Text('No archived tasks'),
+                for (final task in _tasks.where((t) => t['archived'] == true))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _TaskCard(
+                          task: task,
+                          expanded: true,
+                          onEdit: () => _taskDialog(
+                            task['column_id'] as String,
+                            existing: task,
+                          ),
+                          onCompletedChanged: (value) => _run('updateOrgTask', {
+                            'taskId': task['id'],
+                            'completed': value,
+                          }),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: disabled
+                                ? null
+                                : () => _run('updateOrgTask', {
+                                    'taskId': task['id'],
+                                    'archived': false,
+                                  }),
+                            child: const Text('Restore task'),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ),
-        ),
-      ],
+              ],
+            )
+          : _columns.isEmpty
+          ? const Center(
+              child: Text(
+                'No panels yet. Create a panel to start adding tasks.',
+              ),
+            )
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: ReorderableListView(
+                scrollDirection: Axis.horizontal,
+                buildDefaultDragHandles: false,
+                onReorderItem: (oldIndex, newIndex) {
+                  if (disabled) return;
+                  if (oldIndex == newIndex) return;
+                  final order = _columns.map((c) => c['id'] as String).toList();
+                  order.insert(newIndex, order.removeAt(oldIndex));
+                  _run('reorderTaskColumns', {'columnIds': order});
+                },
+                children: [
+                  for (final column in _columns)
+                    Padding(
+                      key: ValueKey(column['id']),
+                      padding: const EdgeInsets.only(right: 16),
+                      child: SizedBox(
+                        width: 280,
+                        child: _KanbanColumn(
+                          column: column,
+                          index: _columns.indexOf(column),
+                          tasks: _inPanel(column['id'] as String),
+                          canManage: !disabled,
+                          onDropTask: (id, index) =>
+                              _moveTask(id, column['id'] as String, index),
+                          onAddTask: () => _taskDialog(column['id'] as String),
+                          onEditTask: (task) => _taskDialog(
+                            column['id'] as String,
+                            existing: task,
+                          ),
+                          onTaskCompleted: (task, value) => _run(
+                            'updateOrgTask',
+                            {'taskId': task['id'], 'completed': value},
+                          ),
+                          onOpenPanelDetails: () => _openPanel(column),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
     );
   }
 }
 
 class _KanbanColumn extends StatefulWidget {
+  final int index;
   final bool canManage;
   final Map<String, dynamic> column;
   final List<Map<String, dynamic>> tasks;
-  final void Function(String taskId) onDropTask;
+  final void Function(String taskId, int index) onDropTask;
   final VoidCallback onAddTask;
   final void Function(Map<String, dynamic> task) onEditTask;
   final void Function(Map<String, dynamic>, bool) onTaskCompleted;
   final VoidCallback onOpenPanelDetails;
 
   const _KanbanColumn({
+    required this.index,
     required this.canManage,
     required this.column,
     required this.tasks,
@@ -1010,7 +1060,8 @@ class _KanbanColumnState extends State<_KanbanColumn> {
 
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) => widget.canManage,
-      onAcceptWithDetails: (details) => widget.onDropTask(details.data),
+      onAcceptWithDetails: (details) =>
+          widget.onDropTask(details.data, widget.tasks.length),
       builder: (context, candidateData, rejectedData) {
         final isDraggingOver = candidateData.isNotEmpty;
         final isHovering = _pointerHovering || isDraggingOver;
@@ -1053,6 +1104,27 @@ class _KanbanColumnState extends State<_KanbanColumn> {
                 children: [
                   Row(
                     children: [
+                      ReorderableDragStartListener(
+                        index: widget.index,
+                        enabled: widget.canManage,
+                        child: MouseRegion(
+                          cursor: widget.canManage
+                              ? SystemMouseCursors.grab
+                              : SystemMouseCursors.basic,
+                          child: Padding(
+                            key: ValueKey('panel-drag-${widget.column['id']}'),
+                            padding: const EdgeInsets.only(
+                              right: 6,
+                              top: 8,
+                              bottom: 8,
+                            ),
+                            child: const Tooltip(
+                              message: 'Drag to reorder panel',
+                              child: Icon(Icons.drag_indicator, size: 18),
+                            ),
+                          ),
+                        ),
+                      ),
                       _colorDot(panelColor),
                       const SizedBox(width: 6),
                       Expanded(
@@ -1112,31 +1184,20 @@ class _KanbanColumnState extends State<_KanbanColumn> {
                             itemCount: widget.tasks.length,
                             itemBuilder: (context, index) {
                               final task = widget.tasks[index];
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Draggable<String>(
-                                  maxSimultaneousDrags: widget.canManage
-                                      ? 1
-                                      : 0,
-                                  data: task['id'] as String,
-                                  feedback: Material(
-                                    elevation: 4,
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: SizedBox(
-                                      width: 240,
-                                      child: _TaskCard(task: task),
-                                    ),
-                                  ),
-                                  childWhenDragging: Opacity(
-                                    opacity: 0.3,
-                                    child: _TaskCard(task: task),
-                                  ),
-                                  child: _TaskCard(
-                                    task: task,
-                                    onEdit: () => widget.onEditTask(task),
-                                    onCompletedChanged: (value) =>
-                                        widget.onTaskCompleted(task, value),
-                                  ),
+                              return _TaskDropZone(
+                                key: ValueKey('task-drop-${task['id']}'),
+                                taskId: task['id'] as String,
+                                enabled: widget.canManage,
+                                onDrop: (id, after) => widget.onDropTask(
+                                  id,
+                                  index + (after ? 1 : 0),
+                                ),
+                                child: _TaskCard(
+                                  task: task,
+                                  showDragHandle: widget.canManage,
+                                  onEdit: () => widget.onEditTask(task),
+                                  onCompletedChanged: (value) =>
+                                      widget.onTaskCompleted(task, value),
                                 ),
                               );
                             },
@@ -1152,15 +1213,76 @@ class _KanbanColumnState extends State<_KanbanColumn> {
   }
 }
 
+class _TaskDropZone extends StatefulWidget {
+  const _TaskDropZone({
+    super.key,
+    required this.taskId,
+    required this.enabled,
+    required this.onDrop,
+    required this.child,
+  });
+  final String taskId;
+  final bool enabled;
+  final void Function(String id, bool after) onDrop;
+  final Widget child;
+  @override
+  State<_TaskDropZone> createState() => _TaskDropZoneState();
+}
+
+class _TaskDropZoneState extends State<_TaskDropZone> {
+  bool _after = false;
+  void _position(DragTargetDetails<String> details) {
+    final box = context.findRenderObject() as RenderBox;
+    final after = box.globalToLocal(details.offset).dy > box.size.height / 2;
+    if (after != _after) setState(() => _after = after);
+  }
+
+  @override
+  Widget build(BuildContext context) => DragTarget<String>(
+    onWillAcceptWithDetails: (details) {
+      _position(details);
+      return widget.enabled;
+    },
+    onMove: _position,
+    onAcceptWithDetails: (details) {
+      if (details.data != widget.taskId) widget.onDrop(details.data, _after);
+    },
+    builder: (context, candidates, rejected) {
+      final line = BorderSide(
+        color: candidates.isEmpty
+            ? Colors.transparent
+            : Theme.of(context).colorScheme.primary,
+        width: 3,
+      );
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        decoration: BoxDecoration(
+          border: Border(
+            top: _after
+                ? const BorderSide(color: Colors.transparent, width: 3)
+                : line,
+            bottom: _after
+                ? line
+                : const BorderSide(color: Colors.transparent, width: 3),
+          ),
+        ),
+        child: widget.child,
+      );
+    },
+  );
+}
+
 class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
   final bool expanded;
+  final bool showDragHandle;
   final VoidCallback? onEdit;
   final ValueChanged<bool>? onCompletedChanged;
 
   const _TaskCard({
     required this.task,
     this.expanded = false,
+    this.showDragHandle = false,
     this.onEdit,
     this.onCompletedChanged,
   });
@@ -1190,6 +1312,32 @@ class _TaskCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                if (showDragHandle)
+                  Draggable<String>(
+                    dragAnchorStrategy: pointerDragAnchorStrategy,
+                    data: task['id'] as String,
+                    feedback: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(width: 240, child: _TaskCard(task: task)),
+                    ),
+                    childWhenDragging: const SizedBox(width: 24, height: 34),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Padding(
+                        key: ValueKey('task-drag-${task['id']}'),
+                        padding: const EdgeInsets.only(
+                          right: 6,
+                          top: 8,
+                          bottom: 8,
+                        ),
+                        child: const Tooltip(
+                          message: 'Drag to reorder task',
+                          child: Icon(Icons.drag_indicator, size: 18),
+                        ),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: Text(
                     task['title'] as String? ?? '',

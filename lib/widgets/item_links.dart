@@ -7,6 +7,7 @@ class ItemLinks extends StatefulWidget {
     super.key,
     required this.source,
     this.eventId,
+    this.sessionId,
     this.calendarEventId,
     this.workplaceId,
     this.taskId,
@@ -15,7 +16,7 @@ class ItemLinks extends StatefulWidget {
   });
 
   final String source;
-  final String? eventId, calendarEventId, workplaceId, taskId;
+  final String? eventId, calendarEventId, workplaceId, taskId, sessionId;
   final bool enabled;
   final LinksService? service;
 
@@ -32,9 +33,12 @@ class _ItemLinksState extends State<ItemLinks> {
       ? widget.eventId != null
       : widget.source == 'calendar'
       ? widget.calendarEventId != null
+      : widget.source == 'session'
+      ? widget.sessionId != null
       : widget.taskId != null;
   Map<String, dynamic> get _source => {
     'source': widget.source,
+    if (widget.sessionId != null) 'sessionId': widget.sessionId,
     if (widget.eventId != null) 'eventId': widget.eventId,
     if (widget.calendarEventId != null)
       'calendarEventId': widget.calendarEventId,
@@ -100,7 +104,8 @@ class _ItemLinksState extends State<ItemLinks> {
           return PopScope(
             canPop: !busy,
             child: AlertDialog(
-              title: const Text('Link events and tasks'),
+              title: const Text('Link items'),
+              scrollable: true,
               content: SizedBox(
                 width: 520,
                 child: Column(
@@ -156,6 +161,10 @@ class _ItemLinksState extends State<ItemLinks> {
                                                 'action': linked == true
                                                     ? 'link'
                                                     : 'unlink',
+                                                if (option['session_id'] !=
+                                                    null)
+                                                  'sessionId':
+                                                      option['session_id'],
                                                 if (option['event_id'] != null)
                                                   'eventId': option['event_id'],
                                                 if (option['workplace_id'] !=

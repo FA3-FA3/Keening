@@ -43,4 +43,38 @@ test('Schedules persist weeks, isolate owners, validate blocks and delete nested
   await call({...hourly,blockId:standalone.id},'other',404);
   await call({...hourly,blockId:standalone.id,start:'07:30',end:'08:30'});
   assert.equal((await call(week)).blocks[0].start,'07:30');
+  assert.equal((await call(week)).blocks[0].location,'');
+  assert.deepEqual((await call(week)).tags,{});
+  await call({action:'saveTags',tags:{'#D97706':' Work ','#2563EB':'Personal'}});
+  assert.deepEqual((await call({...week,startDate:'2026-10-05'})).tags,{'#D97706':'Work','#2563EB':'Personal'});
+  assert.deepEqual((await call(week,'other')).tags,{});
+  for(const tags of [null,[],{'#FFFFFF':'bad'},{'#D97706':'x'.repeat(41)},{'#D97706':42}])await call({action:'saveTags',tags},'owner',400);
+  assert.equal((await call(week)).tags['#D97706'],'Work');
+  await call({action:'saveTags',tags:{'#D97706':''}});
+  assert.deepEqual((await call(week)).tags,{});
+  await call({action:'saveTags',tags:{'#D97706':'Legacy'}});
+  assert.equal((await call(week)).tagDefinitions[0].name,'Legacy');
+  assert.equal((await call(week)).blocks[0].tagId,'#D97706');
+  const tags=[{id:'#D97706',name:' Work ',color:'#DB2777'},{id:'personal',name:'Personal',color:'#DB2777'}];
+  await call({action:'saveTagDefinitions',tags});
+  assert.equal((await call(week)).blocks[0].color,'#DB2777');
+  assert.equal((await call({...week,startDate:'2026-10-05'})).tagDefinitions[0].name,'Work');
+  assert.deepEqual((await call(week,'other')).tagDefinitions,[]);
+  for(const invalid of [null,{},[{id:'a',name:'',color:'#DB2777'}],[{id:'a',name:'x',color:'bad'}],[tags[0],tags[0]]]){
+   await call({action:'saveTagDefinitions',tags:invalid},'owner',400);
+  }
+  await call({...hourly,blockId:standalone.id,tagId:'personal'});
+  assert.equal((await call(week)).blocks[0].tagId,'personal');
+  await call({...hourly,tagId:'missing'},'owner',404);
+  await call({...hourly,tagId:'personal'},'other',404);
+  await call({action:'saveTagDefinitions',tags:[tags[0]]});
+  assert.equal((await call(week)).blocks[0].tagId,undefined);
+  assert.equal((await call(week)).blocks[0].color,'#DB2777');
+  await call({...hourly,blockId:standalone.id,location:'  Upstairs / online room 42  '});
+  assert.equal((await call(week)).blocks[0].location,'Upstairs / online room 42');
+  await call({...hourly,blockId:standalone.id,title:'Renamed session'});
+  assert.equal((await call(week)).blocks[0].location,'Upstairs / online room 42');
+  for(const location of [123,{},'x'.repeat(501)]) await call({...hourly,blockId:standalone.id,location},'owner',400);
+  await call({...hourly,blockId:standalone.id,location:''});
+  assert.equal((await call(week)).blocks[0].location,'');
 });

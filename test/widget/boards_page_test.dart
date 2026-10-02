@@ -32,6 +32,13 @@ class FakeBoards extends BoardsService {
     switch (action) {
       case 'getBoard':
         return jsonDecode(jsonEncode(b)) as Map<String, dynamic>;
+      case 'reorderTaskColumns':
+        b['columns'] = (data['columnIds'] as List)
+            .map(
+              (id) => (b['columns'] as List).firstWhere((c) => c['id'] == id),
+            )
+            .toList();
+        return {'saved': true};
       case 'createTaskColumn':
         final c = {
           'id': 'p${next++}',
@@ -74,6 +81,12 @@ class FakeBoards extends BoardsService {
             task['column_id'] = data['columnId'];
           }
         }
+        final order = data['taskIds'] as List;
+        final tasks = b['tasks'] as List;
+        b['tasks'] = [
+          ...tasks.where((t) => !order.contains(t['id'])),
+          ...order.map((id) => tasks.firstWhere((t) => t['id'] == id)),
+        ];
         return {'saved': true};
       default:
         return {'saved': true};
@@ -104,6 +117,133 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('panels reorder horizontally and persist after reload', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create workplace', 'Work');
+    await create(tester, 'New panel', 'First');
+    await create(tester, 'New panel', 'Second');
+    final board = api.boards.values.first;
+    final first = (board['columns'] as List).first['id'];
+    final last = (board['columns'] as List).last['id'];
+    final handle = find.byKey(ValueKey('panel-drag-$first'));
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    for (var i = 0; i < 16; i++) {
+      await gesture.moveBy(const Offset(20, 0));
+      await tester.pump(const Duration(milliseconds: 30));
+    }
+    await tester.pumpAndSettle();
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect((board['columns'] as List).first['id'], last);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: BoardsPage(service: api)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.text('Second')).dx,
+      lessThan(tester.getTopLeft(find.text('First')).dx),
+    );
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'drag tasks up and down within a panel and retain order on reload',
+    (tester) async {
+      final api = FakeBoards();
+      api.workplaces.add({'id': 'w1', 'name': 'Work'});
+      api.boards['w1'] = {
+        'columns': [
+          {'id': 'p1', 'name': 'Tasks'},
+        ],
+        'tags': <Map<String, dynamic>>[],
+        'tasks': [
+          for (final id in ['a', 'b', 'c'])
+            <String, dynamic>{
+              'id': id,
+              'title': 'Task $id',
+              'column_id': 'p1',
+              'archived': false,
+              'completed': false,
+              'tags': [],
+            },
+        ],
+      };
+      await mount(tester, api);
+      Future<void> drag(String from, String to, bool after) async {
+        final target = tester.getRect(find.byKey(ValueKey('task-drop-$to')));
+        final start = tester.getCenter(find.byKey(ValueKey('task-drag-$from')));
+        await tester.dragFrom(
+          start,
+          Offset(target.center.dx, after ? target.bottom - 6 : target.top + 6) -
+              start,
+        );
+        await tester.pumpAndSettle();
+      }
+
+      List<dynamic> order() =>
+          (api.boards['w1']!['tasks'] as List).map((t) => t['id']).toList();
+      final titleStart = tester.getCenter(find.text('Task c'));
+      final targetTop = tester.getTopLeft(
+        find.byKey(const ValueKey('task-drop-a')),
+      );
+      await tester.dragFrom(
+        titleStart,
+        Offset(titleStart.dx, targetTop.dy + 6) - titleStart,
+      );
+      await tester.pumpAndSettle();
+      expect(order(), ['a', 'b', 'c']);
+      await drag('c', 'a', false);
+      expect(order(), ['c', 'a', 'b']);
+      await drag('c', 'b', true);
+      expect(order(), ['a', 'b', 'c']);
+      await drag('b', 'a', false);
+      expect(order(), ['b', 'a', 'c']);
+      await tester.pump(const Duration(milliseconds: 500));
+      tester
+          .widget<Checkbox>(find.byKey(const ValueKey('task-completion-b')))
+          .onChanged!(true);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(
+        (api.boards['w1']!['tasks'] as List).firstWhere(
+          (t) => t['id'] == 'b',
+        )['completed'],
+        true,
+      );
+      expect(
+        tester.getTopLeft(find.text('Task b')).dy,
+        greaterThan(tester.getTopLeft(find.text('Task c')).dy),
+      );
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: BoardsPage(service: api)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.text('Task b')).dy,
+        greaterThan(tester.getTopLeft(find.text('Task c')).dy),
+      );
+      tester
+          .widget<Checkbox>(find.byKey(const ValueKey('task-completion-b')))
+          .onChanged!(false);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.text('Task b')).dy,
+        lessThan(tester.getTopLeft(find.text('Task a')).dy),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'workplaces isolate panels and tasks; task drag, completion and archive restore work',
     (tester) async {
@@ -140,9 +280,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(task['completed'], true);
       await tester.dragFrom(
-        tester.getCenter(find.text('Write proposal')),
+        tester.getCenter(find.byKey(ValueKey('task-drag-${task['id']}'))),
         tester.getCenter(find.byKey(ValueKey('task-panel-${panel['id']}'))) -
-            tester.getCenter(find.text('Write proposal')),
+            tester.getCenter(find.byKey(ValueKey('task-drag-${task['id']}'))),
       );
       await tester.pumpAndSettle();
       expect(task['column_id'], panel['id']);

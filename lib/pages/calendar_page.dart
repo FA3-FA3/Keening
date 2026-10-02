@@ -3,16 +3,21 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/calendar_service.dart';
 import '../widgets/item_links.dart';
+import '../widgets/session_tags_dialog.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({
     super.key,
+    this.searchTarget,
     this.service,
     this.today,
     this.onOpenSchedule,
+    this.onChanged,
   });
   final ValueChanged<DateTime>? onOpenSchedule;
+  final VoidCallback? onChanged;
   final CalendarService? service;
+  final Map<String, dynamic>? searchTarget;
   final DateTime? today;
 
   @override
@@ -25,14 +30,41 @@ class _CalendarPageState extends State<CalendarPage> {
   late DateTime _selected = _today;
   late DateTime _month = DateTime(_today.year, _today.month);
   List<Map<String, dynamic>> _calendars = [], _events = [];
-  final _hidden = <String>{};
+  List<Map<String, dynamic>> _tags = [];
   bool _loading = true;
+  bool _showEvents = false;
   String? _error;
+
+  Future<void> _openSearch() async {
+    final target = widget.searchTarget!;
+    final date = DateTime.tryParse(target['date'] as String? ?? '');
+    if (date != null) {
+      _selected = date;
+      _month = DateTime(date.year, date.month);
+    }
+    await _load();
+    if (!mounted || widget.searchTarget != target || _error != null) return;
+    final event = _events.where((i) => i['id'] == target['id']).firstOrNull;
+    if (event != null) await _edit(event);
+  }
 
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.searchTarget != null) {
+      _openSearch();
+    } else {
+      _load();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CalendarPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchTarget != oldWidget.searchTarget &&
+        widget.searchTarget != null) {
+      _openSearch();
+    }
   }
 
   @override
@@ -81,6 +113,9 @@ class _CalendarPageState extends State<CalendarPage> {
       }
       if (mounted) {
         setState(() {
+          _tags = (result['tagDefinitions'] as List? ?? [])
+              .map((t) => Map<String, dynamic>.from(t))
+              .toList();
           _calendars = calendars;
           _events = events;
         });
@@ -97,7 +132,6 @@ class _CalendarPageState extends State<CalendarPage> {
     return _events
         .where(
           (e) =>
-              !_hidden.contains(e['calendar_id']) &&
               (e['start_date'] as String).compareTo(date) <= 0 &&
               (e['end_date'] as String).compareTo(date) >= 0,
         )
@@ -106,7 +140,9 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Color _color(Map<String, dynamic> event) {
-    final hex = (event['color'] as String? ?? '').replaceFirst('#', '');
+    final tag = _tags.where((t) => t['id'] == event['tag_id']).firstOrNull;
+    final hex = (tag?['color'] as String? ?? event['color'] as String? ?? '')
+        .replaceFirst('#', '');
     return hex.length == 6 && int.tryParse(hex, radix: 16) != null
         ? Color(0xFF000000 | int.parse(hex, radix: 16))
         : AppColors.primary(context);
@@ -124,17 +160,52 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   });
 
+  Future<void> _editTags() async {
+    final saved = await showDialog<List<dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => SessionTagsDialog(
+        title: 'Event tags',
+        tags: _tags,
+        onSave: (tags) => _service.call('saveTagDefinitions', {'tags': tags}),
+      ),
+    );
+    if (saved != null && mounted) await _load();
+  }
+
+  Widget _tagBadge(Map<String, dynamic> event) {
+    final tag = _tags.where((t) => t['id'] == event['tag_id']).firstOrNull;
+    if (tag == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Chip(
+        avatar: Icon(
+          Icons.circle,
+          size: 12,
+          color: sessionColor(tag['color'] as String),
+        ),
+        label: Text(tag['name'] as String),
+      ),
+    );
+  }
+
   Future<void> _edit([Map<String, dynamic>? event]) async {
     String? calendar =
         event?['calendar_id'] as String? ??
         _calendars.firstOrNull?['id'] as String?;
     var title = event?['title'] as String? ?? '';
     var description = event?['description'] as String? ?? '';
+    var location = event?['location'] as String? ?? '';
+    String? tagId = event?['tag_id'] as String?;
     var completed = event?['completed'] == true;
     var range = DateTimeRange(
       start: event == null ? _selected : DateTime.parse(event['start_date']),
       end: event == null ? _selected : DateTime.parse(event['end_date']),
     );
+    var hasEnd = !DateUtils.isSameDay(range.start, range.end);
+    var timed = event?['start_time'] != null;
+    var startTime = event?['start_time'] as String? ?? '09:00';
+    var endTime = event?['end_time'] as String? ?? '10:00';
     var saving = false;
     String? error;
     final changed = await showDialog<bool>(
@@ -147,6 +218,14 @@ class _CalendarPageState extends State<CalendarPage> {
               update(() => error = 'Enter a title.');
               return;
             }
+            final timePattern = RegExp(r'^([01][0-9]|2[0-3]):[0-5][0-9]$');
+            if (timed &&
+                (!timePattern.hasMatch(startTime) ||
+                    !(endTime == '24:00' || timePattern.hasMatch(endTime)) ||
+                    endTime.compareTo(startTime) <= 0)) {
+              update(() => error = 'Enter HH:mm times, with end after start.');
+              return;
+            }
             update(() {
               saving = true;
               error = null;
@@ -155,7 +234,7 @@ class _CalendarPageState extends State<CalendarPage> {
               // First use creates a default calendar, independent of Gantt.
               if (calendar == null) {
                 final result = await _service.call('createCalendar', {
-                  'name': 'Personal',
+                  'name': 'Calendar',
                   'color': '#2E7D5B',
                 });
                 calendar = result['calendar']['id'] as String;
@@ -166,8 +245,12 @@ class _CalendarPageState extends State<CalendarPage> {
                 'kind': 'event',
                 'title': title.trim(),
                 'description': description.trim(),
+                'location': location.trim(),
+                'tag_id': tagId,
                 'start_date': _iso(range.start),
-                'end_date': _iso(range.end),
+                'end_date': _iso(hasEnd ? range.end : range.start),
+                'start_time': timed ? startTime : null,
+                'end_time': timed ? endTime : null,
                 'completed': completed,
                 'prerequisite_id': event?['prerequisite_id'],
               });
@@ -201,49 +284,136 @@ class _CalendarPageState extends State<CalendarPage> {
                         decoration: const InputDecoration(labelText: 'Title'),
                         onChanged: (v) => title = v,
                       ),
-                      if (_calendars.isNotEmpty)
-                        DropdownButtonFormField<String>(
-                          initialValue: calendar,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Calendar',
-                          ),
-                          items: _calendars
-                              .map(
-                                (c) => DropdownMenuItem(
-                                  value: c['id'] as String,
-                                  child: Text(c['name'] as String),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: event != null || saving
-                              ? null
-                              : (v) => calendar = v,
-                        )
-                      else
-                        const Text(
-                          'Your first event will create a Personal calendar.',
-                        ),
                       const SizedBox(height: 12),
-                      const Text('All-day event'),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_today_outlined),
-                        label: Text(
-                          '${DateFormat.yMMMd().format(range.start)} – ${DateFormat.yMMMd().format(range.end)}',
+                      for (final endDate in [false, if (hasEnd) true])
+                        OutlinedButton.icon(
+                          key: ValueKey(
+                            endDate ? 'event-end-date' : 'event-start-date',
+                          ),
+                          icon: const Icon(Icons.calendar_today_outlined),
+                          label: Text(
+                            (endDate ? 'End: ' : 'Date: ') +
+                                DateFormat.yMMMd().format(
+                                  endDate ? range.end : range.start,
+                                ),
+                          ),
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: endDate
+                                        ? range.end
+                                        : range.start,
+                                    firstDate: endDate
+                                        ? range.start
+                                        : DateTime(1900),
+                                    lastDate: DateTime(2200, 12, 31),
+                                  );
+                                  if (picked != null && ctx.mounted) {
+                                    update(() {
+                                      range = endDate
+                                          ? DateTimeRange(
+                                              start: range.start,
+                                              end: picked,
+                                            )
+                                          : DateTimeRange(
+                                              start: picked,
+                                              end:
+                                                  !hasEnd ||
+                                                      picked.isAfter(range.end)
+                                                  ? picked
+                                                  : range.end,
+                                            );
+                                    });
+                                  }
+                                },
                         ),
-                        onPressed: saving
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Add end date'),
+                        value: hasEnd,
+                        onChanged: saving
                             ? null
-                            : () async {
-                                final picked = await showDateRangePicker(
-                                  context: ctx,
-                                  initialDateRange: range,
-                                  firstDate: DateTime(1900),
-                                  lastDate: DateTime(2200, 12, 31),
-                                );
-                                if (picked != null && ctx.mounted) {
-                                  update(() => range = picked);
-                                }
-                              },
+                            : (v) => update(() => hasEnd = v!),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Time slot'),
+                        value: timed,
+                        onChanged: saving
+                            ? null
+                            : (v) => update(() => timed = v),
+                      ),
+                      if (timed) ...[
+                        const Text(
+                          'Creates a linked Schedule session each day. Event changes update those sessions.',
+                        ),
+                        TextFormField(
+                          key: const ValueKey('event-start-time'),
+                          initialValue: startTime,
+                          enabled: !saving,
+                          decoration: const InputDecoration(
+                            labelText: 'Start time',
+                            hintText: '09:00',
+                            helperText: '24-hour HH:mm',
+                          ),
+                          onChanged: (v) => startTime = v,
+                        ),
+                        TextFormField(
+                          key: const ValueKey('event-end-time'),
+                          initialValue: endTime,
+                          enabled: !saving,
+                          decoration: const InputDecoration(
+                            labelText: 'End time',
+                            hintText: '10:00',
+                            helperText: 'Same day; 24:00 is midnight',
+                          ),
+                          onChanged: (v) => endTime = v,
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      const Text('Tag'),
+                      if (_tags.isEmpty)
+                        const Text(
+                          'Create tags using the Tags menu on Calendar.',
+                        ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('No tag'),
+                            selected: tagId == null,
+                            onSelected: saving
+                                ? null
+                                : (_) => update(() => tagId = null),
+                          ),
+                          for (final tag in _tags)
+                            ChoiceChip(
+                              label: Text(tag['name'] as String),
+                              selected: tagId == tag['id'],
+                              avatar: Icon(
+                                Icons.circle,
+                                size: 12,
+                                color: sessionColor(tag['color'] as String),
+                              ),
+                              onSelected: saving
+                                  ? null
+                                  : (_) => update(
+                                      () => tagId = tag['id'] as String,
+                                    ),
+                            ),
+                        ],
+                      ),
+                      TextFormField(
+                        key: const ValueKey('event-location'),
+                        initialValue: location,
+                        enabled: !saving,
+                        maxLength: 500,
+                        decoration: const InputDecoration(
+                          labelText: 'Location (optional)',
+                        ),
+                        onChanged: (v) => location = v,
                       ),
                       TextFormField(
                         initialValue: description,
@@ -287,7 +457,10 @@ class _CalendarPageState extends State<CalendarPage> {
         },
       ),
     );
-    if (changed == true && mounted) await _load();
+    if (changed == true && mounted) {
+      widget.onChanged?.call();
+      await _load();
+    }
   }
 
   Widget _monthView() {
@@ -495,7 +668,21 @@ class _CalendarPageState extends State<CalendarPage> {
                           : null,
                     ),
                   ),
-                  subtitle: Text('All day · ${event['calendar_name']}'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        [
+                          event['start_time'] == null
+                              ? 'All day'
+                              : '${event['start_time']} - ${event['end_time']}',
+                          if ((event['location'] as String? ?? '').isNotEmpty)
+                            event['location'] as String,
+                        ].join(' / '),
+                      ),
+                      _tagBadge(event),
+                    ],
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded, size: 14),
                 ),
               ),
@@ -515,6 +702,96 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _eventsView() {
+    final events = _events.toList()
+      ..sort((a, b) {
+        final date = (a['start_date'] as String).compareTo(
+          b['start_date'] as String,
+        );
+        if (date != 0) return date;
+        final time = (a['start_time'] as String? ?? '').compareTo(
+          b['start_time'] as String? ?? '',
+        );
+        return time != 0
+            ? time
+            : (a['title'] as String).compareTo(b['title'] as String);
+      });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed: _loading || _error != null ? null : () => _edit(),
+            icon: const Icon(Icons.add),
+            label: const Text('Add event'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (events.isEmpty && !_loading)
+          const Padding(padding: EdgeInsets.all(24), child: Text('No events')),
+        for (final event in events)
+          Card(
+            key: ValueKey('event-list-${event['id']}'),
+            margin: const EdgeInsets.only(bottom: 12),
+            color: _color(event).withValues(alpha: .08),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => _edit(event),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['title'] as String,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      DateFormat.yMMMd().format(
+                            DateTime.parse(event['start_date'] as String),
+                          ) +
+                          (event['start_date'] == event['end_date']
+                              ? ''
+                              : ' - ${DateFormat.yMMMd().format(DateTime.parse(event['end_date'] as String))}'),
+                    ),
+                    Text(
+                      event['start_time'] == null
+                          ? 'All day'
+                          : '${event['start_time'] as String} - ${event['end_time'] as String}${event['start_date'] == event['end_date'] ? '' : ' each day'}',
+                    ),
+                    if ((event['location'] as String? ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text('Location: ${event['location'] as String}'),
+                      ),
+                    if ((event['description'] as String? ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(event['description'] as String),
+                      ),
+                    _tagBadge(event),
+                    if (event['completed'] == true)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('Completed'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -540,6 +817,12 @@ class _CalendarPageState extends State<CalendarPage> {
                       ),
                     ),
                   ),
+                  TextButton.icon(
+                    key: const ValueKey('calendar-tags'),
+                    onPressed: _loading || _error != null ? null : _editTags,
+                    icon: const Icon(Icons.label_outline),
+                    label: const Text('Tags'),
+                  ),
                   IconButton(
                     tooltip: 'Refresh calendar',
                     onPressed: _loading ? null : _load,
@@ -547,50 +830,78 @@ class _CalendarPageState extends State<CalendarPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  Text(
-                    DateFormat.yMMMM().format(_month),
-                    key: const ValueKey('calendar-month'),
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -.6,
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      label: Text('Calendar'),
+                      icon: Icon(Icons.calendar_month),
                     ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Previous month',
-                        onPressed: _month.year <= 1900 && _month.month == 1
-                            ? null
-                            : () => _move(-1),
-                        icon: const Icon(Icons.chevron_left_rounded, size: 20),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _selected = _today;
-                          _month = DateTime(_today.year, _today.month);
-                        }),
-                        child: const Text('Today'),
-                      ),
-                      IconButton(
-                        tooltip: 'Next month',
-                        onPressed: _month.year >= 2200 && _month.month == 12
-                            ? null
-                            : () => _move(1),
-                        icon: const Icon(Icons.chevron_right_rounded, size: 20),
-                      ),
-                    ],
-                  ),
-                ],
+                    ButtonSegment(
+                      value: true,
+                      label: Text('Events'),
+                      icon: Icon(Icons.list),
+                    ),
+                  ],
+                  selected: {_showEvents},
+                  onSelectionChanged: (value) =>
+                      setState(() => _showEvents = value.single),
+                ),
               ),
+              const SizedBox(height: 20),
+              if (!_showEvents)
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    Text(
+                      DateFormat.yMMMM().format(_month),
+                      key: const ValueKey('calendar-month'),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -.6,
+                      ),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous month',
+                          onPressed: _month.year <= 1900 && _month.month == 1
+                              ? null
+                              : () => _move(-1),
+                          icon: const Icon(
+                            Icons.chevron_left_rounded,
+                            size: 20,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _selected = _today;
+                            _month = DateTime(_today.year, _today.month);
+                          }),
+                          child: const Text('Today'),
+                        ),
+                        IconButton(
+                          tooltip: 'Next month',
+                          onPressed: _month.year >= 2200 && _month.month == 12
+                              ? null
+                              : () => _move(1),
+                          icon: const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               if (_loading) const LinearProgressIndicator(),
               if (_error != null)
                 Padding(
@@ -603,7 +914,9 @@ class _CalendarPageState extends State<CalendarPage> {
                   ),
                 ),
               const SizedBox(height: 12),
-              if (wide)
+              if (_showEvents)
+                _eventsView()
+              else if (wide)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -616,28 +929,6 @@ class _CalendarPageState extends State<CalendarPage> {
                 _monthView(),
                 const SizedBox(height: 24),
                 _agenda(),
-              ],
-              if (_calendars.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final c in _calendars)
-                      FilterChip(
-                        label: Text(c['name'] as String),
-                        avatar: Icon(Icons.circle, color: _color(c), size: 10),
-                        selected: !_hidden.contains(c['id']),
-                        onSelected: (show) => setState(() {
-                          if (show) {
-                            _hidden.remove(c['id']);
-                          } else {
-                            _hidden.add(c['id'] as String);
-                          }
-                        }),
-                      ),
-                  ],
-                ),
               ],
             ],
           ),

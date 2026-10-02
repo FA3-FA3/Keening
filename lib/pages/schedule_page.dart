@@ -1,19 +1,26 @@
+import '../widgets/app_dropdown.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/schedule_service.dart';
+import '../widgets/multi_date_calendar.dart';
 import '../widgets/schedule_timeline.dart';
+import '../widgets/session_tags_dialog.dart';
+import '../widgets/item_links.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({
     super.key,
+    this.searchTarget,
     required this.date,
     this.service,
     this.openRequest = 0,
+    this.refreshRequest = 0,
   });
-  final int openRequest;
+  final int openRequest, refreshRequest;
   final DateTime date;
   final ScheduleService? service;
+  final Map<String, dynamic>? searchTarget;
   @override
   State<SchedulePage> createState() => _SchedulePageState();
 }
@@ -27,6 +34,7 @@ class _SchedulePageState extends State<SchedulePage> {
   int _days = 1;
   bool _followBottom = false;
   List<Map<String, dynamic>> _blocks = [];
+  List<Map<String, dynamic>> _tags = [];
   bool _early = false, _late = false;
   bool _loading = true;
   String? _error;
@@ -46,19 +54,42 @@ class _SchedulePageState extends State<SchedulePage> {
       : 'Unable to update schedule. Please try again.';
   Color _color(String hex) =>
       Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
+  Future<void> _openSearch() async {
+    final target = widget.searchTarget!;
+    final date = DateTime.tryParse(target['date'] as String? ?? '');
+    if (date == null) return;
+    _selected = date;
+    _start = date;
+    await _load();
+    if (!mounted || widget.searchTarget != target || _error != null) return;
+    final block = _blocks.where((i) => i['id'] == target['id']).firstOrNull;
+    if (block != null) await _edit(date, block: block);
+  }
+
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.searchTarget != null) {
+      _openSearch();
+    } else {
+      _load();
+    }
   }
 
   @override
   void didUpdateWidget(covariant SchedulePage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.searchTarget != oldWidget.searchTarget &&
+        widget.searchTarget != null) {
+      _openSearch();
+      return;
+    }
     if (widget.openRequest != oldWidget.openRequest ||
         !DateUtils.isSameDay(widget.date, oldWidget.date)) {
       _selected = DateUtils.dateOnly(widget.date);
       _start = _selected;
+      _load();
+    } else if (widget.refreshRequest != oldWidget.refreshRequest) {
       _load();
     }
   }
@@ -81,6 +112,9 @@ class _SchedulePageState extends State<SchedulePage> {
       final data = await _service.call('getWeek', {'startDate': _iso(_start)});
       if (mounted && request == _request) {
         setState(() {
+          _tags = (data['tagDefinitions'] as List? ?? [])
+              .map((t) => Map<String, dynamic>.from(t))
+              .toList();
           _blocks = (data['blocks'] as List)
               .map((e) => Map<String, dynamic>.from(e))
               .toList();
@@ -101,13 +135,27 @@ class _SchedulePageState extends State<SchedulePage> {
     _load();
   }
 
+  Future<void> _editTags() async {
+    final saved = await showDialog<List<dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => SessionTagsDialog(
+        tags: _tags,
+        onSave: (tags) => _service.call('saveTagDefinitions', {'tags': tags}),
+      ),
+    );
+    if (saved != null && mounted) await _load();
+  }
+
   Future<void> _edit(
     DateTime date, {
     int hour = 9,
     Map<String, dynamic>? block,
   }) async {
+    var sessionDate = DateUtils.dateOnly(date);
     var title = block?['title'] as String? ?? '',
         note = block?['note'] as String? ?? '';
+    var location = block?['location'] as String? ?? '';
     var start =
             block?['start'] as String? ??
             '${hour.toString().padLeft(2, '0')}:00',
@@ -115,7 +163,11 @@ class _SchedulePageState extends State<SchedulePage> {
             block?['end'] as String? ??
             '${(hour + 1).toString().padLeft(2, '0')}:00';
     var color = block?['color'] as String? ?? _colors.first;
+    String? tagId = block?['tagId'] as String?;
     var saving = false;
+    var repeat = false;
+    final repeatDates = <DateTime>{};
+    var sessionSaved = false;
     String? error;
     final changed = await showDialog<bool>(
       context: context,
@@ -125,9 +177,7 @@ class _SchedulePageState extends State<SchedulePage> {
           return PopScope(
             canPop: !saving,
             child: AlertDialog(
-              title: Text(
-                block == null ? 'New schedule block' : 'Edit schedule block',
-              ),
+              title: Text(block == null ? 'New session' : 'Edit session'),
               content: SizedBox(
                 width: 420,
                 child: SingleChildScrollView(
@@ -135,7 +185,57 @@ class _SchedulePageState extends State<SchedulePage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(DateFormat.yMMMEd().format(date)),
+                      OutlinedButton.icon(
+                        key: const ValueKey('session-date'),
+                        icon: const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 18,
+                        ),
+                        label: Text(DateFormat.yMMMEd().format(sessionDate)),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final picked = await showDatePicker(
+                                  context: ctx,
+                                  initialDate: sessionDate,
+                                  firstDate: DateTime(1900),
+                                  lastDate: DateTime(2200, 12, 31),
+                                  helpText: 'Session date',
+                                );
+                                if (picked != null && ctx.mounted) {
+                                  update(() => sessionDate = picked);
+                                }
+                              },
+                      ),
+                      if (block == null) ...[
+                        SwitchListTile(
+                          key: const ValueKey('session-repeat'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Recurring session'),
+                          subtitle: const Text('Also happens on other days'),
+                          value: repeat,
+                          onChanged: saving
+                              ? null
+                              : (v) => update(() => repeat = v),
+                        ),
+                        if (repeat) ...[
+                          MultiDateCalendar(
+                            fixed: sessionDate,
+                            selected: repeatDates,
+                            enabled: !saving,
+                            onChanged: (d) => update(() {
+                              repeatDates
+                                ..clear()
+                                ..addAll(d);
+                            }),
+                          ),
+                          Text(
+                            repeatDates.isEmpty
+                                ? 'Tap days to repeat this session on.'
+                                : 'Repeats on ${repeatDates.length} other ${repeatDates.length == 1 ? 'day' : 'days'}.',
+                          ),
+                        ],
+                      ],
                       TextFormField(
                         initialValue: title,
                         autofocus: true,
@@ -174,33 +274,48 @@ class _SchedulePageState extends State<SchedulePage> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      const Text('Tag'),
+                      if (_tags.isEmpty)
+                        const Text(
+                          'Create tags using the Tags menu on Schedule.',
+                        ),
                       Wrap(
                         spacing: 8,
                         children: [
-                          for (final c in _colors)
+                          ChoiceChip(
+                            label: const Text('No tag'),
+                            selected: tagId == null,
+                            onSelected: saving
+                                ? null
+                                : (_) => update(() => tagId = null),
+                          ),
+                          for (final tag in _tags)
                             ChoiceChip(
-                              label: Text(
-                                c == _colors[0]
-                                    ? 'Amber'
-                                    : c == _colors[1]
-                                    ? 'Blue'
-                                    : c == _colors[2]
-                                    ? 'Green'
-                                    : c == _colors[3]
-                                    ? 'Purple'
-                                    : 'Teal',
-                              ),
-                              selected: c == color,
+                              label: Text(tag['name'] as String),
+                              selected: tagId == tag['id'],
                               avatar: Icon(
                                 Icons.circle,
-                                color: _color(c),
+                                color: _color(tag['color'] as String),
                                 size: 12,
                               ),
                               onSelected: saving
                                   ? null
-                                  : (_) => update(() => color = c),
+                                  : (_) => update(() {
+                                      tagId = tag['id'] as String;
+                                      color = tag['color'] as String;
+                                    }),
                             ),
                         ],
+                      ),
+                      TextFormField(
+                        key: const ValueKey('session-location'),
+                        initialValue: location,
+                        enabled: !saving,
+                        maxLength: 500,
+                        decoration: const InputDecoration(
+                          labelText: 'Location (optional)',
+                        ),
+                        onChanged: (v) => location = v,
                       ),
                       TextFormField(
                         initialValue: note,
@@ -210,6 +325,11 @@ class _SchedulePageState extends State<SchedulePage> {
                         maxLines: 4,
                         decoration: const InputDecoration(labelText: 'Notes'),
                         onChanged: (v) => note = v,
+                      ),
+                      ItemLinks(
+                        source: 'session',
+                        sessionId: block?['id'] as String?,
+                        enabled: !saving,
                       ),
                       if (error != null) Text(error!),
                     ],
@@ -225,7 +345,7 @@ class _SchedulePageState extends State<SchedulePage> {
                             final yes = await showDialog<bool>(
                               context: ctx,
                               builder: (confirm) => AlertDialog(
-                                title: const Text('Delete this block?'),
+                                title: const Text('Delete this session?'),
                                 actions: [
                                   TextButton(
                                     onPressed: () =>
@@ -256,7 +376,7 @@ class _SchedulePageState extends State<SchedulePage> {
                               }
                             }
                           },
-                    child: const Text('Delete block'),
+                    child: const Text('Delete session'),
                   ),
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(ctx),
@@ -286,14 +406,24 @@ class _SchedulePageState extends State<SchedulePage> {
                           });
                           try {
                             await _service.call('saveBlock', {
-                              'date': _iso(date),
+                              'date': _iso(sessionDate),
                               'title': title.trim(),
                               'start': start,
                               'end': end,
                               'color': color,
+                              'tagId': tagId,
                               'note': note,
+                              'location': location.trim(),
                               if (block != null) 'blockId': block['id'],
+                              if (block == null &&
+                                  repeat &&
+                                  repeatDates.isNotEmpty)
+                                'repeatDates': [
+                                  for (final d in repeatDates)
+                                    if (d != sessionDate) _iso(d),
+                                ]..sort(),
                             });
+                            sessionSaved = true;
                             if (ctx.mounted) Navigator.pop(ctx, true);
                           } catch (e) {
                             if (ctx.mounted) {
@@ -312,7 +442,18 @@ class _SchedulePageState extends State<SchedulePage> {
         },
       ),
     );
-    if (changed == true && mounted) await _load();
+    if (changed == true && mounted) {
+      if (sessionSaved) {
+        setState(() {
+          _selected = sessionDate;
+          if (sessionDate.isBefore(_start) ||
+              !sessionDate.isBefore(_day(_days))) {
+            _start = sessionDate;
+          }
+        });
+      }
+      await _load();
+    }
   }
 
   Widget _grid(double width) => ScheduleTimeline(
@@ -345,121 +486,183 @@ class _SchedulePageState extends State<SchedulePage> {
   );
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) => Row(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Padding(
-        padding: const EdgeInsets.all(20),
-        child: Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 16,
-          runSpacing: 8,
-          children: [
-            const Text(
-              'Schedule',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-            ),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                IconButton(
-                  tooltip: 'Previous period',
-                  onPressed: _loading ? null : () => _navigate(-1),
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text(
-                  _days == 1
-                      ? DateFormat.yMMMEd().format(_start)
-                      : '${DateFormat.MMMd().format(_start)} to ${DateFormat.yMMMd().format(_day(_days - 1))}',
-                  key: const ValueKey('schedule-week'),
-                ),
-                IconButton(
-                  tooltip: 'Next period',
-                  onPressed: _loading ? null : () => _navigate(1),
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              ],
-            ),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                DropdownButton<int>(
-                  key: const ValueKey('schedule-days'),
-                  value: _days,
-                  items: [
-                    for (var n = 1; n <= 7; n++)
-                      DropdownMenuItem(
-                        value: n,
-                        child: Text(n == 1 ? '1 day' : '$n days'),
+      Expanded(child: _content(context)),
+      const SizedBox(key: ValueKey('schedule-right-margin'), width: 24),
+    ],
+  );
+
+  Widget _content(BuildContext context) => LayoutBuilder(
+    builder: (context, size) {
+      final width = math.max(
+        size.maxWidth,
+        ScheduleTimeline.gutter + _days * 140.0,
+      );
+      return Scrollbar(
+        controller: _vertical,
+        thumbVisibility: true,
+        child: CustomScrollView(
+          key: const ValueKey('workspace-page-scroll'),
+          controller: _vertical,
+          slivers: [
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 16,
+                      runSpacing: 8,
+                      children: [
+                        const Text(
+                          'Schedule',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            IconButton(
+                              tooltip: 'Previous period',
+                              onPressed: _loading ? null : () => _navigate(-1),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Text(
+                              _days == 1
+                                  ? DateFormat.yMMMEd().format(_start)
+                                  : '${DateFormat.MMMd().format(_start)} to ${DateFormat.yMMMd().format(_day(_days - 1))}',
+                              key: const ValueKey('schedule-week'),
+                            ),
+                            IconButton(
+                              tooltip: 'Next period',
+                              onPressed: _loading ? null : () => _navigate(1),
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
+                        ),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            AppDropdownButton<int>(
+                              key: const ValueKey('schedule-days'),
+                              value: _days,
+                              items: [
+                                for (var n = 1; n <= 7; n++)
+                                  DropdownMenuItem(
+                                    value: n,
+                                    child: Text(n == 1 ? '1 day' : '$n days'),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() => _days = value);
+                                }
+                              },
+                            ),
+                            TextButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _selected = DateUtils.dateOnly(
+                                          DateTime.now(),
+                                        );
+                                        _start = _selected;
+                                      });
+                                      _load();
+                                    },
+                              child: const Text('Today'),
+                            ),
+                            IconButton(
+                              tooltip: 'Refresh schedule',
+                              onPressed: _loading ? null : _load,
+                              icon: const Icon(Icons.refresh),
+                            ),
+                            TextButton.icon(
+                              key: const ValueKey('schedule-tags'),
+                              onPressed: _loading || _error != null
+                                  ? null
+                                  : _editTags,
+                              icon: const Icon(Icons.label_outline),
+                              label: const Text('Tags'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: _loading || _error != null
+                                  ? null
+                                  : () => _edit(_selected),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Add session'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_tags.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          for (final tag in _tags)
+                            Chip(
+                              avatar: Icon(
+                                Icons.circle,
+                                size: 14,
+                                color: _color(tag['color'] as String),
+                              ),
+                              label: Text(tag['name'] as String),
+                            ),
+                        ],
                       ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _days = value);
-                  },
-                ),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () {
-                          setState(() {
-                            _selected = DateUtils.dateOnly(DateTime.now());
-                            _start = _selected;
-                          });
-                          _load();
-                        },
-                  child: const Text('Today'),
-                ),
-                IconButton(
-                  tooltip: 'Refresh schedule',
-                  onPressed: _loading ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                ),
-                FilledButton.icon(
-                  onPressed: _loading || _error != null
-                      ? null
-                      : () => _edit(_selected),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add block'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      if (_loading) const LinearProgressIndicator(),
-      if (_error != null)
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(_error!),
-              TextButton(onPressed: _load, child: const Text('Retry')),
-            ],
-          ),
-        ),
-      Expanded(
-        child: _loading
-            ? const SizedBox.shrink()
-            : LayoutBuilder(
-                builder: (ctx, size) => Scrollbar(
-                  controller: _horizontal,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: _horizontal,
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: math.max(
-                        size.maxWidth,
-                        ScheduleTimeline.gutter + _days * 140.0,
+                    ),
+                  if (_loading) const LinearProgressIndicator(),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(_error!),
+                          TextButton(
+                            onPressed: _load,
+                            child: const Text('Retry'),
+                          ),
+                        ],
                       ),
-                      child: SingleChildScrollView(
-                        controller: _vertical,
-                        child: _grid(
-                          math.max(
-                            size.maxWidth,
-                            ScheduleTimeline.gutter + _days * 140.0,
+                    ),
+                ],
+              ),
+            ),
+            if (!_loading) ...[
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _ScheduleHeaderDelegate(
+                  child: ClipRect(
+                    child: AnimatedBuilder(
+                      animation: _horizontal,
+                      builder: (context, _) => OverflowBox(
+                        alignment: Alignment.topLeft,
+                        minWidth: width,
+                        maxWidth: width,
+                        child: Transform.translate(
+                          offset: Offset(
+                            _horizontal.hasClients ? -_horizontal.offset : 0,
+                            0,
+                          ),
+                          child: ScheduleDayHeader(
+                            week: _start,
+                            selected: _selected,
+                            days: _days,
+                            width: width,
                           ),
                         ),
                       ),
@@ -467,7 +670,38 @@ class _SchedulePageState extends State<SchedulePage> {
                   ),
                 ),
               ),
-      ),
-    ],
+              SliverToBoxAdapter(
+                child: Scrollbar(
+                  controller: _horizontal,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _horizontal,
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(width: width, child: _grid(width)),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    },
   );
+}
+
+class _ScheduleHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _ScheduleHeaderDelegate({required this.child});
+  final Widget child;
+  @override
+  double get minExtent => 38;
+  @override
+  double get maxExtent => 38;
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => child;
+  @override
+  bool shouldRebuild(covariant _ScheduleHeaderDelegate oldDelegate) => true;
 }

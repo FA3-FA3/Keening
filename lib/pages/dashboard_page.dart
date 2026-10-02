@@ -1,6 +1,8 @@
+import '../widgets/global_search_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../utils/app_colors.dart';
@@ -12,10 +14,11 @@ import 'gantt_page.dart';
 import 'boards_page.dart';
 import 'calendar_page.dart';
 import 'schedule_page.dart';
+import 'overview_page.dart';
 
-const _dashboardTabs = ['Gantt', 'Calendar', 'Boards', 'Schedule'];
+const _dashboardTabs = ['Dashboard', 'Gantt', 'Calendar', 'Boards', 'Schedule'];
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
-const _navigationHeight = 48.0;
+const _navigationHeight = 36.0;
 const _navigationWidth = 144.0;
 
 /// Authenticated dashboard shell: sidebar nav + a workspace area. Tabs and
@@ -30,7 +33,27 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  String? _selectedTab = 'Gantt';
+  final Map<String, Map<String, dynamic>> _searchTargets = {};
+  Future<void> _search() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => GlobalSearchDialog(
+        search: (query, offset) async {
+          final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+          if (token == null) throw StateError('Please sign in again.');
+          return _api.search(token, query, offset);
+        },
+      ),
+    );
+    if (!mounted || result == null) return;
+    final page = result['page'] as String;
+    _searchTargets[page] = {...result};
+    _openTab(page);
+  }
+
+  String? _selectedTab = 'Dashboard';
+  bool _sidebarCollapsed = false;
+  bool _fullscreen = false;
   String? _hoveredTab;
   final _api = ApiClient();
   Map<String, dynamic>? _profile;
@@ -112,15 +135,15 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   DateTime _scheduleDate = DateTime.now();
-  int _scheduleRequest = 0;
+  int _scheduleRequest = 0, _scheduleRefresh = 0;
   void _openSchedule(DateTime date) {
     _scheduleDate = date;
     _scheduleRequest++;
     _openTab('Schedule');
   }
 
-  final List<String> _openTabs = ['Gantt'];
-  final Map<String, GlobalKey> _tabKeys = {'Gantt': GlobalKey()};
+  final List<String> _openTabs = ['Dashboard'];
+  final Map<String, GlobalKey> _tabKeys = {'Dashboard': GlobalKey()};
 
   void _openTab(String tab) {
     setState(() {
@@ -177,196 +200,301 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background(context),
-      body: Column(
-        children: [
-          _TopBar(
-            username: (_profile?['username'] as String?) ?? 'Account',
-            picture: _profile?['profilePicture'] as String?,
-            onSettings: () => _openTab('Settings'),
-            onLogOut: _logOut,
-          ),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Sidebar(selectedTab: _selectedTab, onSelect: _openTab),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Material(
-                        color: AppColors.surface(context),
-                        child: SingleChildScrollView(
-                          key: const ValueKey('workspace-tab-strip'),
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              for (final tab in _openTabs)
-                                Padding(
-                                  key: _tabKeys[tab],
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 8,
-                                  ),
-                                  child: MouseRegion(
-                                    onEnter: (_) =>
-                                        setState(() => _hoveredTab = tab),
-                                    onExit: (_) {
-                                      if (mounted && _hoveredTab == tab) {
-                                        setState(() => _hoveredTab = null);
-                                      }
-                                    },
-                                    child: Material(
-                                      key: ValueKey('tab-surface-$tab'),
-                                      color: _tabColor(tab),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: _navigationRadius,
-                                        side: BorderSide(
-                                          color: tab == _selectedTab
-                                              ? AppColors.primary(context)
-                                              : AppColors.text(
-                                                  context,
-                                                ).withValues(alpha: 0.12),
-                                        ),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_fullscreen) setState(() => _fullscreen = false);
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: AppColors.background(context),
+          body: Column(
+            children: [
+              Visibility(
+                visible: !_fullscreen,
+                maintainState: true,
+                child: _TopBar(
+                  username: (_profile?['username'] as String?) ?? 'Account',
+                  picture: _profile?['profilePicture'] as String?,
+                  onSettings: () => _openTab('Settings'),
+                  onSearch: _search,
+                  onLogOut: _logOut,
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Visibility(
+                      visible: !_fullscreen,
+                      maintainState: true,
+                      child: _Sidebar(
+                        selectedTab: _selectedTab,
+                        onSelect: _openTab,
+                        collapsed: _sidebarCollapsed,
+                        onToggle: () => setState(
+                          () => _sidebarCollapsed = !_sidebarCollapsed,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Material(
+                            color: AppColors.surface(context),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Visibility(
+                                    visible: !_fullscreen,
+                                    maintainState: true,
+                                    child: SingleChildScrollView(
+                                      key: const ValueKey(
+                                        'workspace-tab-strip',
                                       ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: SizedBox(
-                                        height: _navigationHeight,
-                                        width: _navigationWidth,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Expanded(
-                                              child: Semantics(
-                                                selected: tab == _selectedTab,
-                                                child: TextButton(
-                                                  key: ValueKey(
-                                                    'workspace-tab-$tab',
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        children: [
+                                          for (final tab in _openTabs)
+                                            Padding(
+                                              key: _tabKeys[tab],
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 4,
+                                                    vertical: 6,
                                                   ),
-                                                  onPressed: () =>
-                                                      _openTab(tab),
-                                                  style:
-                                                      TextButton.styleFrom(
-                                                        shape: const RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              _navigationRadius,
-                                                        ),
-                                                        foregroundColor:
-                                                            tab == _selectedTab
-                                                            ? AppColors.primary(
-                                                                context,
-                                                              )
-                                                            : AppColors.text(
-                                                                context,
+                                              child: MouseRegion(
+                                                onEnter: (_) => setState(
+                                                  () => _hoveredTab = tab,
+                                                ),
+                                                onExit: (_) {
+                                                  if (mounted &&
+                                                      _hoveredTab == tab) {
+                                                    setState(
+                                                      () => _hoveredTab = null,
+                                                    );
+                                                  }
+                                                },
+                                                child: Material(
+                                                  key: ValueKey(
+                                                    'tab-surface-$tab',
+                                                  ),
+                                                  color: _tabColor(tab),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        _navigationRadius,
+                                                    side: BorderSide(
+                                                      color: tab == _selectedTab
+                                                          ? AppColors.primary(
+                                                              context,
+                                                            )
+                                                          : AppColors.text(
+                                                              context,
+                                                            ).withValues(
+                                                              alpha: 0.12,
+                                                            ),
+                                                    ),
+                                                  ),
+                                                  clipBehavior: Clip.antiAlias,
+                                                  child: SizedBox(
+                                                    height: _navigationHeight,
+                                                    width: _navigationWidth,
+                                                    child: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Semantics(
+                                                            selected:
+                                                                tab ==
+                                                                _selectedTab,
+                                                            child: TextButton(
+                                                              key: ValueKey(
+                                                                'workspace-tab-$tab',
                                                               ),
-                                                        padding:
-                                                            const EdgeInsets.symmetric(
-                                                              horizontal: 16,
-                                                              vertical: 14,
+                                                              onPressed: () =>
+                                                                  _openTab(tab),
+                                                              style:
+                                                                  TextButton.styleFrom(
+                                                                    shape: const RoundedRectangleBorder(
+                                                                      borderRadius:
+                                                                          _navigationRadius,
+                                                                    ),
+                                                                    foregroundColor:
+                                                                        tab ==
+                                                                            _selectedTab
+                                                                        ? AppColors.primary(
+                                                                            context,
+                                                                          )
+                                                                        : AppColors.text(
+                                                                            context,
+                                                                          ),
+                                                                    padding: const EdgeInsets.symmetric(
+                                                                      horizontal:
+                                                                          16,
+                                                                      vertical:
+                                                                          8,
+                                                                    ),
+                                                                  ).copyWith(
+                                                                    overlayColor: WidgetStateProperty.resolveWith(
+                                                                      (
+                                                                        states,
+                                                                      ) =>
+                                                                          states.contains(
+                                                                            WidgetState.hovered,
+                                                                          )
+                                                                          ? Colors.transparent
+                                                                          : null,
+                                                                    ),
+                                                                  ),
+                                                              child: Text(
+                                                                tab
+                                                                    .split('/')
+                                                                    .last,
+                                                              ),
                                                             ),
-                                                      ).copyWith(
-                                                        overlayColor:
-                                                            WidgetStateProperty.resolveWith(
-                                                              (states) =>
-                                                                  states.contains(
-                                                                    WidgetState
-                                                                        .hovered,
-                                                                  )
-                                                                  ? Colors
-                                                                        .transparent
-                                                                  : null,
-                                                            ),
-                                                      ),
-                                                  child: Text(
-                                                    tab.split('/').last,
+                                                          ),
+                                                        ),
+                                                        IconButton(
+                                                          style: IconButton.styleFrom(
+                                                            hoverColor: Colors
+                                                                .transparent,
+                                                          ),
+                                                          key: ValueKey(
+                                                            'close-tab-$tab',
+                                                          ),
+                                                          tooltip:
+                                                              'Close ${tab.split('/').last}',
+                                                          onPressed: () =>
+                                                              _closeTab(tab),
+                                                          icon: const Icon(
+                                                            Icons.close,
+                                                            size: 18,
+                                                          ),
+                                                          color: AppColors.text(
+                                                            context,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
                                                   ),
                                                 ),
                                               ),
                                             ),
-                                            IconButton(
-                                              style: IconButton.styleFrom(
-                                                hoverColor: Colors.transparent,
-                                              ),
-                                              key: ValueKey('close-tab-$tab'),
-                                              tooltip:
-                                                  'Close ${tab.split('/').last}',
-                                              onPressed: () => _closeTab(tab),
-                                              icon: const Icon(
-                                                Icons.close,
-                                                size: 18,
-                                              ),
-                                              color: AppColors.text(context),
-                                            ),
-                                          ],
-                                        ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ),
-                            ],
+                                if (_selectedTab != null)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    child: IconButton(
+                                      key: const ValueKey(
+                                        'workspace-fullscreen',
+                                      ),
+                                      tooltip: _fullscreen
+                                          ? 'Exit fullscreen'
+                                          : 'Fullscreen',
+                                      onPressed: () => setState(
+                                        () => _fullscreen = !_fullscreen,
+                                      ),
+                                      icon: Icon(
+                                        _fullscreen
+                                            ? Icons.close
+                                            : Icons.fullscreen,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
+                          Expanded(
+                            child: _openTabs.isEmpty
+                                ? const SizedBox.expand(
+                                    key: ValueKey('workspace-empty'),
+                                  )
+                                : IndexedStack(
+                                    index: _openTabs.indexOf(_selectedTab!),
+                                    alignment: Alignment.topLeft,
+                                    children: [
+                                      for (final tab in _openTabs)
+                                        tab == 'Dashboard'
+                                            ? OverviewPage(
+                                                key: const ValueKey(
+                                                  'workspace-page-Dashboard',
+                                                ),
+                                                active:
+                                                    _selectedTab == 'Dashboard',
+                                              )
+                                            : tab == 'Gantt'
+                                            ? GanttPage(
+                                                searchTarget:
+                                                    _searchTargets['Gantt'],
+                                                key: ValueKey(
+                                                  'workspace-page-Gantt',
+                                                ),
+                                              )
+                                            : tab == 'Boards'
+                                            ? BoardsPage(
+                                                searchTarget:
+                                                    _searchTargets['Boards'],
+                                                key: ValueKey(
+                                                  'workspace-page-Boards',
+                                                ),
+                                              )
+                                            : tab == 'Settings'
+                                            ? SettingsPage(
+                                                key: const ValueKey(
+                                                  'workspace-page-Settings',
+                                                ),
+                                                profile: _profile,
+                                                loading: _profileLoading,
+                                                error: _profileError,
+                                                onRefresh: _loadProfile,
+                                                onSavePicture: _savePicture,
+                                                onChangeAccount: _changeAccount,
+                                              )
+                                            : tab == 'Schedule'
+                                            ? SchedulePage(
+                                                searchTarget:
+                                                    _searchTargets['Schedule'],
+                                                key: const ValueKey(
+                                                  'workspace-page-Schedule',
+                                                ),
+                                                date: _scheduleDate,
+                                                openRequest: _scheduleRequest,
+                                                refreshRequest:
+                                                    _scheduleRefresh,
+                                              )
+                                            : CalendarPage(
+                                                searchTarget:
+                                                    _searchTargets['Calendar'],
+                                                key: const ValueKey(
+                                                  'workspace-page-Calendar',
+                                                ),
+                                                onOpenSchedule: _openSchedule,
+                                                onChanged: () => setState(
+                                                  () => _scheduleRefresh++,
+                                                ),
+                                              ),
+                                    ],
+                                  ),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: _openTabs.isEmpty
-                            ? const SizedBox.expand(
-                                key: ValueKey('workspace-empty'),
-                              )
-                            : IndexedStack(
-                                index: _openTabs.indexOf(_selectedTab!),
-                                alignment: Alignment.topLeft,
-                                children: [
-                                  for (final tab in _openTabs)
-                                    tab == 'Gantt'
-                                        ? const GanttPage(
-                                            key: ValueKey(
-                                              'workspace-page-Gantt',
-                                            ),
-                                          )
-                                        : tab == 'Boards'
-                                        ? const BoardsPage(
-                                            key: ValueKey(
-                                              'workspace-page-Boards',
-                                            ),
-                                          )
-                                        : tab == 'Settings'
-                                        ? SettingsPage(
-                                            key: const ValueKey(
-                                              'workspace-page-Settings',
-                                            ),
-                                            profile: _profile,
-                                            loading: _profileLoading,
-                                            error: _profileError,
-                                            onRefresh: _loadProfile,
-                                            onSavePicture: _savePicture,
-                                            onChangeAccount: _changeAccount,
-                                          )
-                                        : tab == 'Schedule'
-                                        ? SchedulePage(
-                                            key: const ValueKey(
-                                              'workspace-page-Schedule',
-                                            ),
-                                            date: _scheduleDate,
-                                            openRequest: _scheduleRequest,
-                                          )
-                                        : CalendarPage(
-                                            key: const ValueKey(
-                                              'workspace-page-Calendar',
-                                            ),
-                                            onOpenSchedule: _openSchedule,
-                                          ),
-                                ],
-                              ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -377,12 +505,14 @@ class _TopBar extends StatelessWidget {
     required this.username,
     this.picture,
     required this.onSettings,
+    required this.onSearch,
     required this.onLogOut,
   });
 
   final String username;
   final String? picture;
   final VoidCallback onSettings;
+  final VoidCallback onSearch;
   final VoidCallback onLogOut;
 
   @override
@@ -403,6 +533,26 @@ class _TopBar extends StatelessWidget {
               letterSpacing: 0.5,
             ),
           ),
+          const Spacer(),
+          if (MediaQuery.sizeOf(context).width >= 700)
+            SizedBox(
+              width: 260,
+              child: OutlinedButton.icon(
+                onPressed: onSearch,
+                icon: const Icon(Icons.search),
+                label: const Text('Search all pages'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.navText,
+                ),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: 'Search all pages',
+              onPressed: onSearch,
+              icon: const Icon(Icons.search),
+              color: AppColors.navText,
+            ),
           const Spacer(),
           ConstrainedBox(
             constraints: BoxConstraints(
@@ -443,74 +593,120 @@ class _TopBar extends StatelessWidget {
 }
 
 class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.selectedTab, required this.onSelect});
+  const _Sidebar({
+    required this.selectedTab,
+    required this.onSelect,
+    required this.collapsed,
+    required this.onToggle,
+  });
+  final bool collapsed;
+  final VoidCallback onToggle;
 
   final String? selectedTab;
   final ValueChanged<String> onSelect;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: MediaQuery.sizeOf(context).width < 600 ? 124 : 190,
+  Widget build(BuildContext context) => AnimatedContainer(
+    key: const ValueKey('workspace-sidebar'),
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 200),
+    curve: Curves.easeInOut,
+    width: collapsed
+        ? 48
+        : MediaQuery.sizeOf(context).width < 600
+        ? 124
+        : 190,
     color: AppColors.navBackground,
-    child: ListView(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+    child: Column(
       children: [
-        for (final tab in _dashboardTabs)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: SizedBox(
-              height: 40,
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned(
-                    left: -24,
-                    right: 8,
-                    top: 0,
-                    bottom: 0,
-                    child: Semantics(
-                      selected: selectedTab == tab,
-                      button: true,
-                      child: Material(
-                        color: selectedTab == tab
-                            ? AppColors.navTextActive.withValues(alpha: 0.15)
-                            : AppColors.navText.withValues(alpha: 0.06),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: _navigationRadius,
-                          side: BorderSide(
-                            color: selectedTab == tab
-                                ? AppColors.navTextActive
-                                : AppColors.navText.withValues(alpha: 0.12),
-                          ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          key: ValueKey('nav-$tab'),
-                          onTap: () => onSelect(tab),
-                          child: Container(
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.only(left: 40, right: 16),
-                            child: Text(
-                              tab,
-                              style: TextStyle(
-                                color: selectedTab == tab
-                                    ? AppColors.navTextActive
-                                    : AppColors.navText,
-                                fontSize: 15,
-                                fontWeight: selectedTab == tab
-                                    ? FontWeight.w600
-                                    : FontWeight.w300,
+        Expanded(
+          child: collapsed
+              ? const SizedBox.expand()
+              : ListView(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  children: [
+                    for (final tab in _dashboardTabs)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: SizedBox(
+                          height: 40,
+                          child: Stack(
+                            clipBehavior: Clip.hardEdge,
+                            children: [
+                              Positioned(
+                                left: -24,
+                                right: 8,
+                                top: 0,
+                                bottom: 0,
+                                child: Semantics(
+                                  selected: selectedTab == tab,
+                                  button: true,
+                                  child: Material(
+                                    color: selectedTab == tab
+                                        ? AppColors.navTextActive.withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : AppColors.navText.withValues(
+                                            alpha: 0.06,
+                                          ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: _navigationRadius,
+                                      side: BorderSide(
+                                        color: selectedTab == tab
+                                            ? AppColors.navTextActive
+                                            : AppColors.navText.withValues(
+                                                alpha: 0.12,
+                                              ),
+                                      ),
+                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      key: ValueKey('nav-$tab'),
+                                      onTap: () => onSelect(tab),
+                                      child: Container(
+                                        alignment: Alignment.centerLeft,
+                                        padding: const EdgeInsets.only(
+                                          left: 40,
+                                          right: 16,
+                                        ),
+                                        child: Text(
+                                          tab,
+                                          style: TextStyle(
+                                            color: selectedTab == tab
+                                                ? AppColors.navTextActive
+                                                : AppColors.navText,
+                                            fontSize: 15,
+                                            fontWeight: selectedTab == tab
+                                                ? FontWeight.w600
+                                                : FontWeight.w300,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: IconButton(
+              key: const ValueKey('toggle-sidebar'),
+              tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+              onPressed: onToggle,
+              color: AppColors.navText,
+              icon: Icon(collapsed ? Icons.chevron_right : Icons.chevron_left),
             ),
           ),
+        ),
       ],
     ),
   );

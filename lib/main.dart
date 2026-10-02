@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'router.dart';
+import 'widgets/app_dropdown.dart';
 import 'utils/app_colors.dart';
 
 const useAuthEmulator =
@@ -50,11 +51,17 @@ class KeeningApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       useMaterial3: true,
+      dropdownMenuTheme: appDropdownMenuTheme,
+      menuTheme: appMenuTheme,
+      popupMenuTheme: appPopupMenuTheme,
       colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primaryLight),
       scaffoldBackgroundColor: AppColors.backgroundLight,
     ),
     darkTheme: ThemeData(
       useMaterial3: true,
+      dropdownMenuTheme: appDropdownMenuTheme,
+      menuTheme: appMenuTheme,
+      popupMenuTheme: appPopupMenuTheme,
       brightness: Brightness.dark,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primaryDark,

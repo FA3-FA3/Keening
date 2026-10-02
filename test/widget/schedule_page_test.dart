@@ -4,6 +4,7 @@ import 'package:keening/pages/schedule_page.dart';
 import 'package:keening/utils/schedule_service.dart';
 
 class FakeSchedule extends ScheduleService {
+  List<Map<String, dynamic>> tags = [];
   final groups = <Map<String, dynamic>>[],
       rows = <Map<String, dynamic>>[],
       blocks = <Map<String, dynamic>>[];
@@ -15,10 +16,16 @@ class FakeSchedule extends ScheduleService {
   ]) async {
     if (fail) throw StateError('Save failed.');
     switch (action) {
+      case 'saveTagDefinitions':
+        tags = (data['tags'] as List)
+            .map((t) => Map<String, dynamic>.from(t))
+            .toList();
+        return {'tagDefinitions': tags};
       case 'getWeek':
         final start = DateTime.parse(data['startDate']);
         final end = start.add(const Duration(days: 7));
         return {
+          'tagDefinitions': tags,
           'groups': groups,
           'rows': rows,
           'blocks': blocks.where((b) {
@@ -43,6 +50,9 @@ class FakeSchedule extends ScheduleService {
           'row_id': data['rowId'],
           'id': data['blockId'] ?? 'b1',
         });
+        for (final d in (data['repeatDates'] as List? ?? [])) {
+          blocks.add({...data, 'date': d, 'id': 'b-$d'});
+        }
         break;
       case 'deleteBlock':
         blocks.removeWhere((b) => b['id'] == data['blockId']);
@@ -53,6 +63,197 @@ class FakeSchedule extends ScheduleService {
 }
 
 void main() {
+  testWidgets('compact day header stays fixed while hours scroll', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeSchedule();
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SchedulePage(date: DateTime(2026, 9, 30), service: api),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final header = find.byKey(const ValueKey('schedule-day-header'));
+    final hour = find.byKey(const ValueKey('schedule-hour-9'));
+
+    final hourTop = tester.getTopLeft(hour).dy;
+    expect(tester.getSize(header).height, 38);
+    await tester.drag(
+      find.byKey(const ValueKey('schedule-add-2026-09-30-9')),
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(header).dy, 0);
+    expect(
+      find
+          .byType(Scrollable)
+          .evaluate()
+          .where(
+            (e) => (e.widget as Scrollable).axisDirection == AxisDirection.down,
+          )
+          .length,
+      1,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('schedule-add-2026-09-30-12')),
+      const Offset(0, -150),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(header).dy, 0);
+    expect(tester.getTopLeft(hour).dy, lessThan(hourTop));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('color tags save, retry, reload and label session choices', (
+    tester,
+  ) async {
+    final api = FakeSchedule();
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SchedulePage(date: DateTime(2026, 9, 30), service: api),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('schedule-tags')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Create tag'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save tags'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a name for each tag.'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField), 'Work');
+    await tester.tap(find.byTooltip('#DB2777'));
+    await tester.pumpAndSettle();
+    api.fail = true;
+    await tester.tap(find.text('Save tags'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save failed.'), findsOneWidget);
+    api.fail = false;
+    await tester.tap(find.text('Save tags'));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsOneWidget);
+    expect(api.tags.single['color'], '#DB2777');
+    await tester.tap(find.byTooltip('Refresh schedule'));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsOneWidget);
+    await tester.tap(find.text('Add session'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(ChoiceChip, 'Work'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('schedule-tags')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Delete tag'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save tags'));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('new session can repeat on other days chosen in a calendar', (
+    tester,
+  ) async {
+    final api = FakeSchedule();
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SchedulePage(date: DateTime(2026, 9, 30), service: api),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add session'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('repeat-2026-09-30')), findsNothing);
+    await tester.enterText(find.byType(TextFormField).first, 'Gym');
+    await tester.tap(find.byKey(const ValueKey('session-repeat')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('repeat-2026-09-30')));
+    await tester.tap(find.byKey(const ValueKey('repeat-2026-09-28')));
+    await tester.tap(find.byKey(const ValueKey('repeat-2026-09-29')));
+    await tester.tap(find.byKey(const ValueKey('repeat-2026-09-29')));
+    await tester.tap(find.byTooltip('Next month'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('repeat-2026-10-02')));
+    await tester.pumpAndSettle();
+    expect(find.text('Repeats on 2 other days.'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(api.blocks.map((b) => b['date']).toList()..sort(), [
+      '2026-09-28',
+      '2026-09-30',
+      '2026-10-02',
+    ]);
+    expect(api.blocks.every((b) => b['title'] == 'Gym'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'new session date can change and the schedule reveals its saved day',
+    (tester) async {
+      final api = FakeSchedule();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SchedulePage(date: DateTime(2026, 9, 30), service: api),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add session'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, 'Later session');
+      await tester.tap(find.byKey(const ValueKey('session-date')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Next month'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('15').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(api.blocks.single['date'], '2026-10-15');
+      expect(
+        find.byKey(const ValueKey('schedule-add-2026-10-15-9')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Later session'), findsOneWidget);
+      final id = api.blocks.single['id'];
+      final session = find.byKey(ValueKey('schedule-block-$id'));
+      await tester.ensureVisible(session);
+      await tester.pumpAndSettle();
+      await tester.tap(session);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('session-date')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Next month'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('20').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(api.blocks, hasLength(1));
+      expect(api.blocks.single['id'], id);
+      expect(api.blocks.single['date'], '2026-11-20');
+      expect(api.blocks.single['title'], 'Later session');
+      expect(
+        find.byKey(const ValueKey('schedule-add-2026-11-20-9')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'outside hours collapse independently and overlaps stay editable',
     (tester) async {
@@ -99,6 +300,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('schedule-toggle-early')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('schedule-toggle-early')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('schedule-hour-0')), findsOneWidget);
@@ -106,6 +308,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('schedule-toggle-late')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('schedule-toggle-late')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('schedule-block-late')), findsOneWidget);
@@ -113,6 +316,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('schedule-toggle-early')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('schedule-toggle-early')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('schedule-hour-0')), findsNothing);
@@ -121,7 +325,7 @@ void main() {
     },
   );
   testWidgets(
-    'create hourly blocks without groups, retry failed save and persist across weeks',
+    'create hourly sessions without groups, retry failed save and persist across weeks',
     (tester) async {
       tester.view.physicalSize = const Size(1500, 1000);
       tester.view.devicePixelRatio = 1;
@@ -165,6 +369,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('schedule-add-2026-09-30-9')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField).first, 'Morning');
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('session-location')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('session-location')),
+        'Upstairs meeting room',
+      );
       api.fail = true;
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
@@ -174,6 +386,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('Morning'), findsOneWidget);
       expect(api.blocks.single['start'], '09:00');
+      expect(api.blocks.single['location'], 'Upstairs meeting room');
       await tester.tap(find.byTooltip('Next period'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Morning'), findsNothing);
@@ -182,7 +395,15 @@ void main() {
       expect(find.textContaining('Morning'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('schedule-block-b1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete block'));
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('session-location')),
+            )
+            .initialValue,
+        'Upstairs meeting room',
+      );
+      await tester.tap(find.text('Delete session'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();

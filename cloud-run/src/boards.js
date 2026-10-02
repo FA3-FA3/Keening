@@ -62,6 +62,12 @@ export function boardsHandler(pool) {
           case 'listOrgTasks':
             if (b.archived != null && typeof b.archived !== 'boolean') fail('Invalid archive filter.');
             result={tasks:tasks.filter(task => task.archived === (b.archived ?? false)).map(taskView)};break;
+          case 'reorderTaskColumns': {
+            const order=ids(b.columnIds,columns);
+            if(order.length!==columns.length)fail('The panels changed. Refresh and try again.',409);
+            board.columns=order.map(id=>find(columns,id));
+            result={saved:true};changed=true;break;
+          }
           case 'createTaskColumn': {
             if(columns.length>=50) fail('A workplace can have up to 50 panels.');
             const column={id:randomUUID(),name:label(b.name),color:colour(b.color),created_at:stamp,updated_at:stamp};

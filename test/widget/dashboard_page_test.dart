@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/pages/dashboard_page.dart';
@@ -6,6 +7,80 @@ import 'package:keening/pages/schedule_page.dart';
 import 'package:intl/intl.dart';
 
 void main() {
+  testWidgets('each workspace page expands and exits without losing state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
+    await tester.pumpAndSettle();
+    for (final tab in [
+      'Dashboard',
+      'Gantt',
+      'Calendar',
+      'Boards',
+      'Schedule',
+      'Settings',
+    ]) {
+      if (tab == 'Settings') {
+        await tester.tap(find.byKey(const ValueKey('account-settings')));
+      } else {
+        await tester.tap(find.byKey(ValueKey('nav-$tab')));
+      }
+      await tester.pumpAndSettle();
+      final page = find.byKey(ValueKey('workspace-page-$tab'));
+      final original = tester.element(page);
+      final width = tester.getSize(page).width;
+      await tester.tap(find.byTooltip('Fullscreen'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('workspace-sidebar')), findsNothing);
+      expect(find.byKey(const ValueKey('account-settings')), findsNothing);
+      expect(find.byKey(const ValueKey('workspace-tab-strip')), findsNothing);
+      expect(tester.element(page), same(original));
+      expect(tester.getSize(page).width, greaterThan(width));
+      expect(find.byTooltip('Exit fullscreen'), findsOneWidget);
+      await tester.tap(find.byTooltip('Exit fullscreen'));
+      await tester.pumpAndSettle();
+      expect(tester.element(page), same(original));
+      expect(tester.getSize(page).width, width);
+      expect(find.byKey(const ValueKey('workspace-sidebar')), findsOneWidget);
+    }
+    await tester.tap(find.byTooltip('Fullscreen'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Fullscreen'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'sidebar collapses from its bottom button without closing workspace tabs',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
+      await tester.pumpAndSettle();
+      final sidebar = find.byKey(const ValueKey('workspace-sidebar'));
+      final originalWidth = tester.getSize(sidebar).width;
+      expect(
+        tester.getRect(find.byKey(const ValueKey('toggle-sidebar'))).bottom,
+        greaterThan(tester.getRect(sidebar).bottom - 60),
+      );
+      await tester.tap(find.byTooltip('Collapse sidebar'));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(sidebar).width, 48);
+      expect(find.byKey(const ValueKey('nav-Gantt')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('workspace-tab-Dashboard')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Expand sidebar'));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(sidebar).width, originalWidth);
+      expect(find.byKey(const ValueKey('nav-Gantt')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'username opens Settings and hover covers the whole tab including close',
     (tester) async {
@@ -96,10 +171,13 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('close-tab-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('close-tab-Dashboard')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('workspace-empty')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workspace-page-Gantt')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('workspace-page-Dashboard')),
+      findsNothing,
+    );
 
     await tester.tap(find.byKey(const ValueKey('nav-Calendar')));
     await tester.pumpAndSettle();

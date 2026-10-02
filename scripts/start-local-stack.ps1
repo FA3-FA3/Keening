@@ -61,7 +61,13 @@ try {
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\07-schedule.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
     if ($LASTEXITCODE -ne 0) { throw 'Schedule migration failed' }
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\08-profile-picture.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
-    if ($LASTEXITCODE -ne 0) { throw 'Profile picture migration failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'Profile migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\09-calendar-sessions.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Calendar sessions migration failed' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\10-calendar-location.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Calendar location migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\11-calendar-tags.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Calendar tags migration failed.' }
     Start-ServiceProcess 'auth'
     Wait-Url 'http://127.0.0.1:9099/'
   }

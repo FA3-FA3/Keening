@@ -1,3 +1,5 @@
+import '../widgets/scrollable_workspace.dart';
+import '../widgets/app_dropdown.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -155,8 +157,9 @@ class _DateRangePickerPopupState extends State<_DateRangePickerPopup> {
 
 /// Sorbit's Gantt timeline adapted for user-owned Keening calendars.
 class GanttPage extends StatefulWidget {
-  const GanttPage({super.key, this.service});
+  const GanttPage({super.key, this.service, this.searchTarget});
   final GanttService? service;
+  final Map<String, dynamic>? searchTarget;
   @override
   State<GanttPage> createState() => _GanttPageState();
 }
@@ -173,13 +176,36 @@ class _GanttPageState extends State<GanttPage> {
   int _days = 28;
   late DateTime _start;
 
+  Future<void> _openSearch() async {
+    final target = widget.searchTarget!;
+    final date = DateTime.tryParse(target['date'] as String? ?? '');
+    if (date != null) _start = date;
+    await _loadCalendars(preferred: target['parentId'] as String?);
+    if (!mounted || widget.searchTarget != target || _error != null) return;
+    final item = _items.where((i) => i['id'] == target['id']).firstOrNull;
+    if (item != null) await _editItem(item: item);
+  }
+
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? GanttService();
     final today = DateUtils.dateOnly(DateTime.now());
     _start = _addDays(today, 1 - today.weekday);
-    _loadCalendars();
+    if (widget.searchTarget != null) {
+      _openSearch();
+    } else {
+      _loadCalendars();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant GanttPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchTarget != oldWidget.searchTarget &&
+        widget.searchTarget != null) {
+      _openSearch();
+    }
   }
 
   @override
@@ -276,7 +302,7 @@ class _GanttPageState extends State<GanttPage> {
                       onChanged: (v) => name = v,
                     ),
                     if (!rename)
-                      DropdownButtonFormField<String>(
+                      AppDropdownButtonFormField<String>(
                         initialValue: color,
                         decoration: const InputDecoration(labelText: 'Colour'),
                         items: const [
@@ -376,7 +402,7 @@ class _GanttPageState extends State<GanttPage> {
       builder: (context) => AlertDialog(
         title: const Text('Delete calendar?'),
         content: const Text(
-          'This permanently deletes this calendar and all its events.',
+          'This permanently deletes this calendar and all its phases.',
         ),
         actions: [
           TextButton(
@@ -498,7 +524,7 @@ class _GanttPageState extends State<GanttPage> {
           return PopScope(
             canPop: !saving,
             child: AlertDialog(
-              title: Text(item == null ? 'New event' : 'Event details'),
+              title: Text(item == null ? 'New phase' : 'Phase details'),
               content: SizedBox(
                 width: 420,
                 child: SingleChildScrollView(
@@ -526,7 +552,7 @@ class _GanttPageState extends State<GanttPage> {
                         onChanged: (v) => description = v,
                       ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
+                      AppDropdownButtonFormField<String>(
                         initialValue: prerequisite,
                         isExpanded: true,
                         decoration: const InputDecoration(
@@ -660,166 +686,171 @@ class _GanttPageState extends State<GanttPage> {
         )
         .toList();
     final busy = _loading || _savingOrder;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('Gantt', style: Theme.of(context).textTheme.headlineMedium),
-              FilledButton.icon(
-                onPressed: busy || _error != null
-                    ? null
-                    : () => _calendarDialog(),
-                icon: const Icon(Icons.add),
-                label: const Text('Create calendar'),
-              ),
-              IconButton(
-                tooltip: 'Refresh calendars',
-                onPressed: busy ? null : _loadCalendars,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
-        ),
-        if (_calendars.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final calendar in _calendars)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(calendar['name'] as String),
-                        selected: calendar['id'] == _selected,
-                        selectedColor: _calendarColor(
-                          calendar,
-                          context,
-                        ).withValues(alpha: 0.18),
-                        onSelected: busy
-                            ? null
-                            : (_) {
-                                if (calendar['id'] != _selected) {
-                                  _selected = calendar['id'] as String;
-                                  _loadItems();
-                                }
-                              },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        if (_selected != null)
+    return ScrollableWorkspace(
+      header: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: Wrap(
-              spacing: 12,
+              spacing: 16,
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Previous period',
-                      onPressed: () =>
-                          setState(() => _start = _addDays(_start, -_days)),
-                      icon: const Icon(Icons.chevron_left),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(
-                        () => _start = DateUtils.dateOnly(DateTime.now()),
-                      ),
-                      child: const Text('Today'),
-                    ),
-                    IconButton(
-                      tooltip: 'Next period',
-                      onPressed: () =>
-                          setState(() => _start = _addDays(_start, _days)),
-                      icon: const Icon(Icons.chevron_right),
-                    ),
-                  ],
-                ),
                 Text(
-                  '${DateFormat.MMMd().format(_start)} – ${DateFormat.yMMMd().format(end)}',
-                ),
-                DropdownButton<int>(
-                  value: _days,
-                  items: const [
-                    DropdownMenuItem(value: 14, child: Text('2 weeks')),
-                    DropdownMenuItem(value: 28, child: Text('4 weeks')),
-                    DropdownMenuItem(value: 84, child: Text('12 weeks')),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setState(() => _days = v);
-                  },
+                  'Gantt',
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 FilledButton.icon(
-                  onPressed: busy || _error != null ? null : () => _editItem(),
+                  onPressed: busy || _error != null
+                      ? null
+                      : () => _calendarDialog(),
                   icon: const Icon(Icons.add),
-                  label: const Text('New event'),
+                  label: const Text('Create calendar'),
                 ),
                 IconButton(
-                  tooltip: 'Rename calendar',
-                  onPressed: busy ? null : () => _calendarDialog(rename: true),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Delete calendar',
-                  onPressed: busy ? null : _deleteCalendar,
-                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Refresh calendars',
+                  onPressed: busy ? null : _loadCalendars,
+                  icon: const Icon(Icons.refresh),
                 ),
               ],
             ),
           ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? Center(
-                  child: Column(
+          if (_calendars.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final calendar in _calendars)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(calendar['name'] as String),
+                          selected: calendar['id'] == _selected,
+                          selectedColor: _calendarColor(
+                            calendar,
+                            context,
+                          ).withValues(alpha: 0.18),
+                          onSelected: busy
+                              ? null
+                              : (_) {
+                                  if (calendar['id'] != _selected) {
+                                    _selected = calendar['id'] as String;
+                                    _loadItems();
+                                  }
+                                },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          if (_selected != null)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(_error!),
+                      IconButton(
+                        tooltip: 'Previous period',
+                        onPressed: () =>
+                            setState(() => _start = _addDays(_start, -_days)),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
                       TextButton(
-                        onPressed: _loadCalendars,
-                        child: const Text('Retry'),
+                        onPressed: () => setState(
+                          () => _start = DateUtils.dateOnly(DateTime.now()),
+                        ),
+                        child: const Text('Today'),
+                      ),
+                      IconButton(
+                        tooltip: 'Next period',
+                        onPressed: () =>
+                            setState(() => _start = _addDays(_start, _days)),
+                        icon: const Icon(Icons.chevron_right),
                       ),
                     ],
                   ),
-                )
-              : _selected == null
-              ? const Center(
-                  child: Text(
-                    'Create your first Gantt calendar to get started.',
+                  Text(
+                    '${DateFormat.MMMd().format(_start)} – ${DateFormat.yMMMd().format(end)}',
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.only(right: 16, bottom: 16),
-                  child: _GanttTimeline(
-                    start: _start,
-                    days: _days,
-                    items: visible,
-                    onOpen: (item) {
-                      if (!busy) _editItem(item: item);
+                  AppDropdownButton<int>(
+                    value: _days,
+                    items: const [
+                      DropdownMenuItem(value: 14, child: Text('2 weeks')),
+                      DropdownMenuItem(value: 28, child: Text('4 weeks')),
+                      DropdownMenuItem(value: 84, child: Text('12 weeks')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _days = v);
                     },
-                    showDragHandles: true,
-                    onReorder: _savingOrder
-                        ? null
-                        : (oldIndex, newIndex) =>
-                              _reorderRows(visible, oldIndex, newIndex),
                   ),
-                ),
-        ),
-      ],
+                  FilledButton.icon(
+                    onPressed: busy || _error != null
+                        ? null
+                        : () => _editItem(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('New phase'),
+                  ),
+                  IconButton(
+                    tooltip: 'Rename calendar',
+                    onPressed: busy
+                        ? null
+                        : () => _calendarDialog(rename: true),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete calendar',
+                    onPressed: busy ? null : _deleteCalendar,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!),
+                  TextButton(
+                    onPressed: _loadCalendars,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : _selected == null
+          ? const Center(
+              child: Text('Create your first Gantt calendar to get started.'),
+            )
+          : Padding(
+              padding: const EdgeInsets.only(right: 16, bottom: 16),
+              child: _GanttTimeline(
+                start: _start,
+                days: _days,
+                items: visible,
+                onOpen: (item) {
+                  if (!busy) _editItem(item: item);
+                },
+                showDragHandles: true,
+                onReorder: _savingOrder
+                    ? null
+                    : (oldIndex, newIndex) =>
+                          _reorderRows(visible, oldIndex, newIndex),
+              ),
+            ),
     );
   }
 }
@@ -1057,7 +1088,7 @@ class _GanttTimelineState extends State<_GanttTimeline> {
             if (items.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('No scheduled events in this period.'),
+                child: Text('No scheduled phases in this period.'),
               ),
             Row(
               children: [
@@ -1069,7 +1100,7 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                     child: Padding(
                       padding: EdgeInsets.all(12),
                       child: Text(
-                        'Events',
+                        'Phases',
                         style: TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
@@ -1185,7 +1216,7 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     subtitle: Text(
-                                      '${item['calendar_name']} · Event',
+                                      '${item['calendar_name']} · Phase',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),

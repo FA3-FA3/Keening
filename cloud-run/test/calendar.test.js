@@ -8,7 +8,7 @@ const databaseUrl=process.env.TEST_DATABASE_URL;
 test('Independent Calendar CRUD and reciprocal links to Gantt and Boards', {skip:!databaseUrl}, async t=>{
   assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(databaseUrl).hostname));
   const pool=createPool(databaseUrl);
-  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql'])
+  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql'])
     await pool.query(await readFile(new URL(`../../postgres/init/${file}`,import.meta.url),'utf8'));
   const prefix=`calendar-${randomUUID()}`;
   const app=await buildApp({pool,logger:false,origins:[],verifyIdToken:async token=>({uid:`${prefix}-${token}`,firebase:{sign_in_provider:'password'}})});
@@ -27,6 +27,20 @@ test('Independent Calendar CRUD and reciprocal links to Gantt and Boards', {skip
   const g=await create('/gantt','Gantt only');
   assert.deepEqual((await call('/calendar',{action:'listCalendars'})).calendars,[]);
   const c=await create('/calendar','Calendar only');
+  assert.deepEqual((await call('/calendar',{action:'listCalendars'})).tagDefinitions,[]);
+  const tags=[{id:'travel',name:' Travel ',color:'#2563eb'},{id:'work',name:'Work',color:'#2563EB'}];
+  await call('/calendar',{action:'saveTagDefinitions',tags});
+  assert.equal((await call('/calendar',{action:'listCalendars'})).tagDefinitions[0].name,'Travel');
+  assert.deepEqual((await call('/calendar',{action:'listCalendars'},'other')).tagDefinitions,[]);
+  for(const invalid of [null,{},[{id:'a',name:'',color:'#123456'}],[tags[0],tags[0]],[{id:'x',name:'x',color:'bad'}]])await call('/calendar',{action:'saveTagDefinitions',tags:invalid},'owner',400);
+  const tagged={action:'saveItem',calendar_id:c.calendar.id,item_id:c.event.id,title:'Tagged',start_date:'2026-09-01',end_date:'2026-09-02',completed:false,tag_id:'travel'};
+  await call('/calendar',tagged);
+  assert.equal((await call('/calendar',{action:'listItems',calendar_id:c.calendar.id})).items[0].tag_id,'travel');
+  await call('/calendar',{...tagged,tag_id:'foreign'},'owner',400);
+  await call('/calendar',{action:'saveTagDefinitions',tags:[{...tags[0],name:'Trips',color:'#DC2626'}]});
+  assert.equal((await call('/calendar',{action:'listItems',calendar_id:c.calendar.id})).items[0].tag_id,'travel');
+  await call('/calendar',{action:'saveTagDefinitions',tags:[]});
+  assert.equal((await call('/calendar',{action:'listItems',calendar_id:c.calendar.id})).items[0].tag_id,null);
   const foreign=await create('/calendar','Private','other');
   await call('/calendar',{action:'listItems',calendar_id:g.calendar.id},'owner',404);
   await call('/gantt',{action:'listItems',calendar_id:c.calendar.id},'owner',404);
@@ -61,9 +75,51 @@ test('Independent Calendar CRUD and reciprocal links to Gantt and Boards', {skip
     assert.equal((await list(source)).find(o=>o.calendar_event_id===c.event.id).linked,false);
     await call('/links',{action:'link',...source,targetType:'calendar',calendarEventId:c.event.id});
   }
+
+  const timed={action:'saveItem',calendar_id:c.calendar.id,item_id:c.event.id,title:'Timed',start_date:'2026-10-01',end_date:'2026-10-01',completed:false,start_time:'09:00',end_time:'10:30'};
+  const week=async()=>(await call('/schedule',{action:'getWeek',startDate:'2026-10-01'})).blocks;
+  await call('/calendar',timed);
+  let sessions=await week();assert.equal(sessions.length,1);
+  const sessionId=sessions[0].id;
+  assert.equal(sessions[0].calendarEventId,c.event.id);assert.equal(sessions[0].end,'10:30');
+  assert.equal((await call('/calendar',{action:'listItems',calendar_id:c.calendar.id})).items[0].start_time,'09:00');
+  const sessionSource={source:'session',sessionId};
+  assert.equal((await list(sessionSource)).find(o=>o.calendar_event_id===c.event.id).linked,true);
+  assert.equal((await list(calSource)).find(o=>o.session_id===sessionId).linked,true);
+  for(const target of [ganttSource,taskSource]){
+    await call('/links',{action:'link',...sessionSource,targetType:target.source,...Object.fromEntries(Object.entries(target).filter(([k])=>k!=='source'))});
+    assert.equal((await list(target)).find(o=>o.session_id===sessionId).linked,true);
+    await call('/links',{action:'unlink',...target,targetType:'session',sessionId});
+    assert.equal((await list(target)).find(o=>o.session_id===sessionId).linked,false);
+  }
+  await call('/links',{action:'list',...sessionSource},'other',404);
+  await call('/links',{action:'link',...sessionSource,targetType:'calendar',calendarEventId:foreign.event.id},'owner',404);
+  const foreignSession=(await call('/schedule',{action:'saveBlock',date:'2026-10-01',start:'09:00',end:'10:00',title:'Private'},'other')).block;
+  assert.equal((await list(calSource)).some(o=>o.session_id===foreignSession.id),false);
+  await call('/links',{action:'link',...calSource,targetType:'session',sessionId:foreignSession.id},'owner',404);
+  for(const bad of [{start_time:'25:00'},{end_time:null},{end_time:'08:00'},{end_date:'2028-01-01'}])await call('/calendar',{...timed,...bad},'owner',400);
+  assert.equal((await week())[0].end,'10:30');
+  await call('/calendar',{...timed,location:'  Studio / room 2  '});
+  assert.equal((await week())[0].location,'Studio / room 2');
+  assert.equal((await call('/calendar',{action:'listItems',calendar_id:c.calendar.id})).items[0].location,'Studio / room 2');
+  for(const location of [123,null,'x'.repeat(501)])await call('/calendar',{...timed,location},'owner',400);
+  await call('/calendar',{...timed,location:''});
+  assert.equal((await week())[0].location,'');
+  await call('/calendar',{...timed,title:'Moved',start_date:'2026-10-02',end_date:null,start_time:'11:00',end_time:'12:00'});
+  sessions=await week();assert.equal(sessions.length,1);assert.equal(sessions[0].id,sessionId);assert.equal(sessions[0].date,'2026-10-02');assert.equal(sessions[0].title,'Moved');
+  await call('/schedule',{action:'saveBlock',blockId:sessionId,date:'2026-10-02',start:'11:00',end:'12:00',title:'Moved',location:'Studio'});
+  await call('/calendar',{...timed,start_date:'2026-10-02',end_date:'2026-10-03'});
+  sessions=await week();assert.equal(sessions.length,2);assert.equal(sessions.find(s=>s.id===sessionId).location,'Studio');
+  await call('/calendar',{...timed,start_date:'2026-10-02',end_date:'2026-10-03'});
+  assert.equal((await week()).length,2);
+  await call('/calendar',{...timed,start_time:null,end_time:null});
+  assert.equal((await week()).length,0);
+  assert.equal((await pool.query('SELECT * FROM public.session_links WHERE calendar_event_id=$1',[c.event.id])).rowCount,0);
+  await call('/calendar',timed);
   await call('/boards',{action:'deleteTaskColumn',workplaceId:w.id,columnId:col.id});
   assert.equal((await pool.query('SELECT * FROM public.calendar_task_links WHERE calendar_event_id=$1',[c.event.id])).rowCount,0);
   await call('/calendar',{action:'deleteItem',calendar_id:c.calendar.id,item_id:c.event.id});
   assert.equal((await pool.query('SELECT * FROM public.calendar_gantt_links WHERE calendar_event_id=$1',[c.event.id])).rowCount,0);
   assert.equal((await call('/gantt',{action:'listItems',calendar_id:g.calendar.id})).items.length,1);
+  assert.equal((await week()).length,0);
 });

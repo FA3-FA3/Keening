@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'stack-process.ps1')
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $stateFile = Join-Path $projectRoot '.local\stack.json'
 if (-not (Test-Path -LiteralPath $stateFile)) { Write-Output 'No Keening stack is recorded.'; return }
@@ -9,8 +10,7 @@ function Stop-ProcessTree([int]$processId) {
   Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
 }
 foreach ($service in $state.services) {
-  $process = Get-Process -Id $service.pid -ErrorAction SilentlyContinue
-  if ($process -and $process.StartTime.ToUniversalTime().ToString('o') -eq $service.started) {
+  if (Test-StackProcessIdentity $service.pid $service.started) {
     Stop-ProcessTree $service.pid
   }
 }

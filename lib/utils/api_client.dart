@@ -16,6 +16,9 @@ class ApiClient {
   final http.Client _client;
   final String _baseUrl;
 
+  Future<Map<String, dynamic>> search(String token, String query, int offset) =>
+      _workspace('/search', token, {'query': query, 'offset': offset});
+
   Future<Map<String, dynamic>> changeUsername(String token, String username) =>
       _workspace('/account/username', token, {'username': username});
 

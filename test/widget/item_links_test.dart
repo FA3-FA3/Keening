@@ -19,6 +19,7 @@ class FakeLinks extends LinksService {
             'title': 'Launch',
             'location': 'Plan',
             'target_type': target,
+            if (target == 'session') 'session_id': 'session1',
             if (target == 'event') 'event_id': 'event1',
             if (target == 'calendar') 'calendar_event_id': 'calendar1',
             if (target == 'task') 'workplace_id': 'work1',
@@ -34,11 +35,12 @@ class FakeLinks extends LinksService {
 }
 
 void main() {
-  for (final source in ['event', 'task', 'calendar']) {
+  for (final source in ['event', 'task', 'calendar', 'session']) {
     for (final target in [
       'event',
       'task',
       'calendar',
+      'session',
     ].where((t) => t != source)) {
       testWidgets(
         '$source to $target links persist, unlink and recover from failed saves',
@@ -50,6 +52,7 @@ void main() {
               home: Scaffold(
                 body: ItemLinks(
                   source: source,
+                  sessionId: source == 'session' ? 'session1' : null,
                   eventId: source == 'event' ? 'event1' : null,
                   calendarEventId: source == 'calendar' ? 'calendar1' : null,
                   workplaceId: source == 'task' ? 'work1' : null,
@@ -73,6 +76,9 @@ void main() {
           expect(service.linked, true);
           expect(service.calls.last['source'], source);
           expect(service.calls.last['targetType'], target);
+          if ([source, target].contains('session')) {
+            expect(service.calls.last['sessionId'], 'session1');
+          }
           if ([source, target].contains('event')) {
             expect(service.calls.last['eventId'], 'event1');
           }

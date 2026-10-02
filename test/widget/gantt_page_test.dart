@@ -88,7 +88,7 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Create'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(ChoiceChip, 'Plan'), findsOneWidget);
-      await tester.tap(find.text('New event'));
+      await tester.tap(find.text('New phase'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField).first, 'Design');
       await tester.tap(find.text('Save'));

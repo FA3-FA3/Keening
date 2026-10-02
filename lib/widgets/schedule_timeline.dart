@@ -31,7 +31,12 @@ class ScheduleTimeline extends StatelessWidget {
   final bool early, late;
   final void Function(DateTime, int) onCreate;
   final void Function(DateTime, Map<String, dynamic>) onEdit;
-  static const hourHeight = 64.0, gutter = 110.0;
+  static const hourHeight = 96.0, gutter = 55.0;
+  String _locationLabel(Map<String, dynamic> session) {
+    final location = session['location'] as String? ?? '';
+    return location.isEmpty ? '' : '\n$location';
+  }
+
   int _minutes(String v) {
     final p = v.split(':');
     return int.parse(p[0]) * 60 + int.parse(p[1]);
@@ -105,6 +110,9 @@ class ScheduleTimeline extends StatelessWidget {
     child: SizedBox(
       width: gutter,
       child: TextButton(
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        ),
         key: ValueKey(
           before ? 'schedule-toggle-early' : 'schedule-toggle-late',
         ),
@@ -136,43 +144,6 @@ class ScheduleTimeline extends StatelessWidget {
     final height = (last - first) * hourHeight;
     return Column(
       children: [
-        Row(
-          children: [
-            const SizedBox(width: gutter, height: 76),
-            for (var i = 0; i < days; i++)
-              Container(
-                width: dayWidth,
-                height: 76,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color:
-                      DateUtils.isSameDay(
-                        DateTime(week.year, week.month, week.day + i),
-                        selected,
-                      )
-                      ? AppColors.primary(context).withValues(alpha: .12)
-                      : AppColors.surface(context),
-                  border: Border(bottom: BorderSide(color: line)),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      DateFormat(
-                        'EEE',
-                      ).format(DateTime(week.year, week.month, week.day + i)),
-                    ),
-                    Text(
-                      '${DateTime(week.year, week.month, week.day + i).day}',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
         _control(before: true),
         SizedBox(
           width: width,
@@ -211,7 +182,12 @@ class ScheduleTimeline extends StatelessWidget {
                   height: height,
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border(left: BorderSide(color: line)),
+                      border: Border(
+                        left: BorderSide(color: line),
+                        right: i == days - 1
+                            ? BorderSide(color: line)
+                            : BorderSide.none,
+                      ),
                       color:
                           DateUtils.isSameDay(
                             DateTime(week.year, week.month, week.day + i),
@@ -231,7 +207,7 @@ class ScheduleTimeline extends StatelessWidget {
                     child: Semantics(
                       button: true,
                       label:
-                          'Add block ${DateFormat('yyyy-MM-dd').format(DateTime(week.year, week.month, week.day + i))} ${_label(h)}',
+                          'Add session ${DateFormat('yyyy-MM-dd').format(DateTime(week.year, week.month, week.day + i))} ${_label(h)}',
                       child: InkWell(
                         key: ValueKey(
                           'schedule-add-${DateFormat('yyyy-MM-dd').format(DateTime(week.year, week.month, week.day + i))}-$h',
@@ -281,7 +257,7 @@ class ScheduleTimeline extends StatelessWidget {
                     ),
                     child: Tooltip(
                       message:
-                          '${entry.block['start']} – ${entry.block['end']} · ${entry.block['title']}',
+                          '${entry.block['start']} – ${entry.block['end']} · ${entry.block['title']}${_locationLabel(entry.block)}',
                       child: Material(
                         color: Color.alphaBlend(
                           _color(entry.block['color']).withValues(alpha: .18),
@@ -310,7 +286,7 @@ class ScheduleTimeline extends StatelessWidget {
                               child: Text(
                                 size.maxHeight < 40
                                     ? '${entry.block['title']}'
-                                    : '${entry.block['start']} – ${entry.block['end']}\n${entry.block['title']}',
+                                    : '${entry.block['start']} – ${entry.block['end']}\n${entry.block['title']}${_locationLabel(entry.block)}',
                                 maxLines: math.max(
                                   1,
                                   (size.maxHeight / 17).floor(),
@@ -335,4 +311,64 @@ class ScheduleTimeline extends StatelessWidget {
       ],
     );
   }
+}
+
+class ScheduleDayHeader extends StatelessWidget {
+  const ScheduleDayHeader({
+    super.key,
+    required this.week,
+    required this.selected,
+    required this.days,
+    required this.width,
+  });
+  final DateTime week, selected;
+  final int days;
+  final double width;
+  static const height = 38.0;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    key: const ValueKey('schedule-day-header'),
+    height: height,
+    child: Row(
+      children: [
+        const SizedBox(width: ScheduleTimeline.gutter),
+        for (var i = 0; i < days; i++)
+          Container(
+            key: ValueKey('schedule-header-day-$i'),
+            width: (width - ScheduleTimeline.gutter) / days,
+            height: height,
+            decoration: BoxDecoration(
+              color:
+                  DateUtils.isSameDay(
+                    DateTime(week.year, week.month, week.day + i),
+                    selected,
+                  )
+                  ? Color.alphaBlend(
+                      AppColors.primary(context).withValues(alpha: .12),
+                      AppColors.surface(context),
+                    )
+                  : AppColors.surface(context),
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.grey500.withValues(alpha: .25),
+                ),
+              ),
+            ),
+            child: Center(
+              child: Text(
+                DateFormat(
+                  'EEE d',
+                ).format(DateTime(week.year, week.month, week.day + i)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
 }

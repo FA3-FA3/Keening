@@ -1,3 +1,4 @@
+import { searchHandler } from './search.js';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -81,6 +82,7 @@ export async function buildApp({ pool, verifyIdToken, origins, auth, registratio
     profilePicture: request.userProfile.profile_picture ?? null,
     anonymous: request.authToken.firebase?.sign_in_provider === 'anonymous',
   }));
+  app.post('/search', { preHandler: authenticate }, searchHandler(pool));
   app.post('/gantt', { preHandler: authenticate }, ganttHandler(pool));
   app.post('/calendar', { preHandler: authenticate }, ganttHandler(pool, 'calendar'));
   app.post('/boards', { preHandler: authenticate }, boardsHandler(pool));

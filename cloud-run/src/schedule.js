@@ -9,16 +9,53 @@ export function scheduleHandler(pool){
   const b=request.body||{},owner=request.userProfile.id;
   let db;
   try{
-   const actions=['getWeek','createGroup','updateGroup','deleteGroup','createRow','updateRow','deleteRow','saveBlock','deleteBlock'];
+   const actions=['getWeek','saveTagDefinitions','saveTags','createGroup','updateGroup','deleteGroup','createRow','updateRow','deleteRow','saveBlock','deleteBlock'];
    if(!actions.includes(b.action))fail('Unknown schedule action.');
    db=await pool.connect();await db.query('BEGIN');
    await db.query('INSERT INTO public.schedules(owner_id) VALUES($1) ON CONFLICT DO NOTHING',[owner]);
    const data=(await db.query('SELECT data FROM public.schedules WHERE owner_id=$1 FOR UPDATE',[owner])).rows[0].data;
+   // Upgrade legacy colour labels without changing existing session colours.
+   if(!data.tagDefinitions){
+    data.tagDefinitions=Object.entries(data.tags??{}).map(([color,name])=>({id:color,name,color}));
+    for(const block of data.blocks){if(data.tags?.[block.color])block.tagId=block.color;}
+   }
    let result={saved:true};
    if(b.action==='getWeek'){
     const start=date(b.startDate),endDate=new Date(start+'T00:00:00Z');endDate.setUTCDate(endDate.getUTCDate()+6);
     const end=endDate.toISOString().slice(0,10);
-    result={groups:data.groups,rows:data.rows,blocks:data.blocks.filter(e=>e.date>=start&&e.date<=end)};
+    result={groups:data.groups,rows:data.rows,tags:data.tags??{},tagDefinitions:data.tagDefinitions,blocks:data.blocks.filter(e=>e.date>=start&&e.date<=end)};
+   }else if(b.action==='saveTagDefinitions'){
+    if(!Array.isArray(b.tags)||b.tags.length>50)fail('You can create up to 50 tags.');
+    const ids=new Set();
+    const tags=b.tags.map(tag=>{
+     if(!tag||typeof tag!=='object')fail('Invalid tag.');
+     const id=text(tag.id,100),name=text(tag.name,40);
+     if(ids.has(id))fail('Duplicate tag.');ids.add(id);
+     if(typeof tag.color!=='string'||!/^#[0-9a-f]{6}$/i.test(tag.color))fail('Invalid colour.');
+     return {id,name,color:tag.color.toUpperCase()};
+    });
+    for(const block of data.blocks){
+     if(!block.tagId)continue;
+     const tag=tags.find(t=>t.id===block.tagId);
+     if(tag)block.color=tag.color;else delete block.tagId;
+    }
+    data.tagDefinitions=tags;result={tagDefinitions:tags};
+   }else if(b.action==='saveTags'){
+    const colors=['#D97706','#2563EB','#059669','#7C3AED','#0891B2'];
+    if(!b.tags||typeof b.tags!=='object'||Array.isArray(b.tags)||Object.keys(b.tags).some(c=>!colors.includes(c)))fail('Invalid session tags.');
+    const tags={};
+    for(const color of colors){
+     const label=b.tags[color]??'';
+     if(typeof label!=='string'||label.trim().length>40)fail('Tag labels must be at most 40 characters.');
+     if(label.trim())tags[color]=label.trim();
+    }
+    data.tags=tags;
+    // Compatibility with clients still editing colour labels.
+    if(data.tagDefinitions.every(t=>t.id===t.color)){
+     data.tagDefinitions=Object.entries(tags).map(([color,name])=>({id:color,name,color}));
+     for(const block of data.blocks){if(tags[block.color])block.tagId=block.color;else delete block.tagId;}
+    }
+    result={tags};
    }else if(b.action==='createGroup'){
     if(data.groups.length>=50)fail('You can create up to 50 groups.');
     const group={id:randomUUID(),name:text(b.name,100)};data.groups.push(group);result={group};
@@ -42,12 +79,23 @@ export function scheduleHandler(pool){
     const existing=b.blockId?find(data.blocks,b.blockId):null;
     const start=time(b.start),end=b.end==='24:00'?'24:00':time(b.end);
     if(end<=start)fail('End time must be after start time on the same day.');
-    const color=b.color??'#D97706';if(!/^#[0-9a-f]{6}$/i.test(color))fail('Invalid colour.');
+    const tagId=b.tagId===undefined?existing?.tagId:b.tagId;
+    const tag=tagId?find(data.tagDefinitions,tagId):null;
+    const color=tag?.color??b.color??'#D97706';if(!/^#[0-9a-f]{6}$/i.test(color))fail('Invalid colour.');
     const note=b.note??'';if(typeof note!=='string'||note.length>2000)fail('Notes must be at most 2000 characters.');
-    const block={id:b.blockId??randomUUID(),...(b.rowId||existing?.row_id?{row_id:b.rowId??existing.row_id}:{}),date:date(b.date),start,end,title:text(b.title,200),note,color};
-    if(b.blockId){find(data.blocks,b.blockId);data.blocks=data.blocks.map(e=>e.id===b.blockId?block:e);}
-    else{if(data.blocks.length>=5000)fail('You can save up to 5000 schedule blocks.');data.blocks.push(block);}
-    result={block};
+    const location=b.location===undefined?(existing?.location??''):b.location;
+    if(typeof location!=='string'||location.length>500)fail('Location must be at most 500 characters.');
+    const block={id:b.blockId??randomUUID(),...(existing?.calendarEventId?{calendarEventId:existing.calendarEventId}:{}),...(b.rowId||existing?.row_id?{row_id:b.rowId??existing.row_id}:{}),date:date(b.date),start,end,title:text(b.title,200),note,color,...(tag?{tagId:tag.id}:{}),location:location.trim()};
+    if(b.blockId){find(data.blocks,b.blockId);data.blocks=data.blocks.map(e=>e.id===b.blockId?block:e);result={block};}
+    else{
+     // Recurring sessions are saved as independent copies, one per extra date.
+     const repeatDates=b.repeatDates===undefined?[]:b.repeatDates;
+     if(!Array.isArray(repeatDates)||repeatDates.length>365)fail('You can repeat a session on up to 365 other days.');
+     const extra=[...new Set(repeatDates.map(date))].filter(d=>d!==block.date);
+     const copies=extra.map(d=>({...block,id:randomUUID(),date:d}));
+     if(data.blocks.length+1+copies.length>5000)fail('You can save up to 5000 sessions.');
+     data.blocks.push(block,...copies);result={block,created:1+copies.length};
+    }
    }
    if(b.action!=='getWeek')await db.query('UPDATE public.schedules SET data=$1::jsonb,updated_at=now() WHERE owner_id=$2',[JSON.stringify(data),owner]);
    await db.query('COMMIT');return result;
