@@ -2,6 +2,31 @@ import {sessionOptions,sessionSourceOptions,mutateSessionLink} from './calendar-
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { publicMessage: message, statusCode }); };
 
+// Board panels a phase, Calendar event or session can link to (panels are
+// link targets only, so there is no panel-side list).
+async function panelOptions(db, owner, b) {
+  const [table, where, value] = b.source === 'event'
+    ? ['event_panel_links', 'l.event_id=$2', b.eventId]
+    : b.source === 'calendar'
+      ? ['calendar_panel_links', 'l.calendar_event_id=$2', b.calendarEventId]
+      : ['session_panel_links', 'l.owner_id=w.owner_id AND l.session_id=$2', b.sessionId];
+  // Panel links need migrations 12 and 13; without them there are simply no panel options.
+  await db.query('SAVEPOINT panel_options');
+  try {
+    const rows = (await db.query(`SELECT 'panel' AS target_type,w.id AS workplace_id,c->>'id' AS panel_id,c->>'name' AS title,
+    'Boards · ' || w.name || ' · Panel' AS location,
+    EXISTS(SELECT 1 FROM public.${table} l WHERE ${where} AND l.workplace_id=w.id AND l.panel_id::text=c->>'id') AS linked
+    FROM public.board_workplaces w CROSS JOIN LATERAL jsonb_array_elements(w.board->'columns') c
+    WHERE w.owner_id=$1 ORDER BY w.name,c->>'name'`, [owner, value])).rows;
+    await db.query('RELEASE SAVEPOINT panel_options');
+    return rows;
+  } catch (error) {
+    await db.query('ROLLBACK TO SAVEPOINT panel_options');
+    if (error.code === '42P01') return [];
+    throw error;
+  }
+}
+
 export function linksHandler(pool) {
   return async (request, reply) => {
     const b = request.body || {}, owner = request.userProfile.id;
@@ -12,7 +37,7 @@ export function linksHandler(pool) {
       const mutation = b.action !== 'list';
       // Infer the original event/task pair for older clients.
       const target = b.targetType ?? (b.source === 'event' ? 'task' : 'event');
-      if (mutation && (!['event','task','calendar','session'].includes(target) || target === b.source)) fail('Invalid link target.');
+      if (mutation && (!['event','task','calendar','session','panel'].includes(target) || target === b.source || (target === 'panel' && b.source === 'task'))) fail('Invalid link target.');
       const types = new Set(mutation ? [b.source,target] : [b.source]);
       db = await pool.connect();
       await db.query('BEGIN');
@@ -34,16 +59,34 @@ export function linksHandler(pool) {
         const row = await db.query('SELECT board FROM public.board_workplaces WHERE id=$1 AND owner_id=$2 FOR UPDATE',[b.workplaceId,owner]);
         if (!row.rows[0]?.board.tasks.some(t=>t.id===b.taskId)) fail('Task not found.',404);
       }
+      if (types.has('panel')) {
+        if (!uuid(b.workplaceId) || !uuid(b.panelId)) fail('Invalid panel.');
+        const row = await db.query('SELECT board FROM public.board_workplaces WHERE id=$1 AND owner_id=$2 FOR UPDATE',[b.workplaceId,owner]);
+        if (!row.rows[0]?.board.columns?.some(c=>c.id===b.panelId)) fail('Panel not found.',404);
+      }
       if(types.has('session')){
         if(!uuid(b.sessionId))fail('Invalid session.');
         const row=await db.query('SELECT data FROM public.schedules WHERE owner_id=$1 FOR UPDATE',[owner]);
         if(!row.rows[0]?.data.blocks.some(s=>s.id===b.sessionId))fail('Session not found.',404);
       }
       let result;
-      if(mutation && types.has('session')){
+      if (mutation && target === 'panel') {
+        const [table, keys, keyValues] = b.source === 'event'
+          ? ['event_panel_links', ['event_id'], [b.eventId]]
+          : b.source === 'calendar'
+            ? ['calendar_panel_links', ['calendar_event_id'], [b.calendarEventId]]
+            : ['session_panel_links', ['owner_id','session_id'], [owner,b.sessionId]];
+        const columns = [...keys,'workplace_id','panel_id'], values = [...keyValues,b.workplaceId,b.panelId];
+        if (b.action === 'link') {
+          await db.query(`INSERT INTO public.${table}(${columns.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')}) ON CONFLICT DO NOTHING`,values);
+        } else {
+          await db.query(`DELETE FROM public.${table} WHERE ${columns.map((c,i)=>`${c}=$${i+1}`).join(' AND ')}`,values);
+        }
+        result={saved:true};
+      } else if(mutation && types.has('session')){
         await mutateSessionLink(db,owner,b,types);result={saved:true};
       } else if(!mutation && b.source==='session'){
-        result={options:await sessionSourceOptions(db,owner,b.sessionId)};
+        result={options:[...await sessionSourceOptions(db,owner,b.sessionId),...await panelOptions(db,owner,b)]};
       } else if (mutation) {
         // Identifiers below are chosen solely from server constants.
         const calendarPair = types.has('calendar'), taskPair = types.has('task');
@@ -84,6 +127,7 @@ export function linksHandler(pool) {
             WHERE c.owner_id=$1 ORDER BY c.name,i.start_date,i.title`,b.source==='event'?[owner,b.eventId]:[owner,b.workplaceId,b.taskId])).rows);
         }
         options.push(...await sessionOptions(db,owner,b));
+        if (b.source !== 'task') options.push(...await panelOptions(db,owner,b));
         result={options};
       }
       await db.query('COMMIT');return result;

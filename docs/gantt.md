@@ -33,3 +33,9 @@ Calendar has a separate per-account tag library using the same name/colour edito
 as Schedule. Calendar > Tags manages up to 50 tags; event editors assign one tag
 or No tag. Tag colours appear in the calendar and event cards; labels appear in
 the day agenda and Events list. Deleting a tag clears its event assignments.
+
+## Board panel progress
+
+Phases, Calendar events and Schedule sessions can link to board **panels** as well as tasks: open the item, choose **Links → Manage links** and tick the panel (labelled "Boards · <board> · Panel"). Panels are link targets only, so they have no links list of their own.
+
+A phase linked to panels also shows progress: its bar fills from the left in proportion to the completed tasks across all linked panels (archived tasks are ignored), and its tooltip reads "N of M tasks complete". Phases with no linked panels, or whose panels have no tasks, show no progress. Links are stored in `event_panel_links` (migration `12-event-panel-links.sql`), `calendar_panel_links` and `session_panel_links` (migration `13-calendar-session-panel-links.sql`) and are removed when the panel, board, event or session is deleted.

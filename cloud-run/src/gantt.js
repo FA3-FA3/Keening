@@ -18,6 +18,37 @@ const itemSelect = `SELECT i.id, i.kind, i.title, i.description, i.start_date::t
   LEFT JOIN public.gantt_items p ON p.id=i.prerequisite_id
   WHERE i.calendar_id=$1 ORDER BY i.calendar_position, i.id`;
 
+// Progress of the board panels linked to Gantt phases: completed / total
+// (non-archived) tasks across every linked panel.
+async function panelProgress(db, owner, itemIds) {
+  const out = new Map();
+  if (!itemIds.length) return out;
+  // Phases still load if the panel-links migration has not been applied yet.
+  await db.query('SAVEPOINT panel_progress');
+  let links;
+  try {
+    links = (await db.query(`SELECT l.event_id, l.workplace_id, l.panel_id, w.name AS board_name, w.board
+      FROM public.event_panel_links l JOIN public.board_workplaces w ON w.id=l.workplace_id
+      WHERE w.owner_id=$1 AND l.event_id=ANY($2::uuid[]) ORDER BY w.name, l.panel_id`, [owner, itemIds])).rows;
+    await db.query('RELEASE SAVEPOINT panel_progress');
+  } catch (error) {
+    await db.query('ROLLBACK TO SAVEPOINT panel_progress');
+    if (error.code === '42P01') return out;
+    throw error;
+  }
+  for (const l of links) {
+    const panel = (l.board.columns ?? []).find(c => c.id === l.panel_id);
+    if (!panel) continue;
+    const tasks = (l.board.tasks ?? []).filter(t => t.column_id === l.panel_id && t.archived !== true);
+    const done = tasks.filter(t => t.completed === true).length;
+    const entry = out.get(l.event_id) ?? { panels: [], done: 0, total: 0 };
+    entry.panels.push({ workplace_id: l.workplace_id, panel_id: l.panel_id, name: panel.name, board_name: l.board_name, done, total: tasks.length });
+    entry.done += done; entry.total += tasks.length;
+    out.set(l.event_id, entry);
+  }
+  return out;
+}
+
 export function ganttHandler(pool, scope = 'gantt') {
   if (!['gantt', 'calendar'].includes(scope)) throw new Error('Invalid calendar storage scope');
   return async (request, reply) => {
@@ -71,7 +102,16 @@ export function ganttHandler(pool, scope = 'gantt') {
         if (!calendar.rowCount) fail('Calendar not found.', 404);
         const calendarId = body.calendar_id;
         if (body.action === 'listItems') {
-          result = { items: (await query(itemSelect, [calendarId])).rows };
+          const items = (await query(itemSelect, [calendarId])).rows;
+          if (scope === 'gantt') {
+            const progress = await panelProgress(db, owner, items.map(i => i.id));
+            for (const item of items) {
+              const p = progress.get(item.id);
+              item.panels = p?.panels ?? [];
+              item.progress = { done: p?.done ?? 0, total: p?.total ?? 0 };
+            }
+          }
+          result = { items };
         } else if (body.action === 'renameCalendar') {
           const name = text(body.name,100,'calendar name');
           await query('UPDATE public.gantt_calendars SET name=$1 WHERE id=$2', [name,calendarId]);

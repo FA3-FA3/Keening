@@ -54,4 +54,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Calendar sessions migration failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Calendar location migration failed.' }
 & $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\11-calendar-tags.sql') $databaseUrl
     if ($LASTEXITCODE -ne 0) { throw 'Calendar tags migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\12-event-panel-links.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Panel links migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\13-calendar-session-panel-links.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Calendar/session panel links migration failed.' }
 Write-Output 'Keening schema applied successfully.'

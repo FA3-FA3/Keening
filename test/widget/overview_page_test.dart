@@ -6,7 +6,7 @@ import 'schedule_page_test.dart' show FakeSchedule;
 
 void main() {
   testWidgets(
-    'Dashboard includes spanning events and only today and tomorrow sessions',
+    'Dashboard shows today and tomorrow events on the left and only today sessions on the right',
     (tester) async {
       final calendar = CalendarFake();
       final schedule = FakeSchedule();
@@ -19,6 +19,17 @@ void main() {
         'start_date': '2026-10-01',
         'end_date': '2026-10-01',
       });
+      calendar.events.add({
+        ...calendar.events.first,
+        'id': 'next',
+        'title': 'Tomorrow event',
+        'start_date': '2026-09-30',
+        'end_date': '2026-09-30',
+      });
+      tester.view.physicalSize = const Size(1500, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       for (final entry in [
         ('2026-09-29', '11:00', 'Later today'),
         ('2026-09-29', '08:00', 'Early today'),
@@ -46,15 +57,27 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Launch'), findsOneWidget);
+      expect(find.text('Launch'), findsNWidgets(2));
       expect(find.text('Future event'), findsNothing);
       expect(find.text('Outside range'), findsNothing);
-      expect(find.text('Tomorrow'), findsOneWidget);
+      expect(find.text('Tomorrow'), findsNothing);
+      expect(find.text("Tomorrow's sessions"), findsNothing);
+      expect(find.text('Tomorrow event'), findsOneWidget);
+      final today = tester.getTopLeft(find.text("Today's events"));
+      final sessions = tester.getTopLeft(find.text("Today's sessions"));
+      final tomorrow = tester.getTopLeft(find.text("Tomorrow's events"));
+      expect(sessions.dx, greaterThan(today.dx));
+      expect(sessions.dy, today.dy);
+      expect(tomorrow.dx, today.dx);
+      expect(
+        tomorrow.dy,
+        greaterThan(tester.getTopLeft(find.text('Launch').first).dy),
+      );
       expect(
         tester.getTopLeft(find.text('Early today')).dy,
         lessThan(tester.getTopLeft(find.text('Later today')).dy),
       );
-      expect(find.text('Studio'), findsNWidgets(3));
+      expect(find.text('Studio'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     },
   );
@@ -85,6 +108,7 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('No events today.'), findsOneWidget);
-    expect(find.text('No sessions planned.'), findsNWidgets(2));
+    expect(find.text('No events tomorrow.'), findsOneWidget);
+    expect(find.text('No sessions planned.'), findsOneWidget);
   });
 }

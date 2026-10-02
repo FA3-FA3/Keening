@@ -24,7 +24,7 @@ class _OverviewPageState extends State<OverviewPage> {
   late final _calendar = widget.calendarService ?? CalendarService();
   late final _schedule = widget.scheduleService ?? ScheduleService();
   late DateTime _today = DateUtils.dateOnly(widget.today ?? DateTime.now());
-  List<Map<String, dynamic>> _events = [], _sessions = [];
+  List<Map<String, dynamic>> _events = [], _tomorrowEvents = [], _sessions = [];
   bool _loading = true;
   String? _error;
   int _request = 0;
@@ -72,7 +72,8 @@ class _OverviewPageState extends State<OverviewPage> {
       ]);
       final calendars = results[0]['calendars'] as List;
       final tags = (results[0]['tagDefinitions'] as List? ?? []);
-      final events = <Map<String, dynamic>>[];
+      final events = <Map<String, dynamic>>[],
+          tomorrowEvents = <Map<String, dynamic>>[];
       for (var i = 0; i < calendars.length; i += 5) {
         final batch = await Future.wait(
           calendars
@@ -84,30 +85,35 @@ class _OverviewPageState extends State<OverviewPage> {
         );
         for (final data in batch) {
           for (final item in data['items'] as List) {
-            if ((item['start_date'] as String).compareTo(date) <= 0 &&
-                (item['end_date'] as String).compareTo(date) >= 0) {
-              final tag = tags
-                  .where((t) => t['id'] == item['tag_id'])
-                  .firstOrNull;
-              events.add({
-                ...Map<String, dynamic>.from(item),
-                if (tag != null) 'tag_name': tag['name'],
-              });
-            }
+            bool covers(String day) =>
+                (item['start_date'] as String).compareTo(day) <= 0 &&
+                (item['end_date'] as String).compareTo(day) >= 0;
+            final tag = tags
+                .where((t) => t['id'] == item['tag_id'])
+                .firstOrNull;
+            final entry = {
+              ...Map<String, dynamic>.from(item),
+              if (tag != null) 'tag_name': tag['name'],
+            };
+            if (covers(date)) events.add(entry);
+            if (covers(tomorrow)) tomorrowEvents.add(entry);
           }
         }
       }
-      events.sort((a, b) {
+      int byTime(Map<String, dynamic> a, Map<String, dynamic> b) {
         final time = (a['start_time'] as String? ?? '').compareTo(
           b['start_time'] as String? ?? '',
         );
         return time != 0
             ? time
             : (a['title'] as String).compareTo(b['title'] as String);
-      });
+      }
+
+      events.sort(byTime);
+      tomorrowEvents.sort(byTime);
       final sessions =
           (results[1]['blocks'] as List)
-              .where((s) => s['date'] == date || s['date'] == tomorrow)
+              .where((s) => s['date'] == date)
               .map((s) => Map<String, dynamic>.from(s))
               .toList()
             ..sort((a, b) {
@@ -121,6 +127,7 @@ class _OverviewPageState extends State<OverviewPage> {
       if (mounted && request == _request) {
         setState(() {
           _events = events;
+          _tomorrowEvents = tomorrowEvents;
           _sessions = sessions;
         });
       }
@@ -139,6 +146,7 @@ class _OverviewPageState extends State<OverviewPage> {
     String title,
     List<Map<String, dynamic>> items, {
     bool sessions = false,
+    String emptyEvents = 'No events today.',
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -147,7 +155,7 @@ class _OverviewPageState extends State<OverviewPage> {
       if (items.isEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: Text(sessions ? 'No sessions planned.' : 'No events today.'),
+          child: Text(sessions ? 'No sessions planned.' : emptyEvents),
         ),
       for (final item in items)
         Card(
@@ -226,16 +234,39 @@ class _OverviewPageState extends State<OverviewPage> {
             child: TextButton(onPressed: _load, child: const Text('Retry')),
           ),
         ] else if (!_loading) ...[
-          _section("Today's events", _events),
-          _section(
-            "Today's sessions",
-            _sessions.where((s) => s['date'] == _iso(_today)).toList(),
-            sessions: true,
-          ),
-          _section(
-            "Tomorrow's sessions",
-            _sessions.where((s) => s['date'] == _iso(_tomorrow)).toList(),
-            sessions: true,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final events = _section("Today's events", _events);
+              final tomorrow = _section(
+                "Tomorrow's events",
+                _tomorrowEvents,
+                emptyEvents: 'No events tomorrow.',
+              );
+              final sessions = _section(
+                "Today's sessions",
+                _sessions,
+                sessions: true,
+              );
+              if (constraints.maxWidth < 800) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [events, sessions, tomorrow],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [events, tomorrow],
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(child: sessions),
+                ],
+              );
+            },
           ),
         ],
       ],

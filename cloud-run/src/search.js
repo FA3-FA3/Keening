@@ -21,7 +21,7 @@ export function searchHandler(pool) {
       const eventTags = calendarTags.rows[0]?.tags ?? [];
       for (const e of events.rows) add('Event', 'Calendar', e, {parentId: e.calendar_id, tags: eventTags.filter(t => t.id === e.tag_id).map(t => t.name).join(' ')});
       for (const w of boards.rows) {
-        add('Workplace', 'Boards', w, {parentId: w.id});
+        add('Board', 'Boards', w, {parentId: w.id});
         for (const p of w.board.columns ?? []) add('Panel', 'Boards', p, {parentId: w.id, parent: w.name});
         for (const t of w.board.tasks ?? []) add('Task', 'Boards', t, {parentId: w.id, parent: [w.name, w.board.columns.find(c => c.id === t.column_id)?.name].filter(Boolean).join(' / '), tags: (w.board.tags ?? []).filter(tag => (t.tag_ids ?? []).includes(tag.id)).map(tag => tag.name).join(' ')});
       }

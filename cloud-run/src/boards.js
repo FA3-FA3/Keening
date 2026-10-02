@@ -21,7 +21,7 @@ function find(list, id) {
   return value;
 }
 function ids(value, allowed) {
-  if (!Array.isArray(value) || value.length > 500 || new Set(value).size !== value.length || value.some(id => !allowed.some(entry => entry.id === id))) fail('Items must belong to this workplace.');
+  if (!Array.isArray(value) || value.length > 500 || new Set(value).size !== value.length || value.some(id => !allowed.some(entry => entry.id === id))) fail('Items must belong to this board.');
   return value;
 }
 
@@ -39,13 +39,13 @@ export function boardsHandler(pool) {
         const name = label(b.name);
         await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE',[owner]);
         const count = await db.query('SELECT count(*)::int AS count FROM public.board_workplaces WHERE owner_id=$1',[owner]);
-        if (count.rows[0].count >= 100) fail('You can create up to 100 workplaces.');
+        if (count.rows[0].count >= 100) fail('You can create up to 100 boards.');
         result = { workplace: (await db.query('INSERT INTO public.board_workplaces(owner_id,name) VALUES($1,$2) RETURNING id,name',[owner,name])).rows[0] };
       } else {
         if (!idValid(b.workplaceId)) fail('Invalid workplace.');
         // Serialize changes to the board so concurrent independent edits are retained.
         const row = (await db.query('SELECT board FROM public.board_workplaces WHERE id=$1 AND owner_id=$2 FOR UPDATE',[b.workplaceId,owner])).rows[0];
-        if (!row) fail('Workplace not found.',404);
+        if (!row) fail('Board not found.',404);
         const board = row.board;
         const {columns,tasks,tags} = board;
         const stamp = new Date().toISOString();
@@ -69,7 +69,7 @@ export function boardsHandler(pool) {
             result={saved:true};changed=true;break;
           }
           case 'createTaskColumn': {
-            if(columns.length>=50) fail('A workplace can have up to 50 panels.');
+            if(columns.length>=50) fail('A board can have up to 50 panels.');
             const column={id:randomUUID(),name:label(b.name),color:colour(b.color),created_at:stamp,updated_at:stamp};
             columns.push(column);result={column};changed=true;break;
           }
@@ -85,9 +85,14 @@ export function boardsHandler(pool) {
             board.tasks=tasks.filter(t=>t.column_id!==b.columnId);
             result={deleted:true};changed=true;break;
           case 'createTaskTag': {
-            if(tags.length>=100) fail('A workplace can have up to 100 tags.');
+            if(tags.length>=100) fail('A board can have up to 100 tags.');
             const tag={id:randomUUID(),name:label(b.name,50),color:colour(b.color)};
             tags.push(tag);result={tag};changed=true;break;
+          }
+          case 'updateTaskTag': {
+            const tag=find(tags,b.tagId);
+            tag.name=label(b.name,50);tag.color=colour(b.color);
+            result={tag};changed=true;break;
           }
           case 'deleteTaskTag':
             find(tags,b.tagId);board.tags=tags.filter(tag=>tag.id!==b.tagId);

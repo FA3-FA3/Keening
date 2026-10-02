@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import '../widgets/global_search_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -156,6 +157,81 @@ class _DashboardPageState extends State<DashboardPage> {
     _revealActiveTab();
   }
 
+  String? _draggingTab;
+
+  /// Wide enough for the whole label plus the drag handle, padding and close button.
+  double _tabWidth(String tab) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: tab.split('/').last,
+        style: Theme.of(context).textTheme.labelLarge,
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    // handle 26 + label padding 32 + close button 48 + slack
+    return math.max(_navigationWidth, painter.width + 26 + 32 + 48 + 8);
+  }
+
+  /// Drop target for a tab; tabs are dragged only from their handle.
+  Widget _draggableTab(String tab, Widget child) => DragTarget<String>(
+    onWillAcceptWithDetails: (details) => details.data != tab,
+    onAcceptWithDetails: (details) => setState(() {
+      final from = _openTabs.indexOf(details.data), to = _openTabs.indexOf(tab);
+      if (from < 0 || to < 0) return;
+      _openTabs.insert(to, _openTabs.removeAt(from));
+    }),
+    builder: (context, candidates, _) => Opacity(
+      opacity: _draggingTab == tab ? .3 : 1,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          border: candidates.isEmpty
+              ? null
+              : Border(
+                  left: BorderSide(color: AppColors.primary(context), width: 3),
+                ),
+        ),
+        child: child,
+      ),
+    ),
+  );
+
+  Widget _dragHandle(String tab) => Draggable<String>(
+    key: ValueKey('tab-drag-$tab'),
+    data: tab,
+    axis: Axis.horizontal,
+    onDragStarted: () => setState(() => _draggingTab = tab),
+    onDragEnd: (_) {
+      if (mounted) setState(() => _draggingTab = null);
+    },
+    feedback: Material(
+      elevation: 4,
+      color: AppColors.surface(context),
+      shape: const RoundedRectangleBorder(borderRadius: _navigationRadius),
+      child: SizedBox(
+        width: _navigationWidth,
+        height: _navigationHeight,
+        child: Center(child: Text(tab.split('/').last)),
+      ),
+    ),
+    child: MouseRegion(
+      cursor: SystemMouseCursors.grab,
+      child: Tooltip(
+        message: 'Drag to reorder ${tab.split('/').last}',
+        child: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Icon(
+            Icons.drag_indicator,
+            size: 18,
+            color: AppColors.text(context).withValues(alpha: .6),
+          ),
+        ),
+      ),
+    ),
+  );
+
   void _revealActiveTab() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -266,119 +342,131 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     horizontal: 4,
                                                     vertical: 6,
                                                   ),
-                                              child: MouseRegion(
-                                                onEnter: (_) => setState(
-                                                  () => _hoveredTab = tab,
-                                                ),
-                                                onExit: (_) {
-                                                  if (mounted &&
-                                                      _hoveredTab == tab) {
-                                                    setState(
-                                                      () => _hoveredTab = null,
-                                                    );
-                                                  }
-                                                },
-                                                child: Material(
-                                                  key: ValueKey(
-                                                    'tab-surface-$tab',
+                                              child: _draggableTab(
+                                                tab,
+                                                MouseRegion(
+                                                  onEnter: (_) => setState(
+                                                    () => _hoveredTab = tab,
                                                   ),
-                                                  color: _tabColor(tab),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        _navigationRadius,
-                                                    side: BorderSide(
-                                                      color: tab == _selectedTab
-                                                          ? AppColors.primary(
-                                                              context,
-                                                            )
-                                                          : AppColors.text(
-                                                              context,
-                                                            ).withValues(
-                                                              alpha: 0.12,
-                                                            ),
+                                                  onExit: (_) {
+                                                    if (mounted &&
+                                                        _hoveredTab == tab) {
+                                                      setState(
+                                                        () =>
+                                                            _hoveredTab = null,
+                                                      );
+                                                    }
+                                                  },
+                                                  child: Material(
+                                                    key: ValueKey(
+                                                      'tab-surface-$tab',
                                                     ),
-                                                  ),
-                                                  clipBehavior: Clip.antiAlias,
-                                                  child: SizedBox(
-                                                    height: _navigationHeight,
-                                                    width: _navigationWidth,
-                                                    child: Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        Expanded(
-                                                          child: Semantics(
-                                                            selected:
-                                                                tab ==
-                                                                _selectedTab,
-                                                            child: TextButton(
-                                                              key: ValueKey(
-                                                                'workspace-tab-$tab',
+                                                    color: _tabColor(tab),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          _navigationRadius,
+                                                      side: BorderSide(
+                                                        color:
+                                                            tab == _selectedTab
+                                                            ? AppColors.primary(
+                                                                context,
+                                                              )
+                                                            : AppColors.text(
+                                                                context,
+                                                              ).withValues(
+                                                                alpha: 0.12,
                                                               ),
-                                                              onPressed: () =>
-                                                                  _openTab(tab),
-                                                              style:
-                                                                  TextButton.styleFrom(
-                                                                    shape: const RoundedRectangleBorder(
-                                                                      borderRadius:
-                                                                          _navigationRadius,
+                                                      ),
+                                                    ),
+                                                    clipBehavior:
+                                                        Clip.antiAlias,
+                                                    child: SizedBox(
+                                                      height: _navigationHeight,
+                                                      width: _tabWidth(tab),
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          _dragHandle(tab),
+                                                          Expanded(
+                                                            child: Semantics(
+                                                              selected:
+                                                                  tab ==
+                                                                  _selectedTab,
+                                                              child: TextButton(
+                                                                key: ValueKey(
+                                                                  'workspace-tab-$tab',
+                                                                ),
+                                                                onPressed: () =>
+                                                                    _openTab(
+                                                                      tab,
                                                                     ),
-                                                                    foregroundColor:
-                                                                        tab ==
-                                                                            _selectedTab
-                                                                        ? AppColors.primary(
-                                                                            context,
-                                                                          )
-                                                                        : AppColors.text(
-                                                                            context,
-                                                                          ),
-                                                                    padding: const EdgeInsets.symmetric(
-                                                                      horizontal:
-                                                                          16,
-                                                                      vertical:
-                                                                          8,
+                                                                style:
+                                                                    TextButton.styleFrom(
+                                                                      shape: const RoundedRectangleBorder(
+                                                                        borderRadius:
+                                                                            _navigationRadius,
+                                                                      ),
+                                                                      foregroundColor:
+                                                                          tab ==
+                                                                              _selectedTab
+                                                                          ? AppColors.primary(
+                                                                              context,
+                                                                            )
+                                                                          : AppColors.text(
+                                                                              context,
+                                                                            ),
+                                                                      padding: const EdgeInsets.symmetric(
+                                                                        horizontal:
+                                                                            16,
+                                                                        vertical:
+                                                                            8,
+                                                                      ),
+                                                                    ).copyWith(
+                                                                      overlayColor: WidgetStateProperty.resolveWith(
+                                                                        (
+                                                                          states,
+                                                                        ) =>
+                                                                            states.contains(
+                                                                              WidgetState.hovered,
+                                                                            )
+                                                                            ? Colors.transparent
+                                                                            : null,
+                                                                      ),
                                                                     ),
-                                                                  ).copyWith(
-                                                                    overlayColor: WidgetStateProperty.resolveWith(
-                                                                      (
-                                                                        states,
-                                                                      ) =>
-                                                                          states.contains(
-                                                                            WidgetState.hovered,
-                                                                          )
-                                                                          ? Colors.transparent
-                                                                          : null,
-                                                                    ),
-                                                                  ),
-                                                              child: Text(
-                                                                tab
-                                                                    .split('/')
-                                                                    .last,
+                                                                child: Text(
+                                                                  tab
+                                                                      .split(
+                                                                        '/',
+                                                                      )
+                                                                      .last,
+                                                                ),
                                                               ),
                                                             ),
                                                           ),
-                                                        ),
-                                                        IconButton(
-                                                          style: IconButton.styleFrom(
-                                                            hoverColor: Colors
-                                                                .transparent,
+                                                          IconButton(
+                                                            style: IconButton.styleFrom(
+                                                              hoverColor: Colors
+                                                                  .transparent,
+                                                            ),
+                                                            key: ValueKey(
+                                                              'close-tab-$tab',
+                                                            ),
+                                                            tooltip:
+                                                                'Close ${tab.split('/').last}',
+                                                            onPressed: () =>
+                                                                _closeTab(tab),
+                                                            icon: const Icon(
+                                                              Icons.close,
+                                                              size: 18,
+                                                            ),
+                                                            color:
+                                                                AppColors.text(
+                                                                  context,
+                                                                ),
                                                           ),
-                                                          key: ValueKey(
-                                                            'close-tab-$tab',
-                                                          ),
-                                                          tooltip:
-                                                              'Close ${tab.split('/').last}',
-                                                          onPressed: () =>
-                                                              _closeTab(tab),
-                                                          icon: const Icon(
-                                                            Icons.close,
-                                                            size: 18,
-                                                          ),
-                                                          color: AppColors.text(
-                                                            context,
-                                                          ),
-                                                        ),
-                                                      ],
+                                                        ],
+                                                      ),
                                                     ),
                                                   ),
                                                 ),

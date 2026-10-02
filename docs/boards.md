@@ -2,7 +2,7 @@
 
 Boards adapts Sorbit's Tasks page: user-created panels, draggable task cards,
 coloured panels/tasks/tags, expanded panel details, double-click task details,
-completion and archive/restore. Create workplace replaces team selection.
+completion and archive/restore. Create board replaces team selection.
 There are no team, member or assignment controls. Each user owns private
 workplaces. Calendar stores independent events. Saved tasks have a Links section for connecting Calendar and Gantt events; see [Event/task links](event-task-links.md).
 

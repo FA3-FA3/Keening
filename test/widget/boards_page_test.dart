@@ -56,6 +56,16 @@ class FakeBoards extends BoardsService {
         };
         (b['tags'] as List).add(tag);
         return {'tag': tag};
+      case 'updateTaskTag':
+        final edited =
+            (b['tags'] as List).firstWhere((t) => t['id'] == data['tagId'])
+                as Map<String, dynamic>;
+        edited['name'] = data['name'];
+        edited['color'] = data['color'];
+        return {'tag': edited};
+      case 'deleteTaskTag':
+        (b['tags'] as List).removeWhere((t) => t['id'] == data['tagId']);
+        return {'deleted': true};
       case 'createOrgTask':
         final task = {
           ...data,
@@ -122,7 +132,7 @@ void main() {
   ) async {
     final api = FakeBoards();
     await mount(tester, api);
-    await create(tester, 'Create workplace', 'Work');
+    await create(tester, 'Create board', 'Work');
     await create(tester, 'New panel', 'First');
     await create(tester, 'New panel', 'Second');
     final board = api.boards.values.first;
@@ -244,16 +254,74 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('task dialog title and buttons scroll with the content', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create board', 'Plan');
+    await create(tester, 'New panel', 'To do');
+    tester.view.physicalSize = const Size(900, 500);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add task').first);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    final title = find.text('New task');
+    final save = find.widgetWithText(FilledButton, 'Save');
+    final titleTop = tester.getTopLeft(title).dy;
+    expect(tester.getTopLeft(save).dy, greaterThan(500));
+    await tester.drag(title, const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(title).dy, lessThan(titleTop));
+    expect(tester.getTopLeft(title).dy, lessThan(0));
+    expect(tester.getTopLeft(save).dy, lessThan(500));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('tags can be edited and deleted from the edit menu', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create board', 'Plan');
+    await tester.tap(find.text('Tags'));
+    await tester.pumpAndSettle();
+    await create(tester, 'New tag', 'Priority');
+    final tags = api.boards.values.first['tags'] as List;
+    expect(find.byTooltip('Delete Priority'), findsNothing);
+    expect(find.text('Delete tag'), findsNothing);
+    await tester.tap(find.byTooltip('Edit Priority'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('#475569'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField), 'Urgent');
+    await tester.tap(find.byTooltip('#DC2626'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(tags.single['name'], 'Urgent');
+    expect(tags.single['color'], '#DC2626');
+    expect(find.text('Urgent'), findsOneWidget);
+    await tester.tap(find.byTooltip('Edit Urgent'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete tag'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(tags, isEmpty);
+    expect(find.text('Urgent'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
-    'workplaces isolate panels and tasks; task drag, completion and archive restore work',
+    'boards isolate panels and tasks; task drag, completion and archive restore work',
     (tester) async {
       final api = FakeBoards();
       await mount(tester, api);
       expect(
-        find.text('Create your first workplace to get started.'),
+        find.text('Create your first board to get started.'),
         findsOneWidget,
       );
-      await create(tester, 'Create workplace', 'Plan');
+      await create(tester, 'Create board', 'Plan');
       await create(tester, 'New panel', 'To do');
       await create(tester, 'New panel', 'Done');
       await tester.tap(find.text('Tags'));
@@ -301,7 +369,7 @@ void main() {
       expect(task['archived'], false);
       await tester.tap(find.text('Back to board'));
       await tester.pumpAndSettle();
-      await create(tester, 'Create workplace', 'Second');
+      await create(tester, 'Create board', 'Second');
       expect(find.text('Write proposal'), findsNothing);
       await tester.tap(find.widgetWithText(ChoiceChip, 'Plan'));
       await tester.pumpAndSettle();
@@ -314,7 +382,7 @@ void main() {
     (tester) async {
       final api = FakeBoards();
       await mount(tester, api);
-      await create(tester, 'Create workplace', 'Plan');
+      await create(tester, 'Create board', 'Plan');
       await create(tester, 'New panel', 'To do');
       await tester.tap(find.text('Add task'));
       await tester.pump(const Duration(milliseconds: 350));
@@ -339,7 +407,7 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(
-      find.text('Create your first workplace to get started.'),
+      find.text('Create your first board to get started.'),
       findsOneWidget,
     );
   });

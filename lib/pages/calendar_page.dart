@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/calendar_service.dart';
 import '../widgets/item_links.dart';
-import '../widgets/session_tags_dialog.dart';
+import '../widgets/tag_manager_dialog.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({
@@ -161,13 +161,21 @@ class _CalendarPageState extends State<CalendarPage> {
   });
 
   Future<void> _editTags() async {
-    final saved = await showDialog<List<dynamic>>(
+    final saved = await showDialog<TagList>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => SessionTagsDialog(
+      builder: (_) => TagManagerDialog.list(
         title: 'Event tags',
+        deleteWarning: 'This removes the tag from all events.',
         tags: _tags,
-        onSave: (tags) => _service.call('saveTagDefinitions', {'tags': tags}),
+        save: (tags) async {
+          final data = await _service.call('saveTagDefinitions', {
+            'tags': tags,
+          });
+          return (data['tagDefinitions'] as List)
+              .map((t) => Map<String, dynamic>.from(t))
+              .toList();
+        },
       ),
     );
     if (saved != null && mounted) await _load();
@@ -182,7 +190,7 @@ class _CalendarPageState extends State<CalendarPage> {
         avatar: Icon(
           Icons.circle,
           size: 12,
-          color: sessionColor(tag['color'] as String),
+          color: tagColor(tag['color'] as String),
         ),
         label: Text(tag['name'] as String),
       ),
@@ -395,7 +403,7 @@ class _CalendarPageState extends State<CalendarPage> {
                               avatar: Icon(
                                 Icons.circle,
                                 size: 12,
-                                color: sessionColor(tag['color'] as String),
+                                color: tagColor(tag['color'] as String),
                               ),
                               onSelected: saving
                                   ? null

@@ -8,7 +8,7 @@ const databaseUrl=process.env.TEST_DATABASE_URL;
 test('Independent Calendar CRUD and reciprocal links to Gantt and Boards', {skip:!databaseUrl}, async t=>{
   assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(databaseUrl).hostname));
   const pool=createPool(databaseUrl);
-  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql'])
+  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql','12-event-panel-links.sql','13-calendar-session-panel-links.sql'])
     await pool.query(await readFile(new URL(`../../postgres/init/${file}`,import.meta.url),'utf8'));
   const prefix=`calendar-${randomUUID()}`;
   const app=await buildApp({pool,logger:false,origins:[],verifyIdToken:async token=>({uid:`${prefix}-${token}`,firebase:{sign_in_provider:'password'}})});

@@ -196,4 +196,53 @@ void main() {
     expect(find.byKey(const ValueKey('workspace-empty')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('open tabs can be reordered by dragging', (tester) async {
+    tester.view.physicalSize = const Size(1500, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-Calendar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.pumpAndSettle();
+    for (final tab in ['Dashboard', 'Calendar', 'Gantt']) {
+      final label = find.descendant(
+        of: find.byKey(ValueKey('workspace-tab-$tab')),
+        matching: find.text(tab),
+      );
+      expect(tester.getSize(label).height, lessThan(24), reason: tab);
+    }
+    double x(String tab) =>
+        tester.getTopLeft(find.byKey(ValueKey('tab-surface-$tab'))).dx;
+    expect(x('Dashboard'), lessThan(x('Calendar')));
+    expect(x('Calendar'), lessThan(x('Gantt')));
+    final dashboard = tester.getCenter(
+      find.byKey(const ValueKey('workspace-tab-Dashboard')),
+    );
+    // Dragging from the label (anywhere but the handle) does nothing.
+    final label = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('workspace-tab-Gantt'))),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await label.moveTo(dashboard);
+    await tester.pump();
+    await label.up();
+    await tester.pumpAndSettle();
+    expect(x('Dashboard'), lessThan(x('Calendar')));
+    expect(x('Calendar'), lessThan(x('Gantt')));
+    final drag = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('tab-drag-Gantt'))),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+    await drag.moveTo(dashboard);
+    await tester.pump();
+    await drag.up();
+    await tester.pumpAndSettle();
+    expect(x('Gantt'), lessThan(x('Dashboard')));
+    expect(x('Dashboard'), lessThan(x('Calendar')));
+    expect(find.byKey(const ValueKey('workspace-page-Gantt')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

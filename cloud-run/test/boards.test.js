@@ -34,8 +34,11 @@ test('Boards persist isolated workplaces, panels, tasks, tags, moves, completion
  await run('reorderTaskColumns',{columnIds:[a.id,randomUUID()]},400);
  assert.deepEqual((await run('getBoard')).columns.map(c=>c.id),[b.id,a.id]);
  const tag=(await run('createTaskTag',{name:'Priority',color:'#2563EB'})).tag;
+ assert.equal((await run('updateTaskTag',{tagId:tag.id,name:'Urgent',color:'#DC2626'})).tag.name,'Urgent');
+ await run('updateTaskTag',{tagId:randomUUID(),name:'x',color:'#DC2626'},404);
+ await run('updateTaskTag',{tagId:tag.id,name:'',color:'#DC2626'},400);
  const task=(await run('createOrgTask',{columnId:a.id,title:'Write',description:'Details',tagIds:[tag.id],completed:true})).task;
- assert.equal(task.tags[0].id,tag.id);assert.equal(task.completed,true);
+ assert.equal(task.tags[0].id,tag.id);assert.equal(task.tags[0].name,'Urgent');assert.equal(task.completed,true);
  await run('createOrgTask',{columnId:a.id,title:'No foreign tag',tagIds:[randomUUID()]},400);
  await call({action:'createOrgTask',workplaceId:second.id,columnId:a.id,title:'Invalid'},'owner',404);
  await call({action:'setTaskTags',workplaceId:second.id,taskId:task.id,tagIds:[]},'owner',404);

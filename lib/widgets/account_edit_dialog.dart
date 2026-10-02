@@ -92,7 +92,9 @@ class _AccountEditDialogState extends State<AccountEditDialog> {
                   validator: (value) {
                     final text = value ?? '';
                     if (widget.action == 'username' &&
-                        !RegExp(r'^[A-Za-z0-9_]{3,30}$').hasMatch(text.trim())) {
+                        !RegExp(
+                          r'^[A-Za-z0-9_]{3,30}$',
+                        ).hasMatch(text.trim())) {
                       return 'Use 3-30 letters, numbers or underscores.';
                     }
                     if (widget.action == 'email' &&

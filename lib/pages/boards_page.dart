@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/boards_service.dart';
 import '../widgets/item_links.dart';
+import '../widgets/tag_manager_dialog.dart';
 
 /// Shared colour palette for panels, tasks, and tags across this page.
 const List<String> _kColorPalette = [
@@ -282,9 +283,9 @@ class _BoardsPageState extends State<BoardsPage> {
     String kind, {
     Map<String, dynamic>? existing,
   }) async {
+    final noun = kind == 'workplace' ? 'board' : kind;
     var name = existing?['name'] as String? ?? '';
-    var color =
-        existing?['color'] as String? ?? (kind == 'tag' ? '#059669' : '');
+    var color = existing?['color'] as String? ?? '';
     var saving = false;
     String? error;
     final workplace = _selected;
@@ -297,8 +298,8 @@ class _BoardsPageState extends State<BoardsPage> {
           child: AlertDialog(
             title: Text(
               existing == null
-                  ? (kind == 'workplace' ? 'Create workplace' : 'New $kind')
-                  : 'Rename $kind',
+                  ? (kind == 'workplace' ? 'Create board' : 'New $kind')
+                  : 'Rename $noun',
             ),
             content: SizedBox(
               width: 360,
@@ -311,10 +312,10 @@ class _BoardsPageState extends State<BoardsPage> {
                       initialValue: name,
                       autofocus: true,
                       enabled: !saving,
-                      maxLength: kind == 'tag' ? 50 : 100,
+                      maxLength: 100,
                       decoration: InputDecoration(
                         labelText:
-                            '${kind[0].toUpperCase()}${kind.substring(1)} name',
+                            '${noun[0].toUpperCase()}${noun.substring(1)} name',
                       ),
                       onChanged: (v) => name = v,
                     ),
@@ -326,7 +327,6 @@ class _BoardsPageState extends State<BoardsPage> {
                         ignoring: saving,
                         child: _colorSwatchRow(
                           selected: color,
-                          includeNone: kind != 'tag',
                           onSelect: (v) => update(() => color = v),
                         ),
                       ),
@@ -346,7 +346,7 @@ class _BoardsPageState extends State<BoardsPage> {
                     ? null
                     : () async {
                         if (name.trim().isEmpty) {
-                          update(() => error = 'Enter a $kind name.');
+                          update(() => error = 'Enter a $noun name.');
                           return;
                         }
                         update(() {
@@ -358,11 +358,9 @@ class _BoardsPageState extends State<BoardsPage> {
                               ? (existing == null
                                     ? 'createWorkplace'
                                     : 'renameWorkplace')
-                              : kind == 'panel'
-                              ? (existing == null
+                              : (existing == null
                                     ? 'createTaskColumn'
-                                    : 'updateTaskColumn')
-                              : 'createTaskTag';
+                                    : 'updateTaskColumn');
                           final data = await _service.call(action, {
                             'workplaceId': workplace,
                             'name': name.trim(),
@@ -479,15 +477,20 @@ class _BoardsPageState extends State<BoardsPage> {
 
           return PopScope(
             canPop: !saving,
-            child: AlertDialog(
-              title: Text(existing == null ? 'New task' : 'Task details'),
-              content: SizedBox(
-                width: 640,
+            child: Dialog(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 688),
                 child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Text(
+                        existing == null ? 'New task' : 'Task details',
+                        style: Theme.of(ctx).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 16),
                       if (existing != null) ...[
                         _metaEntry(
                           Icons.event_outlined,
@@ -565,38 +568,49 @@ class _BoardsPageState extends State<BoardsPage> {
                         enabled: !saving,
                       ),
                       if (error != null) Text(error!),
+                      const SizedBox(height: 24),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Wrap(
+                          alignment: WrapAlignment.end,
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (existing != null) ...[
+                              TextButton(
+                                onPressed: saving
+                                    ? null
+                                    : () => save(action: 'updateOrgTask'),
+                                child: Text(
+                                  existing['archived'] == true
+                                      ? 'Restore task'
+                                      : 'Archive task',
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: saving
+                                    ? null
+                                    : () => save(action: 'deleteOrgTask'),
+                                child: const Text('Delete task'),
+                              ),
+                            ],
+                            TextButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(ctx),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: saving ? null : () => save(),
+                              child: Text(saving ? 'Saving...' : 'Save'),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
-              actions: [
-                if (existing != null) ...[
-                  TextButton(
-                    onPressed: saving
-                        ? null
-                        : () => save(action: 'updateOrgTask'),
-                    child: Text(
-                      existing['archived'] == true
-                          ? 'Restore task'
-                          : 'Archive task',
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: saving
-                        ? null
-                        : () => save(action: 'deleteOrgTask'),
-                    child: const Text('Delete task'),
-                  ),
-                ],
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : () => save(),
-                  child: Text(saving ? 'Saving...' : 'Save'),
-                ),
-              ],
             ),
           );
         },
@@ -622,50 +636,27 @@ class _BoardsPageState extends State<BoardsPage> {
   }
 
   Future<void> _manageTags() async {
-    await showDialog<void>(
+    final workplace = _selected;
+    Future<TagList> save(String action, Map<String, dynamic> data) async {
+      await _service.call(action, {'workplaceId': workplace, ...data});
+      if (mounted) await _loadBoard();
+      return _tags;
+    }
+
+    await showDialog<TagList>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Tags'),
-        content: SizedBox(
-          width: 380,
-          height: 300,
-          child: ValueListenableBuilder<int>(
-            valueListenable: _revision,
-            builder: (_, revision, child) => ListView(
-              children: [
-                for (final tag in _tags)
-                  ListTile(
-                    title: Text(tag['name'] as String),
-                    leading: _colorDot(_parseColor(tag['color'] as String?)),
-                    trailing: IconButton(
-                      tooltip: 'Delete ${tag['name']}',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () async {
-                        if (await _confirm(
-                              'Delete tag?',
-                              'This removes the tag from all tasks in this workplace.',
-                            ) &&
-                            mounted) {
-                          await _run('deleteTaskTag', {'tagId': tag['id']});
-                        }
-                      },
-                    ),
-                  ),
-                TextButton.icon(
-                  onPressed: () => _nameDialog('tag'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New tag'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done'),
-          ),
-        ],
+      builder: (_) => TagManagerDialog(
+        title: 'Tags',
+        deleteWarning: 'This removes the tag from all tasks on this board.',
+        maxNameLength: 50,
+        maxTags: 100,
+        messageOf: _message,
+        tags: _tags,
+        onCreate: (name, color) =>
+            save('createTaskTag', {'name': name, 'color': color}),
+        onUpdate: (id, name, color) =>
+            save('updateTaskTag', {'tagId': id, 'name': name, 'color': color}),
+        onDelete: (id) => save('deleteTaskTag', {'tagId': id}),
       ),
     );
   }
@@ -793,10 +784,10 @@ class _BoardsPageState extends State<BoardsPage> {
                       ? null
                       : () => _nameDialog('workplace'),
                   icon: const Icon(Icons.add),
-                  label: const Text('Create workplace'),
+                  label: const Text('Create board'),
                 ),
                 IconButton(
-                  tooltip: 'Refresh workplaces',
+                  tooltip: 'Refresh boards',
                   onPressed: disabled ? null : _loadWorkplaces,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -860,7 +851,7 @@ class _BoardsPageState extends State<BoardsPage> {
                     label: Text(_archived ? 'Back to board' : 'Archive'),
                   ),
                   IconButton(
-                    tooltip: 'Rename workplace',
+                    tooltip: 'Rename board',
                     onPressed: disabled
                         ? null
                         : () => _nameDialog(
@@ -872,12 +863,12 @@ class _BoardsPageState extends State<BoardsPage> {
                     icon: const Icon(Icons.edit_outlined),
                   ),
                   IconButton(
-                    tooltip: 'Delete workplace',
+                    tooltip: 'Delete board',
                     onPressed: disabled
                         ? null
                         : () async {
                             if (!await _confirm(
-                                  'Delete workplace?',
+                                  'Delete board?',
                                   'This permanently deletes its panels, tasks, tags, and archived tasks.',
                                 ) ||
                                 !mounted) {
@@ -922,9 +913,7 @@ class _BoardsPageState extends State<BoardsPage> {
               ),
             )
           : _selected == null
-          ? const Center(
-              child: Text('Create your first workplace to get started.'),
-            )
+          ? const Center(child: Text('Create your first board to get started.'))
           : _archived
           ? ListView(
               padding: const EdgeInsets.all(16),

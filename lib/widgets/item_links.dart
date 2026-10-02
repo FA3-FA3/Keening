@@ -13,12 +13,16 @@ class ItemLinks extends StatefulWidget {
     this.taskId,
     this.enabled = true,
     this.service,
+    this.onChanged,
   });
 
   final String source;
   final String? eventId, calendarEventId, workplaceId, taskId, sessionId;
   final bool enabled;
   final LinksService? service;
+
+  /// Called after a link is added or removed.
+  final VoidCallback? onChanged;
 
   @override
   State<ItemLinks> createState() => _ItemLinksState();
@@ -173,6 +177,8 @@ class _ItemLinksState extends State<ItemLinks> {
                                                       option['workplace_id'],
                                                 if (option['task_id'] != null)
                                                   'taskId': option['task_id'],
+                                                if (option['panel_id'] != null)
+                                                  'panelId': option['panel_id'],
                                               });
                                               if (mounted) {
                                                 setState(
@@ -180,6 +186,7 @@ class _ItemLinksState extends State<ItemLinks> {
                                                       linked == true,
                                                 );
                                               }
+                                              widget.onChanged?.call();
                                             } catch (e) {
                                               if (ctx.mounted) {
                                                 update(

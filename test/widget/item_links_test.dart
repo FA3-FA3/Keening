@@ -22,7 +22,8 @@ class FakeLinks extends LinksService {
             if (target == 'session') 'session_id': 'session1',
             if (target == 'event') 'event_id': 'event1',
             if (target == 'calendar') 'calendar_event_id': 'calendar1',
-            if (target == 'task') 'workplace_id': 'work1',
+            if (target == 'task' || target == 'panel') 'workplace_id': 'work1',
+            if (target == 'panel') 'panel_id': 'panel1',
             if (target == 'task') 'task_id': 'task1',
             'linked': linked,
           },
@@ -41,11 +42,13 @@ void main() {
       'task',
       'calendar',
       'session',
-    ].where((t) => t != source)) {
+      'panel',
+    ].where((t) => t != source && !(t == 'panel' && source == 'task'))) {
       testWidgets(
         '$source to $target links persist, unlink and recover from failed saves',
         (tester) async {
           final service = FakeLinks(target);
+          var changes = 0;
           addTearDown(service.close);
           await tester.pumpWidget(
             MaterialApp(
@@ -58,6 +61,7 @@ void main() {
                   workplaceId: source == 'task' ? 'work1' : null,
                   taskId: source == 'task' ? 'task1' : null,
                   service: service,
+                  onChanged: () => changes++,
                 ),
               ),
             ),
@@ -88,6 +92,10 @@ void main() {
           if ([source, target].contains('task')) {
             expect(service.calls.last['taskId'], 'task1');
           }
+          if (target == 'panel') {
+            expect(service.calls.last['workplaceId'], 'work1');
+            expect(service.calls.last['panelId'], 'panel1');
+          }
           await tester.tap(find.text('Done'));
           await tester.pumpAndSettle();
           expect(find.text('Launch · Plan'), findsOneWidget);
@@ -105,6 +113,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('No links yet.'), findsOneWidget);
           expect(service.linked, false);
+          expect(changes, 2); // one link and one unlink succeeded
         },
       );
     }

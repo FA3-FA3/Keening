@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../utils/schedule_service.dart';
 import '../widgets/multi_date_calendar.dart';
 import '../widgets/schedule_timeline.dart';
-import '../widgets/session_tags_dialog.dart';
+import '../widgets/tag_manager_dialog.dart';
 import '../widgets/item_links.dart';
 
 class SchedulePage extends StatefulWidget {
@@ -136,12 +136,21 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   Future<void> _editTags() async {
-    final saved = await showDialog<List<dynamic>>(
+    final saved = await showDialog<TagList>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => SessionTagsDialog(
+      builder: (_) => TagManagerDialog.list(
+        title: 'Session tags',
+        deleteWarning: 'This removes the tag from all sessions.',
         tags: _tags,
-        onSave: (tags) => _service.call('saveTagDefinitions', {'tags': tags}),
+        save: (tags) async {
+          final data = await _service.call('saveTagDefinitions', {
+            'tags': tags,
+          });
+          return (data['tagDefinitions'] as List)
+              .map((t) => Map<String, dynamic>.from(t))
+              .toList();
+        },
       ),
     );
     if (saved != null && mounted) await _load();

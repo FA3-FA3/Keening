@@ -458,6 +458,7 @@ class _GanttPageState extends State<GanttPage> {
 
     final options = _items.where((entry) => !createsCycle(entry)).toList();
     var saving = false;
+    var linksChanged = false;
     String? error;
     final changed = await showDialog<bool>(
       context: context,
@@ -608,6 +609,7 @@ class _GanttPageState extends State<GanttPage> {
                         source: 'event',
                         eventId: item?['id'] as String?,
                         enabled: !saving,
+                        onChanged: () => linksChanged = true,
                       ),
                       if (error != null) Text(error!),
                     ],
@@ -634,7 +636,7 @@ class _GanttPageState extends State<GanttPage> {
         },
       ),
     );
-    if (changed == true && mounted) await _loadItems();
+    if ((changed == true || linksChanged) && mounted) await _loadItems();
   }
 
   Future<void> _reorderRows(
@@ -991,7 +993,7 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                     height: 32,
                     child: Tooltip(
                       message:
-                          '${item['title']}\n${item['start_date']} – ${item['end_date']}',
+                          '${item['title']}\n${item['start_date']} – ${item['end_date']}${_progressLabel(item)}',
                       child: Semantics(
                         label:
                             '${item['title']}, ${item['start_date']} to ${item['end_date']}',
@@ -1004,29 +1006,54 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                             alpha: item['completed'] == true ? 0.45 : 1,
                           ),
                           borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                item['title'] as String,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color:
-                                      ThemeData.estimateBrightnessForColor(
-                                            color,
-                                          ) ==
-                                          Brightness.dark
-                                      ? Colors.white
-                                      : Colors.black,
-                                  fontSize: 12,
-                                  decoration: item['completed'] == true
-                                      ? TextDecoration.lineThrough
-                                      : null,
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            children: [
+                              if (_progress(item) case final progress?)
+                                Positioned.fill(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: FractionallySizedBox(
+                                      key: ValueKey(
+                                        'gantt-progress-${item['id']}',
+                                      ),
+                                      widthFactor: progress,
+                                      heightFactor: 1,
+                                      child: ColoredBox(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.28,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    item['title'] as String,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color:
+                                          ThemeData.estimateBrightnessForColor(
+                                                color,
+                                              ) ==
+                                              Brightness.dark
+                                          ? Colors.white
+                                          : Colors.black,
+                                      fontSize: 12,
+                                      decoration: item['completed'] == true
+                                          ? TextDecoration.lineThrough
+                                          : null,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ),
@@ -1254,4 +1281,21 @@ class _GanttTimelineState extends State<_GanttTimeline> {
       },
     );
   }
+}
+
+/// Fraction (0–1) of tasks complete across the board panels linked to a phase,
+/// or null when no panel with tasks is linked.
+double? _progress(Map<String, dynamic> item) {
+  final progress = item['progress'];
+  if (progress is! Map) return null;
+  final total = (progress['total'] as num?)?.toInt() ?? 0;
+  if (total <= 0) return null;
+  final done = ((progress['done'] as num?)?.toInt() ?? 0).clamp(0, total);
+  return done / total;
+}
+
+String _progressLabel(Map<String, dynamic> item) {
+  final progress = item['progress'];
+  if (_progress(item) == null || progress is! Map) return '';
+  return '\n${progress['done']} of ${progress['total']} tasks complete';
 }
