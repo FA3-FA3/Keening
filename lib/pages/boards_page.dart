@@ -1,5 +1,6 @@
 import '../widgets/scrollable_workspace.dart';
 import 'package:flutter/material.dart';
+import '../widgets/item_attachments.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/boards_service.dart';
@@ -565,6 +566,11 @@ class _BoardsPageState extends State<BoardsPage> {
                         source: 'task',
                         workplaceId: workplace,
                         taskId: existing?['id'] as String?,
+                        enabled: !saving,
+                      ),
+                      ItemAttachments(
+                        itemType: 'task',
+                        itemId: existing?['id'] as String?,
                         enabled: !saving,
                       ),
                       if (error != null) Text(error!),

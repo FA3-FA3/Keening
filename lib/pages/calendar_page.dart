@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/item_attachments.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/calendar_service.dart';
@@ -443,6 +444,11 @@ class _CalendarPageState extends State<CalendarPage> {
                       ItemLinks(
                         source: 'calendar',
                         calendarEventId: event?['id'] as String?,
+                        enabled: !saving,
+                      ),
+                      ItemAttachments(
+                        itemType: 'event',
+                        itemId: event?['id'] as String?,
                         enabled: !saving,
                       ),
                       if (error != null) Text(error!),

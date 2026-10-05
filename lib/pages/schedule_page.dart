@@ -1,6 +1,7 @@
 import '../widgets/app_dropdown.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../widgets/item_attachments.dart';
 import 'package:intl/intl.dart';
 import '../utils/schedule_service.dart';
 import '../widgets/multi_date_calendar.dart';
@@ -39,13 +40,8 @@ class _SchedulePageState extends State<SchedulePage> {
   bool _loading = true;
   String? _error;
   int _request = 0;
-  static const _colors = [
-    '#D97706',
-    '#2563EB',
-    '#059669',
-    '#7C3AED',
-    '#0891B2',
-  ];
+  /// Sessions without a tag are grey.
+  static const _defaultColor = '#6B7280';
   DateTime _day(int offset) =>
       DateTime(_start.year, _start.month, _start.day + offset);
   String _iso(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
@@ -171,7 +167,7 @@ class _SchedulePageState extends State<SchedulePage> {
         end =
             block?['end'] as String? ??
             '${(hour + 1).toString().padLeft(2, '0')}:00';
-    var color = block?['color'] as String? ?? _colors.first;
+    var color = block?['color'] as String? ?? _defaultColor;
     String? tagId = block?['tagId'] as String?;
     var saving = false;
     var repeat = false;
@@ -338,6 +334,11 @@ class _SchedulePageState extends State<SchedulePage> {
                       ItemLinks(
                         source: 'session',
                         sessionId: block?['id'] as String?,
+                        enabled: !saving,
+                      ),
+                      ItemAttachments(
+                        itemType: 'session',
+                        itemId: block?['id'] as String?,
                         enabled: !saving,
                       ),
                       if (error != null) Text(error!),

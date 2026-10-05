@@ -22,6 +22,8 @@ test('Schedules persist weeks, isolate owners, validate blocks and delete nested
  for(const data of [{start:'25:00'},{end:'08:00'},{date:'2026-02-30'},{color:'invalid'},{title:''}])await call({...block,...data},'owner',400);
  const first=(await call(block)).block;
  await call({...block,date:'2026-10-05',title:'Next week'});
+ const {color:_ignored,...noColor}=block;
+ assert.equal((await call({...noColor,date:'2026-10-12',title:'Plain'})).block.color,'#6B7280','sessions default to grey');
  assert.equal((await call(week)).blocks.length,1);
  assert.equal((await call({...week,startDate:'2026-10-05'})).blocks[0].title,'Next week');
  assert.deepEqual((await call(week,'other')).groups,[]);

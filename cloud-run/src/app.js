@@ -9,6 +9,7 @@ import { boardsHandler } from './boards.js';
 import { linksHandler } from './links.js';
 import { scheduleHandler } from './schedule.js';
 import { padsHandler } from './pads.js';
+import { attachmentsHandler } from './attachments.js';
 import { profilePictureHandler } from './profile-picture.js';
 import { usernameHandler } from './account.js';
 
@@ -95,6 +96,12 @@ export async function buildApp({ pool, verifyIdToken, origins, auth, registratio
     bodyLimit: 6 * 1024 * 1024,
     config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
   }, padsHandler(pool));
+  // Attachments are files up to 5 MB, base64-encoded.
+  app.post('/attachments', {
+    preHandler: authenticate,
+    bodyLimit: 8 * 1024 * 1024,
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+  }, attachmentsHandler(pool));
   app.post('/account/username', { preHandler: authenticate,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, usernameHandler(pool));

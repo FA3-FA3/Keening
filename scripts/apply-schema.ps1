@@ -64,4 +64,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Pads migration failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Pad descriptions migration failed.' }
 & $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\16-document-folders.sql') $databaseUrl
 if ($LASTEXITCODE -ne 0) { throw 'Document folders migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\17-attachments.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Attachments migration failed.' }
 Write-Output 'Keening schema applied successfully.'

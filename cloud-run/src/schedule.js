@@ -81,7 +81,7 @@ export function scheduleHandler(pool){
     if(end<=start)fail('End time must be after start time on the same day.');
     const tagId=b.tagId===undefined?existing?.tagId:b.tagId;
     const tag=tagId?find(data.tagDefinitions,tagId):null;
-    const color=tag?.color??b.color??'#D97706';if(!/^#[0-9a-f]{6}$/i.test(color))fail('Invalid colour.');
+    const color=tag?.color??b.color??'#6B7280';if(!/^#[0-9a-f]{6}$/i.test(color))fail('Invalid colour.');
     const note=b.note??'';if(typeof note!=='string'||note.length>2000)fail('Notes must be at most 2000 characters.');
     const location=b.location===undefined?(existing?.location??''):b.location;
     if(typeof location!=='string'||location.length>500)fail('Location must be at most 500 characters.');
