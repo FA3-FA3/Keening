@@ -39,6 +39,8 @@ class ApiClient {
     String token,
     Map<String, dynamic> data,
   ) => _workspace('/calendar', token, data);
+  Future<Map<String, dynamic>> pads(String token, Map<String, dynamic> data) =>
+      _workspace('/pads', token, data);
   Future<Map<String, dynamic>> boards(
     String token,
     Map<String, dynamic> data,

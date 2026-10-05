@@ -14,8 +14,21 @@ export function searchHandler(pool) {
         pool.query('SELECT data FROM public.schedules WHERE owner_id=$1', [owner]),
         pool.query('SELECT tags FROM public.calendar_tags WHERE owner_id=$1', [owner]),
       ]);
+      // Documents need migrations 14–16; search still works without them.
+      const optional = async sql => {
+        try {
+          return (await pool.query(sql, [owner])).rows;
+        } catch (error) {
+          if (error.code === '42P01' || error.code === '42703') return [];
+          throw error;
+        }
+      };
+      const [folders, documents] = await Promise.all([
+        optional('SELECT id, name, parent_id FROM public.pad_folders WHERE owner_id=$1'),
+        optional('SELECT id, name, description, kind, folder_id, doc FROM public.pads WHERE owner_id=$1'),
+      ]);
       const all = [];
-      const add = (type, page, item, extra = {}) => all.push({type, page, id: item.id, title: item.title ?? item.name, description: item.description ?? item.note ?? '', location: item.location ?? '', date: item.date ?? '', completed: item.completed === true, archived: item.archived === true, ...extra});
+      const add =(type, page, item, extra = {}) => all.push({type, page, id: item.id, title: item.title ?? item.name, description: item.description ?? item.note ?? '', location: item.location ?? '', date: item.date ?? '', completed: item.completed === true, archived: item.archived === true, ...extra});
       for (const c of gantt.rows) add('Gantt calendar', 'Gantt', c, {parentId: c.id});
       for (const p of phases.rows) add('Phase', 'Gantt', p, {parentId: p.calendar_id, parent: p.parent});
       const eventTags = calendarTags.rows[0]?.tags ?? [];
@@ -27,12 +40,23 @@ export function searchHandler(pool) {
       }
       const schedule = schedules.rows[0]?.data;
       for (const s of schedule?.blocks ?? []) add('Session', 'Schedule', s, {time: `${s.start}–${s.end}`, tags: (schedule.tagDefinitions ?? []).filter(t => t.id === s.tagId).map(t => t.name).join(' ')});
+      const folderPath = id => {
+        const names = [];
+        for (let f = folders.find(x => x.id === id); f && names.length < 20; f = folders.find(x => x.id === f.parent_id)) names.unshift(f.name);
+        return names.join(' / ');
+      };
+      for (const f of folders) add('Folder', 'Documents', f, {parentId: f.id, parent: folderPath(f.parent_id)});
+      for (const d of documents) {
+        const note = d.kind === 'notepad' ? (d.doc?.text ?? '') : '';
+        // Notepad text is searchable and its start shows as the result's description; it is not sent whole.
+        add(d.kind === 'notepad' ? 'Notepad' : 'Dynamic Pad', 'Documents', {...d, description: d.description || note.slice(0, 200)}, {parentId: d.folder_id, parent: folderPath(d.folder_id), searchBody: note});
+      }
       const terms = query.trim().toLocaleLowerCase().split(/\s+/);
       const matches = all.filter(item => {
-        const text = [item.title, item.description, item.location, item.parent, item.tags, item.date, item.type].filter(Boolean).join(' ').toLocaleLowerCase();
+        const text = [item.title, item.description, item.location, item.parent, item.tags, item.date, item.type, item.searchBody].filter(Boolean).join(' ').toLocaleLowerCase();
         return terms.every(term => text.includes(term));
       }).sort((a,b) => Number(!a.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) - Number(!b.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) || a.title.localeCompare(b.title) || a.type.localeCompare(b.type) || a.id.localeCompare(b.id));
-      return {results: matches.slice(offset, offset + 50), total: matches.length};
+      return {results: matches.slice(offset, offset + 50).map(({searchBody, ...item}) => item), total: matches.length};
     } catch (error) {
       request.log.error({errorCode: error.code ?? 'SEARCH_FAILED'}, 'Search failed');
       return reply.code(503).send({error: 'Search is unavailable. Please try again.'});

@@ -245,4 +245,36 @@ void main() {
     expect(find.byKey(const ValueKey('workspace-page-Gantt')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('Documents opens from the sidebar as its own tab', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1500, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-page-Documents')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-Documents')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-tab-Documents')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('workspace-page-Documents')),
+      findsOneWidget,
+    );
+    expect(find.text('Documents'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('close-tab-Documents')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-page-Documents')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

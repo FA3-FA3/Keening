@@ -8,6 +8,7 @@ import { ganttHandler } from './gantt.js';
 import { boardsHandler } from './boards.js';
 import { linksHandler } from './links.js';
 import { scheduleHandler } from './schedule.js';
+import { padsHandler } from './pads.js';
 import { profilePictureHandler } from './profile-picture.js';
 import { usernameHandler } from './account.js';
 
@@ -88,6 +89,12 @@ export async function buildApp({ pool, verifyIdToken, origins, auth, registratio
   app.post('/boards', { preHandler: authenticate }, boardsHandler(pool));
   app.post('/links', { preHandler: authenticate }, linksHandler(pool));
   app.post('/schedule', { preHandler: authenticate }, scheduleHandler(pool));
+  // Pads accept picture uploads (up to 3 MB, base64-encoded), so they need a larger body limit.
+  app.post('/pads', {
+    preHandler: authenticate,
+    bodyLimit: 6 * 1024 * 1024,
+    config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
+  }, padsHandler(pool));
   app.post('/account/username', { preHandler: authenticate,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, usernameHandler(pool));

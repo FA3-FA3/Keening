@@ -13,11 +13,19 @@ import '../utils/account_service.dart';
 import 'settings_page.dart';
 import 'gantt_page.dart';
 import 'boards_page.dart';
+import 'documents_page.dart';
 import 'calendar_page.dart';
 import 'schedule_page.dart';
 import 'overview_page.dart';
 
-const _dashboardTabs = ['Dashboard', 'Gantt', 'Calendar', 'Boards', 'Schedule'];
+const _dashboardTabs = [
+  'Dashboard',
+  'Gantt',
+  'Calendar',
+  'Boards',
+  'Schedule',
+  'Documents',
+];
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
 const _navigationHeight = 36.0;
 const _navigationWidth = 144.0;
@@ -534,6 +542,14 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     _searchTargets['Boards'],
                                                 key: ValueKey(
                                                   'workspace-page-Boards',
+                                                ),
+                                              )
+                                            : tab == 'Documents'
+                                            ? DocumentsPage(
+                                                searchTarget:
+                                                    _searchTargets['Documents'],
+                                                key: const ValueKey(
+                                                  'workspace-page-Documents',
                                                 ),
                                               )
                                             : tab == 'Settings'

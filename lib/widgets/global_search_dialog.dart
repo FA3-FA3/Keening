@@ -118,7 +118,7 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
                   ? Center(
                       child: Text(
                         _text.text.trim().isEmpty
-                            ? 'Search phases, events, sessions, tasks, panels and boards.'
+                            ? 'Search phases, events, sessions, tasks, panels, boards and documents.'
                             : _loading
                             ? 'Searching…'
                             : _error != null

@@ -58,4 +58,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Calendar location migration failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Panel links migration failed.' }
 & $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\13-calendar-session-panel-links.sql') $databaseUrl
 if ($LASTEXITCODE -ne 0) { throw 'Calendar/session panel links migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\14-pads.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Pads migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\15-pad-descriptions.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Pad descriptions migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\16-document-folders.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Document folders migration failed.' }
 Write-Output 'Keening schema applied successfully.'

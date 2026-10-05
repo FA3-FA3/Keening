@@ -72,6 +72,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Panel links migration failed.' }
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\13-calendar-session-panel-links.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
     if ($LASTEXITCODE -ne 0) { throw 'Calendar/session panel links migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\14-pads.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Pads migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\15-pad-descriptions.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Pad descriptions migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\16-document-folders.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Document folders migration failed.' }
     Start-ServiceProcess 'auth'
     Wait-Url 'http://127.0.0.1:9099/'
   }
