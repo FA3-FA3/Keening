@@ -17,7 +17,7 @@ const documentTypes = [
   DocumentType(
     'pad',
     'Dynamic Pad',
-    Icons.draw_outlined,
+    Icons.dashboard_customize_outlined,
     'A free-form canvas for text boxes, pictures, lines and hand drawing.',
   ),
   DocumentType(
@@ -57,6 +57,10 @@ class DocumentsPage extends StatefulWidget {
 }
 
 /// What the details popup asks the page to do once it closes.
+/// Icons on the grid are drawn on their own, without a background tile.
+const _tileIconSize = 44.0;
+const _folderColor = Color(0xFFF59E0B);
+
 class _Chosen {
   const _Chosen(this.kind, [this.payload]);
   final String kind; // edit | move | open | delete
@@ -560,7 +564,6 @@ class _DocumentsPageState extends State<DocumentsPage> {
     final items =
         _documents.where((d) => d['folder_id'] == id).length +
         _folders.where((f) => f['parent_id'] == id).length;
-    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       width: 140,
       child: Stack(
@@ -576,18 +579,10 @@ class _DocumentsPageState extends State<DocumentsPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: scheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Icon(
-                        Icons.folder,
-                        size: 52,
-                        color: scheme.onSecondaryContainer,
-                      ),
+                    const Icon(
+                      Icons.folder,
+                      size: _tileIconSize,
+                      color: _folderColor,
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -663,19 +658,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Icon(
-                  type.icon,
-                  size: 48,
-                  color: scheme.onPrimaryContainer,
-                ),
-              ),
+              Icon(type.icon, size: _tileIconSize, color: scheme.primary),
               const SizedBox(height: 8),
               Text(
                 doc['name'] as String,

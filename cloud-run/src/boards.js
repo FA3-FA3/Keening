@@ -63,20 +63,23 @@ export function boardsHandler(pool) {
             if (b.archived != null && typeof b.archived !== 'boolean') fail('Invalid archive filter.');
             result={tasks:tasks.filter(task => task.archived === (b.archived ?? false)).map(taskView)};break;
           case 'reorderTaskColumns': {
+            // Only visible panels are ordered; archived panels keep their place at the end.
             const order=ids(b.columnIds,columns);
-            if(order.length!==columns.length)fail('The panels changed. Refresh and try again.',409);
-            board.columns=order.map(id=>find(columns,id));
+            const visible=columns.filter(c=>!c.archived);
+            if(order.length!==visible.length||order.some(id=>find(columns,id).archived))fail('The panels changed. Refresh and try again.',409);
+            board.columns=[...order.map(id=>find(columns,id)),...columns.filter(c=>c.archived)];
             result={saved:true};changed=true;break;
           }
           case 'createTaskColumn': {
             if(columns.length>=50) fail('A board can have up to 50 panels.');
-            const column={id:randomUUID(),name:label(b.name),color:colour(b.color),created_at:stamp,updated_at:stamp};
+            const column={id:randomUUID(),name:label(b.name),color:colour(b.color),archived:false,created_at:stamp,updated_at:stamp};
             columns.push(column);result={column};changed=true;break;
           }
           case 'updateTaskColumn': {
             const column=find(columns,b.columnId);
             if(b.name!==undefined)column.name=label(b.name);
             if(b.color!==undefined)column.color=colour(b.color);
+            if(b.archived!==undefined){if(typeof b.archived!=='boolean')fail('Invalid panel status.');column.archived=b.archived;}
             column.updated_at=stamp;result={column};changed=true;break;
           }
           case 'deleteTaskColumn':

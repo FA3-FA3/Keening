@@ -32,6 +32,15 @@ test('Boards persist isolated workplaces, panels, tasks, tags, moves, completion
  await run('reorderTaskColumns',{columnIds:[a.id]},409);
  await run('reorderTaskColumns',{columnIds:[a.id,a.id]},400);
  await run('reorderTaskColumns',{columnIds:[a.id,randomUUID()]},400);
+ assert.deepEqual((await run('getBoard')).columns.map(c=>c.archived),[false,false]);
+ // Archiving a panel hides it from ordering; it keeps its tasks and can be restored.
+ await run('updateTaskColumn',{columnId:b.id,archived:'yes'},400);
+ assert.equal((await run('updateTaskColumn',{columnId:b.id,archived:true})).column.archived,true);
+ await run('reorderTaskColumns',{columnIds:[b.id,a.id]},409);
+ await run('reorderTaskColumns',{columnIds:[a.id]});
+ assert.deepEqual((await run('getBoard')).columns.map(c=>[c.id,c.archived]),[[a.id,false],[b.id,true]]);
+ await run('updateTaskColumn',{columnId:b.id,archived:false});
+ await run('reorderTaskColumns',{columnIds:[b.id,a.id]});
  assert.deepEqual((await run('getBoard')).columns.map(c=>c.id),[b.id,a.id]);
  const tag=(await run('createTaskTag',{name:'Priority',color:'#2563EB'})).tag;
  assert.equal((await run('updateTaskTag',{tagId:tag.id,name:'Urgent',color:'#DC2626'})).tag.name,'Urgent');

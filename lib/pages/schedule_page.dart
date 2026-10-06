@@ -40,6 +40,7 @@ class _SchedulePageState extends State<SchedulePage> {
   bool _loading = true;
   String? _error;
   int _request = 0;
+
   /// Sessions without a tag are grey.
   static const _defaultColor = '#6B7280';
   DateTime _day(int offset) =>

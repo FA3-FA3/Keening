@@ -178,6 +178,10 @@ class _BoardsPageState extends State<BoardsPage> {
       : 'Unable to connect. Please try again.';
   List<Map<String, dynamic>> _list(dynamic value) =>
       (value as List).cast<Map<String, dynamic>>();
+
+  /// Panels that are not archived, in board order.
+  List<Map<String, dynamic>> get _activeColumns =>
+      _columns.where((c) => c['archived'] != true).toList();
   List<Map<String, dynamic>> _inPanel(String id) {
     final tasks = _tasks.where(
       (t) => t['column_id'] == id && t['archived'] == _archived,
@@ -709,6 +713,30 @@ class _BoardsPageState extends State<BoardsPage> {
                           onPressed: () => _taskDialog(id),
                           child: const Text('Add task'),
                         ),
+                        OutlinedButton.icon(
+                          key: const ValueKey('panel-dialog-archive'),
+                          onPressed: () async {
+                            final archive = current['archived'] != true;
+                            if (await _run('updateTaskColumn', {
+                                  'columnId': id,
+                                  'archived': archive,
+                                }) &&
+                                archive &&
+                                ctx.mounted) {
+                              Navigator.pop(ctx);
+                            }
+                          },
+                          icon: Icon(
+                            current['archived'] == true
+                                ? Icons.unarchive_outlined
+                                : Icons.archive_outlined,
+                          ),
+                          label: Text(
+                            current['archived'] == true
+                                ? 'Restore panel'
+                                : 'Archive panel',
+                          ),
+                        ),
                         IconButton(
                           tooltip: 'Delete panel',
                           icon: const Icon(Icons.delete_outline),
@@ -925,6 +953,36 @@ class _BoardsPageState extends State<BoardsPage> {
               padding: const EdgeInsets.all(16),
               children: [
                 Text(
+                  'Archived panels',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (!_columns.any((c) => c['archived'] == true))
+                  const Text('No archived panels'),
+                for (final panel in _columns.where(
+                  (c) => c['archived'] == true,
+                ))
+                  ListTile(
+                    key: ValueKey('archived-panel-${panel['id']}'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.view_column_outlined),
+                    title: Text(panel['name'] as String),
+                    subtitle: Text(
+                      '${_tasks.where((t) => t['column_id'] == panel['id']).length} tasks',
+                    ),
+                    onTap: () => _openPanel(panel),
+                    trailing: TextButton(
+                      key: ValueKey('panel-restore-${panel['id']}'),
+                      onPressed: disabled
+                          ? null
+                          : () => _run('updateTaskColumn', {
+                              'columnId': panel['id'],
+                              'archived': false,
+                            }),
+                      child: const Text('Restore panel'),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Text(
                   'Archived tasks',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
@@ -965,10 +1023,12 @@ class _BoardsPageState extends State<BoardsPage> {
                   ),
               ],
             )
-          : _columns.isEmpty
-          ? const Center(
+          : _activeColumns.isEmpty
+          ? Center(
               child: Text(
-                'No panels yet. Create a panel to start adding tasks.',
+                _columns.isEmpty
+                    ? 'No panels yet. Create a panel to start adding tasks.'
+                    : 'All panels are archived. Restore one from Archive, or create a new panel.',
               ),
             )
           : Padding(
@@ -979,12 +1039,14 @@ class _BoardsPageState extends State<BoardsPage> {
                 onReorderItem: (oldIndex, newIndex) {
                   if (disabled) return;
                   if (oldIndex == newIndex) return;
-                  final order = _columns.map((c) => c['id'] as String).toList();
+                  final order = _activeColumns
+                      .map((c) => c['id'] as String)
+                      .toList();
                   order.insert(newIndex, order.removeAt(oldIndex));
                   _run('reorderTaskColumns', {'columnIds': order});
                 },
                 children: [
-                  for (final column in _columns)
+                  for (final column in _activeColumns)
                     Padding(
                       key: ValueKey(column['id']),
                       padding: const EdgeInsets.only(right: 16),
@@ -992,7 +1054,7 @@ class _BoardsPageState extends State<BoardsPage> {
                         width: 280,
                         child: _KanbanColumn(
                           column: column,
-                          index: _columns.indexOf(column),
+                          index: _activeColumns.indexOf(column),
                           tasks: _inPanel(column['id'] as String),
                           canManage: !disabled,
                           onDropTask: (id, index) =>
@@ -1007,6 +1069,10 @@ class _BoardsPageState extends State<BoardsPage> {
                             {'taskId': task['id'], 'completed': value},
                           ),
                           onOpenPanelDetails: () => _openPanel(column),
+                          onArchive: () => _run('updateTaskColumn', {
+                            'columnId': column['id'],
+                            'archived': true,
+                          }),
                         ),
                       ),
                     ),
@@ -1027,6 +1093,7 @@ class _KanbanColumn extends StatefulWidget {
   final void Function(Map<String, dynamic> task) onEditTask;
   final void Function(Map<String, dynamic>, bool) onTaskCompleted;
   final VoidCallback onOpenPanelDetails;
+  final VoidCallback onArchive;
 
   const _KanbanColumn({
     required this.index,
@@ -1038,6 +1105,7 @@ class _KanbanColumn extends StatefulWidget {
     required this.onEditTask,
     required this.onTaskCompleted,
     required this.onOpenPanelDetails,
+    required this.onArchive,
   });
 
   @override
@@ -1139,6 +1207,14 @@ class _KanbanColumnState extends State<_KanbanColumn> {
                           fontSize: 12,
                           color: AppColors.grey500,
                         ),
+                      ),
+                      IconButton(
+                        key: ValueKey('panel-archive-${widget.column['id']}'),
+                        tooltip: 'Archive panel',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        onPressed: widget.canManage ? widget.onArchive : null,
+                        icon: const Icon(Icons.archive_outlined),
                       ),
                     ],
                   ),

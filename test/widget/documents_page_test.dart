@@ -252,7 +252,7 @@ void main() {
     expect(docTile(api, 'Hidden'), findsNothing, reason: 'it is inside Work');
     final folderLeft = tester.getTopLeft(folderTile(api, 'Work')).dx;
     expect(folderLeft, lessThan(tester.getTopLeft(docTile(api, 'Sketch')).dx));
-    expect(find.byIcon(Icons.draw_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.dashboard_customize_outlined), findsOneWidget);
     expect(find.byIcon(Icons.description_outlined), findsOneWidget);
     expect(find.byIcon(Icons.folder), findsOneWidget);
     expect(find.byKey(const ValueKey('pad-paper')), findsNothing);

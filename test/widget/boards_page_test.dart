@@ -48,6 +48,14 @@ class FakeBoards extends BoardsService {
         };
         (b['columns'] as List).add(c);
         return {'column': c};
+      case 'updateTaskColumn':
+        final column =
+            (b['columns'] as List).firstWhere(
+                  (c) => c['id'] == data['columnId'],
+                )
+                as Map<String, dynamic>;
+        if (data.containsKey('archived')) column['archived'] = data['archived'];
+        return {'column': column};
       case 'createTaskTag':
         final tag = {
           'id': 'tag${next++}',
@@ -126,6 +134,49 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('panels can be archived from the board or the panel and restored', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create board', 'Work');
+    await create(tester, 'New panel', 'First');
+    await create(tester, 'New panel', 'Second');
+    final columns = api.boards.values.first['columns'] as List;
+    final first = columns.first['id'], second = columns.last['id'];
+
+    // The panel also listens for double-taps, so its buttons act once that wait is over.
+    await tester.tap(find.byKey(ValueKey('panel-archive-$first')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(columns.first['archived'], true);
+    expect(find.byKey(ValueKey('task-panel-$first')), findsNothing);
+    expect(find.byKey(ValueKey('task-panel-$second')), findsOneWidget);
+
+    // Archived panels are listed under Archive and can be restored.
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('archived-panel-$first')), findsOneWidget);
+    expect(find.byKey(ValueKey('archived-panel-$second')), findsNothing);
+    await tester.tap(find.byKey(ValueKey('panel-restore-$first')));
+    await tester.pumpAndSettle();
+    expect(columns.first['archived'], false);
+    expect(find.text('No archived panels'), findsOneWidget);
+    await tester.tap(find.text('Back to board'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('task-panel-$first')), findsOneWidget);
+
+    // The expanded panel can archive itself too.
+    await tester.tap(find.byKey(ValueKey('task-panel-$second')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('panel-dialog-archive')));
+    await tester.pumpAndSettle();
+    expect(columns.last['archived'], true);
+    expect(find.byKey(const ValueKey('panel-dialog-archive')), findsNothing);
+    expect(find.byKey(ValueKey('task-panel-$second')), findsNothing);
+  });
 
   testWidgets('panels reorder horizontally and persist after reload', (
     tester,

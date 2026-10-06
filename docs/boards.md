@@ -14,6 +14,8 @@ Tags save atomically with task edits. Resource IDs must belong to the current
 workplace. Deleting a panel removes active and archived tasks; deleting a tag
 removes its task links; deleting a workplace removes all its board data.
 
+Whole panels can be archived: the archive button on a panel's header (or **Archive panel** in its expanded view) takes it off the board with its tasks kept intact. Archived panels are listed under **Archive → Archived panels**, where **Restore panel** puts them back (at the end of the board). Panels carry an `archived` flag set with `updateTaskColumn`; `reorderTaskColumns` only orders the visible panels and keeps archived ones after them. Archived panels still count towards the 50-panel limit and can still be opened from search and linked to items.
+
 Limits: 100 workplaces per user; 50 panels, 100 tags, and 500 tasks (including
 archived) per workplace. Names: 100 characters, tags: 50, titles: 200,
 descriptions: 5000. Setup scripts apply the additive schema.
