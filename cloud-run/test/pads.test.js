@@ -4,10 +4,11 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {createPool} from '../src/database.js';
 import {buildApp} from '../src/app.js';
-import {cleanDoc,cleanNote} from '../src/pads.js';
+import {cleanDoc,cleanNote,cleanRuns,noteImageIds} from '../src/pads.js';
 
 // A valid 1x1 PNG.
 const PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const OBJ=String.fromCharCode(0xfffc);
 const text=(id,extra={})=>({id,type:'text',x:10,y:20,w:200,text:'Hello',fontSize:18,color:'#111111',...extra});
 
 test('pad documents are validated and rebuilt from whitelisted fields', ()=>{
@@ -118,6 +119,45 @@ test('pads persist, validate, isolate owners and keep images', {skip:!databaseUr
 test('plain notes are validated and rebuilt from the text only', ()=>{
   assert.deepEqual(cleanNote({text:'Hello\nworld',evil:1}),{version:1,text:'Hello\nworld'});
   assert.deepEqual(cleanNote({text:''}),{version:1,text:''});
+
+  // Formatting runs: rebuilt from whitelisted attributes and checked against the text.
+  const runs=[{start:0,end:5,bold:true,size:24,color:'#dc2626',evil:1},{start:6,end:11,underline:true,italic:true,bg:'#fde047'}];
+  assert.deepEqual(cleanNote({text:'Hello world',runs}).runs,[{start:0,end:5,size:24,color:'#DC2626',bold:true},{start:6,end:11,bg:'#FDE047',italic:true,underline:true}]);
+  assert.equal(cleanNote({text:'Hello',runs:[]}).runs,undefined,'plain notes carry no runs');
+  assert.deepEqual(cleanRuns(undefined,5,10),[]);
+  for(const bad of [{start:0,end:12,bold:true},{start:3,end:3,bold:true},{start:-1,end:2,bold:true},{start:0.5,end:2,bold:true},{start:0,end:2},{start:0,end:2,bold:false},{start:0,end:2,size:4},{start:0,end:2,color:'red'},{start:0,end:2,bg:'#FFF'}])
+    assert.throws(()=>cleanNote({text:'Hello world',runs:[bad]}),/./,JSON.stringify(bad));
+  assert.throws(()=>cleanNote({text:'Hello world',runs:[{start:0,end:5,bold:true},{start:4,end:8,bold:true}]}),/./,'overlap');
+  assert.throws(()=>cleanNote({text:'Hello world',runs:[{start:5,end:8,bold:true},{start:0,end:2,bold:true}]}),/./,'unsorted');
+  assert.throws(()=>cleanNote({text:'Hello world',runs:'bold'}),/./);
+  assert.throws(()=>cleanNote({text:'x'.repeat(20),runs:Array.from({length:5001},(_,i)=>({start:0,end:1,bold:true}))}),/./,'too many runs');
+  // Pictures and equations stand in for one placeholder character of a note.
+  const image=randomUUID();
+  const embedded=cleanNote({text:'a'+OBJ+'b'+OBJ,runs:[{start:1,end:2,embed:{type:'image',imageId:image,evil:1}},{start:3,end:4,size:24,embed:{type:'equation',latex:'\\frac{a}{b}'}}]});
+  assert.deepEqual(embedded.runs,[{start:1,end:2,embed:{type:'image',imageId:image}},{start:3,end:4,size:24,embed:{type:'equation',latex:'\\frac{a}{b}'}}]);
+  assert.deepEqual(noteImageIds(embedded.runs),[image]);
+  assert.deepEqual(noteImageIds(undefined),[]);
+  for(const bad of [
+    {start:0,end:1,embed:{type:'image',imageId:'nope'}},            // not a uuid
+    {start:0,end:1,embed:{type:'video',imageId:image}},
+    {start:0,end:1,embed:{type:'equation',latex:''}},
+    {start:0,end:1,embed:{type:'equation',latex:'x'.repeat(2001)}},
+    {start:0,end:1,embed:'image'},
+    {start:0,end:2,embed:{type:'equation',latex:'x'}},               // covers a normal character
+    {start:2,end:3,embed:{type:'equation',latex:'x'}},               // not a placeholder
+  ])assert.throws(()=>cleanNote({text:OBJ+'a'+'b',runs:[bad]}),/./,JSON.stringify(bad));
+  assert.throws(()=>cleanDoc({elements:[{...text('t'),runs:[{start:0,end:1,embed:{type:'equation',latex:'x'}}]}]}),/./,'text boxes cannot hold embeds');
+  assert.throws(()=>cleanNote({text:OBJ.repeat(101),runs:[{start:0,end:101,embed:{type:'equation',latex:'x'}}]}),/./,'too many embeds');
+  assert.equal(cleanNote({text:OBJ.repeat(100),runs:[{start:0,end:100,embed:{type:'equation',latex:'x'}}]}).runs.length,1);
+
+  // Equations on a pad.
+  const eq={id:'q',type:'equation',x:10,y:20,w:120,h:40,latex:'x^2+y^2=z^2',color:'#2563eb'};
+  assert.deepEqual(cleanDoc({elements:[{...eq,evil:1}]}).elements[0],{...eq,color:'#2563EB'});
+  for(const bad of [{latex:''},{latex:'x'.repeat(2001)},{latex:5},{w:2},{h:99999},{color:'blue'},{x:1e9}])
+    assert.throws(()=>cleanDoc({elements:[{...eq,...bad}]}),/./,JSON.stringify(bad));
+  const box=cleanDoc({elements:[{...text('t'),runs:[{start:0,end:2,bold:true}]},text('u')]}).elements;
+  assert.deepEqual(box[0].runs,[{start:0,end:2,bold:true}]);assert.equal(box[1].runs,undefined);
+  assert.throws(()=>cleanDoc({elements:[{...text('t'),runs:[{start:0,end:99,bold:true}]}]}),/./,'run beyond the text box text');
   for(const bad of [null,{},{text:5},{elements:[]},{text:'x'.repeat(200001)}])
     assert.throws(()=>cleanNote(bad),/./,JSON.stringify(bad)?.slice(0,40));
 });
@@ -166,11 +206,29 @@ test('documents: folders, document types, moving and notes', {skip:!databaseUrl}
   // Notes save plain text; pads keep their layout; the two are not interchangeable.
   await call({action:'savePad',padId:note.id,doc:{text:'Milk\neggs'}});
   assert.equal((await call({action:'getPad',padId:note.id})).pad.doc.text,'Milk\neggs');
+  // Formatting round-trips; bad runs are rejected and change nothing.
+  const styled=[{start:0,end:4,bold:true,color:'#DC2626'}];
+  await call({action:'savePad',padId:note.id,doc:{text:'Milk\neggs',runs:styled}});
+  assert.deepEqual((await call({action:'getPad',padId:note.id})).pad.doc.runs,styled);
+  await call({action:'savePad',padId:note.id,doc:{text:'Milk',runs:[{start:0,end:99,bold:true}]}},'owner',400);
+  assert.deepEqual((await call({action:'getPad',padId:note.id})).pad.doc.runs,styled);
+  await call({action:'savePad',padId:note.id,doc:{text:'Milk\neggs'}});
+  assert.equal((await call({action:'getPad',padId:note.id})).pad.doc.runs,undefined);
   await call({action:'savePad',padId:note.id,doc:{elements:[]}},'owner',400);
   await call({action:'savePad',padId:note.id,doc:{text:'x'.repeat(200001)}},'owner',400);
   await call({action:'savePad',padId:pad.id,doc:{text:'nope'}},'owner',400);
-  await call({action:'uploadImage',padId:note.id,image:PNG},'owner',400);
-  await call({action:'getImage',padId:note.id,imageId:randomUUID()},'owner',400);
+  // Notes hold pictures and equations too: pictures are stored per note and must exist to be used.
+  const noteImage=(await call({action:'uploadImage',padId:note.id,image:PNG})).imageId;
+  assert.equal((await call({action:'getImage',padId:note.id,imageId:noteImage})).image,PNG);
+  await call({action:'getImage',padId:pad.id,imageId:noteImage},'owner',404);
+  await call({action:'getImage',padId:note.id,imageId:randomUUID()},'owner',404);
+  await call({action:'uploadImage',padId:note.id,image:PNG},'other',404);
+  const withEmbeds={text:'See '+OBJ+' and '+OBJ,runs:[{start:4,end:5,embed:{type:'image',imageId:noteImage}},{start:10,end:11,embed:{type:'equation',latex:'E=mc^2'}}]};
+  await call({action:'savePad',padId:note.id,doc:withEmbeds});
+  assert.deepEqual((await call({action:'getPad',padId:note.id})).pad.doc.runs,withEmbeds.runs);
+  await call({action:'savePad',padId:note.id,doc:{...withEmbeds,runs:[{start:4,end:5,embed:{type:'image',imageId:randomUUID()}}]}},'owner',400);
+  assert.deepEqual((await call({action:'getPad',padId:note.id})).pad.doc.runs,withEmbeds.runs,'a rejected save changes nothing');
+  await call({action:'savePad',padId:note.id,doc:{text:'Milk\neggs'}});
   await call({action:'uploadImage',padId:pad.id,image:PNG});
 
   // Moving documents.

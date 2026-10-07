@@ -1,61 +1,133 @@
 {
-    "emulators":  {
-                      "auth":  {
-                                   "host":  "127.0.0.1",
-                                   "port":  9099
-                               },
-                      "ui":  {
-                                 "enabled":  true,
-                                 "host":  "127.0.0.1",
-                                 "port":  4000
-                             },
-                      "singleProjectMode":  true
-                  },
-    "flutter":  {
-                    "platforms":  {
-                                      "dart":  {
-                                                   "lib/firebase_options.dart":  {
-                                                                                     "projectId":  "keening-ece74",
-                                                                                     "configurations":  {
-                                                                                                            "web":  "1:321783087335:web:734407223241b57b30e242"
-                                                                                                        }
-                                                                                 }
-                                               }
-                                  }
-                },
-    "hosting":  {
-                    "ignore":  [
-                                   "firebase.json",
-                                   "**/.*",
-                                   "**/node_modules/**"
-                               ],
-                    "site":  "keening-ece74",
-                    "public":  "build/web",
-                    "headers":  [
-                                    {
-                                        "headers":  [
-                                                        {
-                                                            "key":  "Cache-Control",
-                                                            "value":  "no-cache"
-                                                        }
-                                                    ],
-                                        "source":  "/index.html"
-                                    },
-                                    {
-                                        "headers":  [
-                                                        {
-                                                            "key":  "Cache-Control",
-                                                            "value":  "no-cache"
-                                                        }
-                                                    ],
-                                        "source":  "/flutter_bootstrap.js"
-                                    }
-                                ],
-                    "rewrites":  [
-                                     {
-                                         "destination":  "/index.html",
-                                         "source":  "**"
-                                     }
-                                 ]
-                }
+  "emulators": {
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4000
+    },
+    "singleProjectMode": true
+  },
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "keening-ece74",
+          "configurations": {
+            "web": "1:321783087335:web:734407223241b57b30e242"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "site": "keening-ece74",
+    "public": "build/web",
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_bootstrap.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/flutter.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/main.dart.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/main.dart.mjs",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/main.dart.wasm",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/version.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/manifest.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/assets/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "destination": "/index.html",
+        "source": "**"
+      }
+    ]
+  }
 }

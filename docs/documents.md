@@ -11,20 +11,50 @@
 
 ### Dynamic Pad
 
-A blank 3000 × 2000 space holding text boxes, pictures, straight lines and hand drawing.
+A blank 3000 × 2000 space holding text boxes, pictures, equations, straight lines and hand drawing.
 
-- Tools: **Select and move**, **Text box**, **Line**, **Pen**, **Add picture**.
+- Tools: **Select and move**, **Text box**, **Line**, **Pen**, and the **Insert** tool (a picture, a symbol or an equation, see below).
   - *Select*: click an item to select it, drag it to move it, drag its corner handle to resize (text boxes change width, pictures keep their proportions), drag a line's end handles to reposition it. Double-click a text box to edit it. Dragging the empty background scrolls the pad.
   - *Text box*: click where the text should go and type. Clicking away (or Esc) finishes; empty boxes are discarded.
   - *Line / Pen*: drag to draw. Strokes are smoothed and simplified when you let go.
-  - *Add picture*: choose a file, or **drag a picture file from your desktop onto the pad** (browser version) to drop it where you release it. Pictures are shrunk to at most 1600 px and stored as PNG (up to 3 MB each, 50 per pad).
+  - *Pictures*: chosen with **Insert → Picture**, or **dragged from your desktop onto the pad** (browser version) to drop where you release. Pictures are shrunk to at most 1600 px and stored as PNG (up to 3 MB each, 50 per document).
 - The colour swatches, **Width** and **Text** size menus apply to new items and to the selected item.
 - **Undo / Redo** (also Ctrl/⌘+Z, Ctrl+Y or Ctrl+Shift+Z), **Delete selected** (also Delete/Backspace), and **Zoom** (25 %–200 %).
-- Layers are drawn pictures first, then lines and pen strokes, then text.
+- Layers are drawn pictures first, then lines and pen strokes, then equations and text.
 
 ### Notepad
 
-A plain page of text with a word and character count, using the normal text-field editing and undo of your browser. Notes hold up to 200 000 characters.
+A page of text with a word and character count, using the normal text-field editing of your browser. Notes hold up to 200 000 characters. Like the Dynamic Pad, the Notepad has its **tools down the left** and the **settings of the chosen tool along the top**: **Select** (plain selecting, copying and editing; the top shows undo and redo), **Text** (the default; the top shows the text tool below) and **Insert** (a menu for a picture, symbol or equation; it works whichever tool is chosen). The save status sits at the right of the top bar, and the word and character count at the bottom.
+
+### The insert tool
+
+One insert tool (the **+** box button, in the tool column down the left of both a Dynamic Pad and a Notepad) is shared by both document types. It never takes keyboard focus and keeps the caret and selection where they were. Its menu has:
+
+- **Picture**: choose an image file (PNG, JPEG, GIF, WebP or BMP). It is shrunk to at most 1600 px, stored as PNG and uploaded once. In a Dynamic Pad it becomes a movable, resizable picture; in a Notepad it appears in the text at the caret (shown at most 360 × 300 px).
+- **Symbol**: a picker with Common, Math, Greek, Arrows, Shapes, Currency and Super/subscript groups, and a **Recent** group. In a Notepad (or a Dynamic Pad text box being edited) the symbol goes in at the caret, replacing any selection, as its own undo step; in a Dynamic Pad with no text box being edited it makes a new text box holding the symbol.
+- **Equation**: an editor for equations written in LaTeX, with buttons for fractions, powers, roots, sums, integrals, limits, brackets, matrices, Greek letters and operators, and a live preview. Invalid equations cannot be inserted (equations can be up to 2000 characters). In a Dynamic Pad the equation becomes an item you can move, resize (proportions are kept), recolour with the colour swatches, **double-click to edit** and delete like any other. In a Notepad it is drawn in the text; click it to edit.
+
+In a Notepad a picture or equation takes one placeholder character of the note's text, so it moves, copies and deletes with the text around it, is undone with Ctrl+Z, and is not counted as a word. Up to 100 pictures and equations per note.
+
+### Copy, cut and paste
+
+- **Notepad**: Ctrl+C / Ctrl+X / Ctrl+V (and the right-click menu) keep **formatting, equations and pictures**. Other apps receive plain text (an equation as its LaTeX, a picture left out). Pasting into another note adds the pictures to that note. Pasting text that came from somewhere else is plain text, and stray placeholder characters in typed or pasted text are dropped. A paste is one undo step.
+- **Dynamic Pad**: select an item (text box, picture, equation, line or pen stroke) and use Ctrl+C / Ctrl+X / Ctrl+V, or the **copy** and **paste** buttons on the top bar. **Ctrl+D** duplicates the selected item. Each paste lands 24 px further down and right so copies do not hide each other, and pictures pasted into another pad are added to that pad. Other apps receive a text box's text or an equation's LaTeX; text copied elsewhere pastes as a new text box.
+
+- **Between the two**: an equation (or picture, or text) copied in a Dynamic Pad pastes into a Notepad as an equation (picture, text), and a lone equation or picture copied in a Notepad pastes into a pad as an equation or picture; other text pastes as a text box. If both have a copy that matches the clipboard, the newer one is used.
+- **Feedback and the browser**: copying and cutting show "Copied" / "Cut". Reading the clipboard needs the browser's permission (Chrome asks the first time). If the browser refuses, Keening pastes its own last copy instead; if there is none it tells you to allow clipboard access for the site (the icon next to the address bar). If the browser refuses to *write* the clipboard, the message says the copy stays inside Keening.
+
+### The text tool
+
+One text tool is shared by Notepads and Dynamic Pad text boxes. From left to right: **undo** and **redo**, **bold**, *italic* and underline, a text **size** (the − and + buttons step through 10–96), a **text colour** and a **highlight colour** (each opens the colour picker, with a stripe under the icon showing the colour in use), and **decrease / increase indent**. It never takes keyboard focus, so the caret and selection stay where they are.
+
+- **Selected text** (in a Notepad, or while editing a text box) takes the change; the bar shows what the selection looks like (a mix shows only what every selected character shares). With **nothing selected**, the choice applies to what you type next at the caret.
+- **Colour picker**: drag the square (saturation across, brightness down) and the hue slider, or type a hex colour, then **Apply**. **Default colour** (text) or **No highlight** clears the colour. The star saves the current colour as a **favourite** (up to 24); **Recently used** shows the last 12 colours applied. Tapping a favourite or a recent colour applies it straight away. Both lists are shared by every colour picker and remembered in this browser.
+- **Indent** moves every line touched by the selection (or the caret's line) by four spaces; **decrease** removes up to four spaces (or a tab). The spaces are ordinary text and take the line's text size. **Tab** indents and **Shift+Tab** outdents the same way as the buttons (in a Notepad and in a Dynamic Pad text box being edited), instead of moving to the next control. An indent acts as one piece: **Backspace** and **Delete** remove the whole indent (not one space), and the caret and selections skip over it instead of stopping inside it. Fewer than four spaces at the start of a line, or spaces elsewhere in a line, are ordinary spaces. In a Dynamic Pad, with a text box selected (not being edited) it indents the whole box. Indenting stops rather than pass a document's character limit.
+- **Undo / redo** step back through typing (a burst of typing is one step), formatting and indenting. Ctrl+Z / Ctrl+Y in the text use the same history. In a Dynamic Pad, while a text box is being edited they act on that text; with a box selected they step the pad's own history, and in text mode with nothing selected there is nothing to undo.
+- Choices made at the caret are remembered across documents: the next empty Notepad, or the next new Dynamic Pad text box, starts with the last format picked.
+- In a **Dynamic Pad** the text tool floats over the top-left of the pad whenever the **Text box** tool is active, a text box is selected, or one is being edited. In text mode with nothing selected it sets how new text boxes start; with a text box selected (not editing) the change applies to the whole box. The drawing colour and width controls are shown for the other tools.
+- New text takes the format of the text before it (or of the first character when typed at the start); replacing a selection keeps the replaced text's format.
 
 ## Adding another document type
 
@@ -32,11 +62,11 @@ Types are listed in `documentTypes` in `lib/pages/documents_page.dart` (name, ic
 
 ## Storage and limits
 
-Documents are stored in the `pads` table (kept under its original name so existing pads carry over as Dynamic Pads), with a `kind` (`pad` or `notepad`), a `folder_id`, a description (migration `15-pad-descriptions.sql`) and a small JSON `doc`: a Dynamic Pad's layout, or a Notepad's `{text}`. Folders are in `pad_folders` (nested, up to 8 levels); deleting a folder cascades to its sub-folders and documents. Pad pictures are stored once in `pad_images`, so autosaves send only the layout.
+Documents are stored in the `pads` table (kept under its original name so existing pads carry over as Dynamic Pads), with a `kind` (`pad` or `notepad`), a `folder_id`, a description (migration `15-pad-descriptions.sql`) and a small JSON `doc`: a Dynamic Pad's layout, or a Notepad's `{text, runs}`. Formatting is stored as **runs**: sorted, non-overlapping ranges of the text (`start`, `end`, and any of `size` 8–200, `color`, `bg` highlight, `bold`, `italic`, `underline`). Dynamic Pad text boxes carry the same `runs` on top of their own size and colour. The server rebuilds runs from those fields only and rejects ranges outside the text (up to 5000 runs per note, 500 per text box). Folders are in `pad_folders` (nested, up to 8 levels); deleting a folder cascades to its sub-folders and documents. Pictures (in pads and in notes) are stored once in `pad_images`, so autosaves send only the layout or text. A Notepad's runs can also carry an `embed` (`{type: 'image', imageId}` or `{type: 'equation', latex}`) on a placeholder character (U+FFFC); the server checks that the run covers only placeholder characters, that a picture exists in that note, and that equations are 1–2000 characters. Dynamic Pad equations are items `{type: 'equation', x, y, w, h, latex, color}`.
 
-Authenticated `POST /pads` accepts `listPads`, `createPad` (with `kind` and `folderId`), `renamePad`, `updatePad`, `movePad`, `deletePad`, `getPad`, `savePad`, `uploadImage`, `getImage`, `listFolders`, `createFolder`, `renameFolder`, `moveFolder` and `deleteFolder`. Every action checks ownership. Only Dynamic Pads accept pictures. The route allows bodies up to 6 MB for picture uploads; all other routes keep their small limit.
+Authenticated `POST /pads` accepts `listPads`, `createPad` (with `kind` and `folderId`), `renamePad`, `updatePad`, `movePad`, `deletePad`, `getPad`, `savePad`, `uploadImage`, `getImage`, `listFolders`, `createFolder`, `renameFolder`, `moveFolder` and `deleteFolder`. Every action checks ownership. Both document types accept pictures. The route allows bodies up to 6 MB for picture uploads; all other routes keep their small limit.
 
-Limits: 500 documents and 200 folders per user; Dynamic Pads hold up to 3000 items and 150 000 pen points (layouts up to 1.5 MB, text boxes up to 10 000 characters); Notepads up to 200 000 characters. The server rebuilds every saved document from whitelisted fields and rejects anything out of range. Pad pictures no longer on a pad are removed an hour after the next save, so undo still works for a while.
+Limits: 500 documents and 200 folders per user; Dynamic Pads hold up to 3000 items and 150 000 pen points (layouts up to 1.5 MB, text boxes up to 10 000 characters); Notepads up to 200 000 characters. The server rebuilds every saved document from whitelisted fields and rejects anything out of range. Pictures no longer used by their document are removed an hour after the next save, so undo still works for a while.
 
 ## Search
 

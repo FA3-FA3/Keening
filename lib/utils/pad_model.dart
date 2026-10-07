@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/painting.dart';
+import 'rich_text.dart';
 
 /// Size of a pad's drawing surface, in pad units (zoom scales it on screen).
 const padCanvasWidth = 3000.0;
@@ -22,6 +23,11 @@ const padPalette = [
 const padStrokeWidths = [1.0, 2.0, 4.0, 8.0, 14.0];
 const padFontSizes = [14.0, 18.0, 24.0, 32.0, 48.0, 72.0];
 const padTextPadding = 6.0;
+
+/// A new text box starts at this size and colour; the text tool changes how
+/// its text looks from there.
+const padDefaultTextSize = 24.0;
+const padDefaultTextColor = '#111111';
 
 Color padColor(String hex) =>
     Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
@@ -61,6 +67,17 @@ sealed class PadElement {
           w: n('w'),
           text: json['text'] as String,
           fontSize: n('fontSize'),
+          color: padColor(json['color'] as String),
+          runs: runsFromJson(json['runs'], (json['text'] as String).length),
+        );
+      case 'equation':
+        return EquationEl(
+          id: id,
+          x: n('x'),
+          y: n('y'),
+          w: n('w'),
+          h: n('h'),
+          latex: json['latex'] as String,
           color: padColor(json['color'] as String),
         );
       case 'image':
@@ -104,10 +121,39 @@ class TextEl extends PadElement {
     required this.text,
     required this.fontSize,
     required this.color,
+    this.runs = const [],
   }) : super(id);
   final double x, y, w, fontSize;
   final String text;
   final Color color;
+
+  /// Formatting laid over the box's own size and colour.
+  final List<StyleRun> runs;
+
+  TextSpan get span => richSpan(text, runs, style);
+
+  /// What the whole box looks like, attribute by attribute.
+  TextFormat get format => sharedFormat(expandRuns(runs, text.length));
+
+  /// The box with every line indented ([direction] 1) or outdented (-1); the
+  /// same box if nothing changed.
+  TextEl indented(int direction) {
+    final c = RichTextController(text: text, runs: runs, maxLength: 10000);
+    c.selection = TextSelection(baseOffset: 0, extentOffset: text.length);
+    c.indent(direction);
+    final next = c.text == text ? this : copyWith(text: c.text, runs: c.runs);
+    c.dispose();
+    return next;
+  }
+
+  /// Changes every character in the box.
+  TextEl withFormat(TextFormat Function(TextFormat) change) {
+    final formats = expandRuns(runs, text.length);
+    final from = sharedFormat(formats), to = change(from);
+    return copyWith(
+      runs: compactRuns([for (final f in formats) mergeFormat(f, from, to)]),
+    );
+  }
 
   TextStyle get style => TextStyle(
     inherit: false,
@@ -120,10 +166,8 @@ class TextEl extends PadElement {
 
   /// Height needed to show the text at its current width.
   double get height {
-    final painter = TextPainter(
-      text: TextSpan(text: text.isEmpty ? ' ' : text, style: style),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: math.max(1, w - 2 * padTextPadding));
+    final painter = TextPainter(text: span, textDirection: TextDirection.ltr)
+      ..layout(maxWidth: math.max(1, w - 2 * padTextPadding));
     final h = painter.height;
     painter.dispose();
     return h + 2 * padTextPadding;
@@ -139,6 +183,7 @@ class TextEl extends PadElement {
     String? text,
     double? fontSize,
     Color? color,
+    List<StyleRun>? runs,
   }) => TextEl(
     id: id,
     x: x ?? this.x,
@@ -147,6 +192,7 @@ class TextEl extends PadElement {
     text: text ?? this.text,
     fontSize: fontSize ?? this.fontSize,
     color: color ?? this.color,
+    runs: runs ?? this.runs,
   );
 
   @override
@@ -166,6 +212,7 @@ class TextEl extends PadElement {
     'text': text,
     'fontSize': fontSize,
     'color': padHex(color),
+    if (runs.isNotEmpty) 'runs': [for (final r in runs) r.toJson()],
   };
 }
 
@@ -209,6 +256,62 @@ class ImageEl extends PadElement {
     'w': _round(w),
     'h': _round(h),
     'imageId': imageId,
+  };
+}
+
+/// An equation written in LaTeX, drawn scaled to fit its box (kept in
+/// proportion when resized).
+class EquationEl extends PadElement {
+  const EquationEl({
+    required String id,
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.h,
+    required this.latex,
+    required this.color,
+  }) : super(id);
+  final double x, y, w, h;
+  final String latex;
+  final Color color;
+
+  @override
+  Rect get bounds => Rect.fromLTWH(x, y, w, h);
+
+  EquationEl copyWith({
+    double? x,
+    double? y,
+    double? w,
+    double? h,
+    String? latex,
+    Color? color,
+  }) => EquationEl(
+    id: id,
+    x: x ?? this.x,
+    y: y ?? this.y,
+    w: w ?? this.w,
+    h: h ?? this.h,
+    latex: latex ?? this.latex,
+    color: color ?? this.color,
+  );
+
+  @override
+  bool hitTest(Offset point, {double tolerance = 4}) =>
+      bounds.inflate(tolerance).contains(point);
+
+  @override
+  PadElement translated(Offset d) => copyWith(x: x + d.dx, y: y + d.dy);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': 'equation',
+    'x': _round(x),
+    'y': _round(y),
+    'w': _round(w),
+    'h': _round(h),
+    'latex': latex,
+    'color': padHex(color),
   };
 }
 

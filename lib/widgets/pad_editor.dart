@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/file_drop.dart';
+import '../utils/clipboard_text.dart';
+import '../utils/pad_clipboard.dart';
 import '../utils/pad_image.dart';
 import '../utils/pad_model.dart';
+import '../utils/rich_text.dart';
+import 'equation_editor.dart';
+import 'insert_tool.dart';
+import 'text_format_bar.dart';
 
 enum PadTool { select, text, line, pen }
 
@@ -64,7 +69,7 @@ class _PadEditorState extends State<PadEditor> {
   String? _selected, _editing;
   PadTool _tool = PadTool.select;
   String _color = padPalette.first;
-  double _strokeWidth = 4, _fontSize = 24, _zoom = 1;
+  double _strokeWidth = 4, _zoom = 1;
 
   PadSaveState _saveState = PadSaveState.saved;
   String? _saveError;
@@ -73,6 +78,13 @@ class _PadEditorState extends State<PadEditor> {
   int _version = 0;
 
   final Map<String, Uint8List> _images = {};
+
+  /// The pictures stored with this pad (one copied from another pad has to be
+  /// added to this one when pasted).
+  late final Set<String> _ownedImages = {
+    for (final e in widget.initialElements)
+      if (e is ImageEl) e.imageId,
+  };
   final Set<String> _imageLoading = {}, _imageFailed = {};
   int _busyImages = 0;
 
@@ -80,7 +92,11 @@ class _PadEditorState extends State<PadEditor> {
   final _vertical = ScrollController(), _horizontal = ScrollController();
   final _focus = FocusNode(debugLabel: 'pad');
   late final _textFocus = FocusNode()..addListener(_textFocusChanged);
-  TextEditingController? _textController;
+  RichTextController? _textController;
+
+  /// True while the colour picker has focus, so editing is not ended by it.
+  bool _holdEditing = false;
+  TextSelection? _heldSelection;
   VoidCallback? _detachDrop;
   bool _dropHover = false;
   int _idCounter = 0;
@@ -96,6 +112,7 @@ class _PadEditorState extends State<PadEditor> {
   @override
   void initState() {
     super.initState();
+    TextTool.shared.addListener(_textToolChanged);
     _loadImages();
     _detachDrop = widget.attachDrop(
       enabled: () => mounted && widget.active,
@@ -110,6 +127,7 @@ class _PadEditorState extends State<PadEditor> {
 
   @override
   void dispose() {
+    TextTool.shared.removeListener(_textToolChanged);
     _detachDrop?.call();
     _saveTimer?.cancel();
     if (_saveState == PadSaveState.dirty || _saveState == PadSaveState.error) {
@@ -145,9 +163,10 @@ class _PadEditorState extends State<PadEditor> {
       : 'Something went wrong. Please try again.';
   void _snack(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(text)));
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
   }
 
   bool _sameElements(List<PadElement> a, List<PadElement> b) {
@@ -272,7 +291,7 @@ class _PadEditorState extends State<PadEditor> {
     final tolerance = 4 / _zoom;
     // Text sits above strokes, which sit above pictures (see _surface).
     for (final layer in [
-      (PadElement e) => e is TextEl,
+      (PadElement e) => e is TextEl || e is EquationEl,
       (PadElement e) => e is LineEl || e is PenEl,
       (PadElement e) => e is ImageEl,
     ]) {
@@ -286,7 +305,7 @@ class _PadEditorState extends State<PadEditor> {
   String? _handleAt(PadElement el, Offset p) {
     final reach = 14 / _zoom;
     switch (el) {
-      case TextEl() || ImageEl():
+      case TextEl() || ImageEl() || EquationEl():
         return (p - el.bounds.bottomRight).distance <= reach ? 'br' : null;
       case LineEl():
         if ((p - el.a).distance <= reach) return 'a';
@@ -312,6 +331,10 @@ class _PadEditorState extends State<PadEditor> {
         hit.id == _lastTapId &&
         now.difference(_lastTapAt) < _doubleTap) {
       _startEditing(hit);
+    } else if (hit is EquationEl &&
+        hit.id == _lastTapId &&
+        now.difference(_lastTapAt) < _doubleTap) {
+      _editEquation(hit);
     }
     _lastTapId = hit?.id;
     _lastTapAt = now;
@@ -398,6 +421,14 @@ class _PadEditorState extends State<PadEditor> {
             w = (padCanvasHeight - el.y) / aspect;
           }
           _replace(el.copyWith(w: w, h: w * aspect));
+        case EquationEl():
+          final aspect = el.h / el.w;
+          var w = math.max(24.0, p.dx - el.x);
+          w = math.min(w, padCanvasWidth - el.x);
+          if (el.y + w * aspect > padCanvasHeight) {
+            w = (padCanvasHeight - el.y) / aspect;
+          }
+          _replace(el.copyWith(w: w, h: w * aspect));
         case LineEl():
           _replace(_dragHandle == 'a' ? el.copyWith(a: p) : el.copyWith(b: p));
         case PenEl():
@@ -430,8 +461,8 @@ class _PadEditorState extends State<PadEditor> {
       y: math.min(p.dy, padCanvasHeight - 60),
       w: 240,
       text: '',
-      fontSize: _fontSize,
-      color: padColor(_color),
+      fontSize: padDefaultTextSize,
+      color: padColor(padDefaultTextColor),
     );
     _push();
     setState(() {
@@ -443,8 +474,15 @@ class _PadEditorState extends State<PadEditor> {
 
   void _startEditing(TextEl el) {
     _textController?.dispose();
-    _textController = TextEditingController(text: el.text)
-      ..selection = TextSelection.collapsed(offset: el.text.length);
+    _textController =
+        RichTextController(
+            text: el.text,
+            runs: el.runs,
+            onFormatEdited: _formatEdited,
+            maxLength: 10000,
+          )
+          ..selection = TextSelection.collapsed(offset: el.text.length)
+          ..addListener(_textToolChanged);
     if (el.text.isNotEmpty) _push(); // one undo step for the whole edit
     setState(() {
       _editing = el.id;
@@ -458,14 +496,110 @@ class _PadEditorState extends State<PadEditor> {
   void _textChanged(String value) {
     final el = _find(_editing);
     if (el is! TextEl) return;
-    setState(() => _replace(el.copyWith(text: value)));
+    setState(
+      () => _replace(el.copyWith(text: value, runs: _textController!.runs)),
+    );
     _changed();
   }
 
+  /// The text tool changed formatting without changing the text.
+  void _formatEdited() {
+    final el = _find(_editing);
+    if (el is! TextEl || _textController == null) return;
+    setState(
+      () => _replace(
+        el.copyWith(text: _textController!.text, runs: _textController!.runs),
+      ),
+    );
+    _changed();
+  }
+
+  /// Keeps the text tool's display in step with the caret and the shared
+  /// last-used format.
+  void _textToolChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// The text tool for the text box being edited, a selected text box, or, in
+  /// text mode with nothing selected, the format new text boxes will start with.
+  bool get _textContext =>
+      (_find(_editing) is TextEl && _textController != null) ||
+      _selectedEl is TextEl ||
+      _tool == PadTool.text;
+
+  Widget? _textBar() {
+    final selected = _selectedEl;
+    final editing = _find(_editing);
+    final controller = _textController;
+    if (editing is TextEl && controller != null) {
+      return TextFormatBar(
+        format: controller.currentFormat,
+        baseSize: editing.fontSize,
+        baseColor: padHex(editing.color),
+        onUndo: controller.canUndo ? controller.undo : null,
+        onRedo: controller.canRedo ? controller.redo : null,
+        onIndent: controller.indent,
+        onPickerOpen: () {
+          _holdEditing = true;
+          _heldSelection = controller.selection;
+        },
+        onPickerClose: () {
+          // The picker took focus; give the text its selection and focus back.
+          final held = _heldSelection;
+          if (held != null && held.isValid) controller.selection = held;
+          _holdEditing = false;
+          if (_editing != null) _textFocus.requestFocus();
+        },
+        onChange: (change) {
+          final format = controller.edit(change);
+          // Choices made at the caret carry over to new text anywhere.
+          if (!controller.hasSelection) TextTool.shared.format = format;
+        },
+      );
+    }
+    if (selected is TextEl) {
+      return TextFormatBar(
+        format: selected.format,
+        baseSize: selected.fontSize,
+        baseColor: padHex(selected.color),
+        onUndo: _undo.isEmpty ? null : _undoStep,
+        onRedo: _redo.isEmpty ? null : _redoStep,
+        onIndent: (direction) {
+          final current = _find(selected.id);
+          if (current is! TextEl || current.text.isEmpty) return;
+          final next = current.indented(direction);
+          if (identical(next, current)) return;
+          _push();
+          setState(() => _replace(next));
+          _changed();
+        },
+        onPickerClose: _focus.requestFocus,
+        onChange: (change) {
+          final current = _find(selected.id);
+          if (current is! TextEl) return;
+          _push();
+          setState(() => _replace(current.withFormat(change)));
+          _changed();
+        },
+      );
+    }
+    if (_tool == PadTool.text) {
+      return TextFormatBar(
+        format: TextTool.shared.format,
+        baseSize: padDefaultTextSize,
+        baseColor: padDefaultTextColor,
+        onPickerClose: _focus.requestFocus,
+        onChange: (change) =>
+            TextTool.shared.format = change(TextTool.shared.format),
+      );
+    }
+    return null;
+  }
+
   void _textFocusChanged() {
-    if (!_textFocus.hasFocus && _editing != null) {
+    if (!_textFocus.hasFocus && _editing != null && !_holdEditing) {
       scheduleMicrotask(() {
-        if (mounted && !_textFocus.hasFocus) _finishEditing();
+        if (mounted && !_textFocus.hasFocus && !_holdEditing) _finishEditing();
       });
     }
   }
@@ -589,9 +723,10 @@ class _PadEditorState extends State<PadEditor> {
     if (el == null) return;
     final color = padColor(hex);
     final next = switch (el) {
-      TextEl() => el.copyWith(color: color),
+      TextEl() => null,
       LineEl() => el.copyWith(color: color),
       PenEl() => el.copyWith(color: color),
+      EquationEl() => el.copyWith(color: color),
       ImageEl() => null,
     };
     if (next == null) return;
@@ -611,15 +746,6 @@ class _PadEditorState extends State<PadEditor> {
     if (next == null) return;
     _push();
     setState(() => _replace(next));
-    _changed();
-  }
-
-  void _setFontSize(double size) {
-    setState(() => _fontSize = size);
-    final el = _selectedEl;
-    if (el is! TextEl) return;
-    _push();
-    setState(() => _replace(el.copyWith(fontSize: size)));
     _changed();
   }
 
@@ -646,27 +772,265 @@ class _PadEditorState extends State<PadEditor> {
     }
   }
 
-  Future<void> _chooseImage() async {
-    Uint8List? bytes;
-    try {
-      if (widget.pickImage != null) {
-        bytes = await widget.pickImage!();
-      } else {
-        final file = await openFile(
-          acceptedTypeGroups: [
-            const XTypeGroup(
-              label: 'Pictures',
-              extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
-            ),
-          ],
+  // ------------------------------------------------------- copy and paste
+
+  /// Copies the selected item (a cut also deletes it). The system clipboard
+  /// gets a text box's text or an equation's LaTeX.
+  Future<void> _copySelected({bool cut = false}) async {
+    final el = _selectedEl;
+    if (el == null) return;
+    final images = <String, Uint8List>{};
+    if (el is ImageEl && _images[el.imageId] != null) {
+      images[el.imageId] = _images[el.imageId]!;
+    }
+    final plain = switch (el) {
+      TextEl() => el.text,
+      EquationEl() => el.latex,
+      _ => '',
+    };
+    PadClipboard.current = PadClip([el], images, plain);
+    if (cut) _deleteSelected();
+    final written = await writeClipboardText(plain);
+    if (!mounted) return;
+    _snack(
+      written
+          ? (cut ? 'Cut' : 'Copied')
+          : 'Copied inside Keening (the browser would not share it with other apps)',
+    );
+  }
+
+  /// Pastes the last copy, or, if something else is on the system clipboard,
+  /// its text as a new text box.
+  Future<void> _paste() async {
+    final read = await readClipboardText();
+    if (!mounted) return;
+    final pad = PadClipboard.current, rich = RichClipboard.current;
+    final newestIsRich =
+        rich != null && (pad == null || rich.copiedAt.isAfter(pad.copiedAt));
+    if (read.failed) {
+      // The browser would not let us read the clipboard: use our own last copy.
+      if (pad == null && rich == null) {
+        _snack(
+          'The browser would not let Keening read the clipboard. Allow '
+          'clipboard access for this site (the icon next to the address), or '
+          'paste inside the page after copying here.',
         );
-        bytes = await file?.readAsBytes();
+      } else if (newestIsRich) {
+        await _pasteFromNote(rich);
+      } else {
+        await _pasteClip(pad!);
       }
-    } catch (_) {
-      _snack('Unable to open that file.');
       return;
     }
-    if (bytes != null) await _addImage(bytes);
+    final text = read.text;
+    final padMatches = pad != null && (text.isEmpty || pad.matches(text));
+    final richMatches = rich != null && rich.matches(text);
+    if (padMatches && (!richMatches || !newestIsRich)) {
+      await _pasteClip(pad);
+    } else if (richMatches) {
+      await _pasteFromNote(rich);
+    } else if (text.trim().isNotEmpty) {
+      _finishEditing();
+      _insertSymbol(text.length > 10000 ? text.substring(0, 10000) : text);
+    }
+  }
+
+  /// Something copied in a Notepad: a lone equation or picture becomes an item
+  /// on the pad, anything else a text box holding its plain text.
+  Future<void> _pasteFromNote(RichClip clip) async {
+    _finishEditing();
+    final first = clip.formats.isEmpty ? null : clip.formats.first.embed;
+    if (clip.text == embedChar && first != null && !first.isImage) {
+      // Equations are measured when they are written; this one is sized by
+      // its length until you resize it.
+      final latex = first.latex!;
+      _insertEquation(
+        EquationResult(
+          latex,
+          Size(math.max(48.0, latex.length * 13.0 + 16), 44),
+        ),
+      );
+    } else if (clip.text == embedChar && first != null && first.isImage) {
+      final bytes = clip.images[first.imageId];
+      if (bytes == null) {
+        _snack('That picture could not be pasted.');
+      } else {
+        await _addImage(bytes);
+      }
+    } else if (clip.plain.trim().isNotEmpty) {
+      _insertSymbol(
+        clip.plain.length > 10000 ? clip.plain.substring(0, 10000) : clip.plain,
+      );
+    }
+  }
+
+  void _duplicateSelected() {
+    final el = _selectedEl;
+    if (el == null) return;
+    _pasteClip(PadClip([el], const {}, ''));
+  }
+
+  Future<void> _pasteClip(PadClip clip) async {
+    if (_elements.length + clip.elements.length > padMaxElements) {
+      _snack('A pad can hold up to $padMaxElements items.');
+      return;
+    }
+    _finishEditing();
+    clip.pastes++;
+    final shift = Offset(24.0 * clip.pastes, 24.0 * clip.pastes);
+    final pasted = <PadElement>[];
+    var failed = 0;
+    for (final original in clip.elements) {
+      var json = {...original.toJson(), 'id': _newId()};
+      if (original is ImageEl && !_ownedImages.contains(original.imageId)) {
+        // A picture from another pad is added to this one.
+        final bytes = clip.images[original.imageId];
+        if (bytes == null) {
+          failed++;
+          continue;
+        }
+        setState(() => _busyImages++);
+        try {
+          final fresh = await widget.onUploadImage(bytes);
+          _ownedImages.add(fresh);
+          _images[fresh] = bytes;
+          json = {...json, 'imageId': fresh};
+        } catch (_) {
+          failed++;
+          continue;
+        } finally {
+          if (mounted) setState(() => _busyImages--);
+        }
+        if (!mounted) return;
+      }
+      final copy = PadElement.fromJson(json).translated(shift);
+      // Keep it on the pad: slide back whatever hangs over an edge.
+      final b = copy.bounds;
+      final back = Offset(
+        b.right > padCanvasWidth ? padCanvasWidth - b.right : 0,
+        b.bottom > padCanvasHeight ? padCanvasHeight - b.bottom : 0,
+      );
+      pasted.add(back == Offset.zero ? copy : copy.translated(back));
+    }
+    if (!mounted) return;
+    if (pasted.isNotEmpty) {
+      _push();
+      setState(() {
+        _elements = [..._elements, ...pasted];
+        _selected = pasted.last.id;
+        _tool = PadTool.select;
+      });
+      _changed();
+    }
+    if (failed > 0) _snack('Some pictures could not be pasted.');
+  }
+
+  // ------------------------------------------------------------------ insert
+
+  /// Where a newly inserted item goes: the top-left of what is on screen.
+  Offset get _insertOrigin => Offset(
+    (_horizontal.hasClients ? _horizontal.offset : 0) / _zoom + 40,
+    (_vertical.hasClients ? _vertical.offset : 0) / _zoom + 40,
+  );
+
+  /// Keeps the text box being edited (and its selection) while the insert menu
+  /// and its dialogs have focus.
+  void _holdText() {
+    final controller = _textController;
+    if (_editing != null && controller != null) {
+      _holdEditing = true;
+      _heldSelection = controller.selection;
+    }
+  }
+
+  void _releaseText() {
+    final held = _heldSelection;
+    final controller = _textController;
+    if (held != null && held.isValid && controller != null) {
+      controller.selection = held;
+    }
+    _heldSelection = null;
+    _holdEditing = false;
+    if (_editing != null) {
+      _textFocus.requestFocus();
+    } else {
+      _focus.requestFocus();
+    }
+  }
+
+  void _insertSymbol(String symbol) {
+    final controller = _textController;
+    if (_editing != null && controller != null) {
+      // Into the text box being edited, at the caret.
+      if (!controller.insertText(symbol)) _snack('That text box is full.');
+      return;
+    }
+    if (!_canAdd()) return;
+    final origin = _clampPoint(_insertOrigin);
+    final el = TextEl(
+      id: _newId(),
+      x: math.min(origin.dx, padCanvasWidth - 240),
+      y: math.min(origin.dy, padCanvasHeight - 60),
+      w: 240,
+      text: symbol,
+      fontSize: padDefaultTextSize,
+      color: padColor(padDefaultTextColor),
+    );
+    _push();
+    setState(() {
+      _elements = [..._elements, el];
+      _selected = el.id;
+      _tool = PadTool.select;
+    });
+    _changed();
+  }
+
+  void _insertEquation(EquationResult equation) {
+    if (!_canAdd()) return;
+    final size = _fitEquation(equation.size);
+    final origin = _insertOrigin;
+    final el = EquationEl(
+      id: _newId(),
+      x: origin.dx.clamp(0.0, padCanvasWidth - size.width).toDouble(),
+      y: origin.dy.clamp(0.0, padCanvasHeight - size.height).toDouble(),
+      w: size.width,
+      h: size.height,
+      latex: equation.latex,
+      color: padColor(_color),
+    );
+    _push();
+    setState(() {
+      _elements = [..._elements, el];
+      _selected = el.id;
+      _tool = PadTool.select;
+    });
+    _changed();
+  }
+
+  /// Equations are at most this big when first placed.
+  Size _fitEquation(Size size) {
+    final scale = math.min(
+      1.0,
+      math.min(padCanvasWidth / size.width, padCanvasHeight / size.height),
+    );
+    return Size(size.width * scale, size.height * scale);
+  }
+
+  Future<void> _editEquation(EquationEl el) async {
+    final result = await showEquationEditor(context, initial: el.latex);
+    if (!mounted) return;
+    _focus.requestFocus();
+    final current = _find(el.id);
+    if (result == null || current is! EquationEl) return;
+    if (result.latex == current.latex) return;
+    final size = _fitEquation(result.size);
+    _push();
+    setState(
+      () => _replace(
+        current.copyWith(latex: result.latex, w: size.width, h: size.height),
+      ),
+    );
+    _changed();
   }
 
   void _onFileDropped(String name, Uint8List bytes, Offset position) {
@@ -715,6 +1079,7 @@ class _PadEditorState extends State<PadEditor> {
       _push();
       setState(() {
         _images[imageId] = prepared.png;
+        _ownedImages.add(imageId);
         _elements = [..._elements, el];
         _selected = el.id;
         _tool = PadTool.select;
@@ -754,6 +1119,22 @@ class _PadEditorState extends State<PadEditor> {
     }
     if (command && key == LogicalKeyboardKey.keyY) {
       _redoStep();
+      return KeyEventResult.handled;
+    }
+    if (command && key == LogicalKeyboardKey.keyC && _selected != null) {
+      _copySelected();
+      return KeyEventResult.handled;
+    }
+    if (command && key == LogicalKeyboardKey.keyX && _selected != null) {
+      _copySelected(cut: true);
+      return KeyEventResult.handled;
+    }
+    if (command && key == LogicalKeyboardKey.keyV) {
+      _paste();
+      return KeyEventResult.handled;
+    }
+    if (command && key == LogicalKeyboardKey.keyD && _selected != null) {
+      _duplicateSelected();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.delete ||
@@ -834,21 +1215,15 @@ class _PadEditorState extends State<PadEditor> {
           _toolButton(PadTool.text, Icons.text_fields, 'Text box'),
           _toolButton(PadTool.line, Icons.horizontal_rule, 'Line'),
           _toolButton(PadTool.pen, Icons.draw_outlined, 'Pen'),
-          _busyImages > 0
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              : IconButton(
-                  key: const ValueKey('pad-add-image'),
-                  tooltip: 'Add picture (or drag one onto the pad)',
-                  onPressed: _chooseImage,
-                  icon: const Icon(Icons.image_outlined),
-                ),
+          InsertTool(
+            busy: _busyImages > 0,
+            pickImage: widget.pickImage,
+            onOpen: _holdText,
+            onClose: _releaseText,
+            onImage: _addImage,
+            onSymbol: _insertSymbol,
+            onEquation: _insertEquation,
+          ),
         ],
       ),
     ),
@@ -856,8 +1231,7 @@ class _PadEditorState extends State<PadEditor> {
 
   Widget _toolbar() {
     final selected = _selectedEl;
-    final showFont =
-        _tool == PadTool.text || selected is TextEl || _editing != null;
+    final textMode = _textContext;
     final status = switch (_saveState) {
       PadSaveState.saved => 'Saved',
       PadSaveState.dirty => 'Unsaved changes…',
@@ -866,90 +1240,95 @@ class _PadEditorState extends State<PadEditor> {
     };
     return Padding(
       padding: const EdgeInsets.all(8),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final hex in padPalette) _swatch(hex),
-          const SizedBox(width: 8),
-          PopupMenuButton<double>(
-            key: const ValueKey('pad-width'),
-            tooltip: 'Line width',
-            onSelected: _setStrokeWidth,
-            itemBuilder: (_) => [
-              for (final w in padStrokeWidths)
-                CheckedPopupMenuItem(
-                  value: w,
-                  checked: w == _strokeWidth,
-                  child: Text('${w.toInt()} px'),
-                ),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              child: Text('Width ${_strokeWidth.toInt()}px'),
-            ),
-          ),
-          if (showFont)
-            PopupMenuButton<double>(
-              key: const ValueKey('pad-font-size'),
-              tooltip: 'Text size',
-              onSelected: _setFontSize,
-              itemBuilder: (_) => [
-                for (final s in padFontSizes)
-                  CheckedPopupMenuItem(
-                    value: s,
-                    checked: s == _fontSize,
-                    child: Text('${s.toInt()} pt'),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              // Drawing colours and widths; text uses the floating text tool instead.
+              if (!textMode) ...[
+                for (final hex in padPalette) _swatch(hex),
+                const SizedBox(width: 8),
+                PopupMenuButton<double>(
+                  key: const ValueKey('pad-width'),
+                  tooltip: 'Line width',
+                  onSelected: _setStrokeWidth,
+                  itemBuilder: (_) => [
+                    for (final w in padStrokeWidths)
+                      CheckedPopupMenuItem(
+                        value: w,
+                        checked: w == _strokeWidth,
+                        child: Text('${w.toInt()} px'),
+                      ),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 10,
+                    ),
+                    child: Text('Width ${_strokeWidth.toInt()}px'),
                   ),
-              ],
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 10,
                 ),
-                child: Text('Text ${_fontSize.toInt()}pt'),
+              ],
+              const SizedBox(width: 8),
+              IconButton(
+                key: const ValueKey('pad-undo'),
+                tooltip: 'Undo',
+                onPressed: _undo.isEmpty ? null : _undoStep,
+                icon: const Icon(Icons.undo),
               ),
-            ),
-          const SizedBox(width: 8),
-          IconButton(
-            key: const ValueKey('pad-undo'),
-            tooltip: 'Undo',
-            onPressed: _undo.isEmpty ? null : _undoStep,
-            icon: const Icon(Icons.undo),
+              IconButton(
+                key: const ValueKey('pad-redo'),
+                tooltip: 'Redo',
+                onPressed: _redo.isEmpty ? null : _redoStep,
+                icon: const Icon(Icons.redo),
+              ),
+              IconButton(
+                key: const ValueKey('pad-delete'),
+                tooltip: 'Delete selected',
+                onPressed: selected == null ? null : _deleteSelected,
+                icon: const Icon(Icons.delete_outline),
+              ),
+              IconButton(
+                key: const ValueKey('pad-copy'),
+                tooltip: 'Copy selected (Ctrl+C)',
+                onPressed: selected == null ? null : _copySelected,
+                icon: const Icon(Icons.content_copy_outlined),
+              ),
+              IconButton(
+                key: const ValueKey('pad-paste'),
+                tooltip: 'Paste (Ctrl+V)',
+                onPressed: _paste,
+                icon: const Icon(Icons.content_paste_outlined),
+              ),
+              IconButton(
+                key: const ValueKey('pad-zoom-out'),
+                tooltip: 'Zoom out',
+                onPressed: _zoom <= 0.25 ? null : () => _setZoom(_zoom - 0.25),
+                icon: const Icon(Icons.zoom_out),
+              ),
+              Text('${(_zoom * 100).round()}%'),
+              IconButton(
+                key: const ValueKey('pad-zoom-in'),
+                tooltip: 'Zoom in',
+                onPressed: _zoom >= 2 ? null : () => _setZoom(_zoom + 0.25),
+                icon: const Icon(Icons.zoom_in),
+              ),
+              const SizedBox(width: 8),
+              Text(status, key: const ValueKey('pad-save-status')),
+              if (_saveState == PadSaveState.error) ...[
+                const SizedBox(width: 4),
+                Text(
+                  _saveError ?? '',
+                  style: const TextStyle(color: Colors.red),
+                ),
+                TextButton(onPressed: _save, child: const Text('Retry')),
+              ],
+            ],
           ),
-          IconButton(
-            key: const ValueKey('pad-redo'),
-            tooltip: 'Redo',
-            onPressed: _redo.isEmpty ? null : _redoStep,
-            icon: const Icon(Icons.redo),
-          ),
-          IconButton(
-            key: const ValueKey('pad-delete'),
-            tooltip: 'Delete selected',
-            onPressed: selected == null ? null : _deleteSelected,
-            icon: const Icon(Icons.delete_outline),
-          ),
-          IconButton(
-            key: const ValueKey('pad-zoom-out'),
-            tooltip: 'Zoom out',
-            onPressed: _zoom <= 0.25 ? null : () => _setZoom(_zoom - 0.25),
-            icon: const Icon(Icons.zoom_out),
-          ),
-          Text('${(_zoom * 100).round()}%'),
-          IconButton(
-            key: const ValueKey('pad-zoom-in'),
-            tooltip: 'Zoom in',
-            onPressed: _zoom >= 2 ? null : () => _setZoom(_zoom + 0.25),
-            icon: const Icon(Icons.zoom_in),
-          ),
-          const SizedBox(width: 8),
-          Text(status, key: const ValueKey('pad-save-status')),
-          if (_saveState == PadSaveState.error) ...[
-            const SizedBox(width: 4),
-            Text(_saveError ?? '', style: const TextStyle(color: Colors.red)),
-            TextButton(onPressed: _save, child: const Text('Retry')),
-          ],
         ],
       ),
     );
@@ -1012,6 +1391,20 @@ class _PadEditorState extends State<PadEditor> {
             child: CustomPaint(painter: _StrokePainter(_elements)),
           ),
         ),
+        for (final e in _elements.whereType<EquationEl>())
+          Positioned(
+            key: ValueKey('pad-equation-${e.id}'),
+            left: e.x,
+            top: e.y,
+            width: e.w,
+            height: e.h,
+            child: IgnorePointer(
+              child: FittedBox(
+                alignment: Alignment.topLeft,
+                child: EquationView(latex: e.latex, color: e.color),
+              ),
+            ),
+          ),
         for (final e in _elements.whereType<TextEl>())
           if (e.id != _editing)
             Positioned(
@@ -1022,7 +1415,7 @@ class _PadEditorState extends State<PadEditor> {
               child: IgnorePointer(
                 child: Padding(
                   padding: const EdgeInsets.all(padTextPadding),
-                  child: Text(e.text, style: e.style),
+                  child: Text.rich(e.span),
                 ),
               ),
             ),
@@ -1046,19 +1439,39 @@ class _PadEditorState extends State<PadEditor> {
               decoration: BoxDecoration(
                 border: Border.all(color: scheme.primary),
               ),
-              child: TextField(
-                key: const ValueKey('pad-text-field'),
-                controller: _textController,
-                focusNode: _textFocus,
-                maxLines: null,
-                style: editing.style,
-                cursorColor: Colors.black,
-                decoration: const InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.all(padTextPadding),
+              child: Shortcuts(
+                shortcuts: indentShortcuts,
+                child: Actions(
+                  // Undo covers formatting too, so it replaces the field's own.
+                  actions: {
+                    IndentIntent: CallbackAction<IndentIntent>(
+                      onInvoke: (intent) {
+                        _textController?.indent(intent.direction);
+                        return null;
+                      },
+                    ),
+                    UndoTextIntent: CallbackAction<UndoTextIntent>(
+                      onInvoke: (_) => _textController?.undo(),
+                    ),
+                    RedoTextIntent: CallbackAction<RedoTextIntent>(
+                      onInvoke: (_) => _textController?.redo(),
+                    ),
+                  },
+                  child: TextField(
+                    key: const ValueKey('pad-text-field'),
+                    controller: _textController,
+                    focusNode: _textFocus,
+                    maxLines: null,
+                    style: editing.style,
+                    cursorColor: Colors.black,
+                    decoration: const InputDecoration(
+                      isCollapsed: true,
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.all(padTextPadding),
+                    ),
+                    onChanged: _textChanged,
+                  ),
                 ),
-                onChanged: _textChanged,
               ),
             ),
           ),
@@ -1203,7 +1616,35 @@ class _PadEditorState extends State<PadEditor> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _toolRail(),
-            Expanded(child: _viewport()),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(child: _viewport()),
+                  // The text tool floats over the pad so showing it never moves the page.
+                  if (_textBar() case final bar?)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      right: 24,
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: Material(
+                          key: const ValueKey('pad-text-tool'),
+                          elevation: 3,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: bar,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -1259,7 +1700,7 @@ class _StrokePainter extends CustomPainter {
               ..strokeCap = StrokeCap.round
               ..strokeJoin = StrokeJoin.round,
           );
-        case TextEl() || ImageEl():
+        case TextEl() || ImageEl() || EquationEl():
           break;
       }
     }
@@ -1294,7 +1735,7 @@ class _SelectionPainter extends CustomPainter {
       case LineEl():
         handle(el.a);
         handle(el.b);
-      case TextEl() || ImageEl():
+      case TextEl() || ImageEl() || EquationEl():
         canvas.drawRect(el.bounds, line);
         handle(el.bounds.bottomRight);
       case PenEl():

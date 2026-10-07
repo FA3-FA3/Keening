@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/pad_model.dart';
 import '../utils/pads_service.dart';
+import '../utils/rich_text.dart';
 import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
 
@@ -60,6 +61,13 @@ class DocumentsPage extends StatefulWidget {
 /// Icons on the grid are drawn on their own, without a background tile.
 const _tileIconSize = 44.0;
 const _folderColor = Color(0xFFF59E0B);
+
+/// A Notepad's text with its formatting.
+class _Note {
+  const _Note(this.text, this.runs);
+  final String text;
+  final List<StyleRun> runs;
+}
 
 class _Chosen {
   const _Chosen(this.kind, [this.payload]);
@@ -540,7 +548,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
         builder: (_) => doc['kind'] == 'notepad'
             ? _NoteScreen(
                 document: doc,
-                text: payload as String? ?? '',
+                note: payload as _Note? ?? const _Note('', []),
                 service: _service,
                 autosaveDelay: widget.autosaveDelay,
               )
@@ -852,7 +860,13 @@ class _DocumentDetailsState extends State<_DocumentDetails> {
           ? null
           : Map<String, dynamic>.from(pad['doc'] as Map);
       final Object payload = pad['kind'] == 'notepad'
-          ? (doc?['text'] as String? ?? '')
+          ? _Note(
+              doc?['text'] as String? ?? '',
+              runsFromJson(
+                doc?['runs'],
+                (doc?['text'] as String? ?? '').length,
+              ),
+            )
           : padElementsFromDoc(doc);
       if (mounted) Navigator.pop(context, _Chosen('open', payload));
     } catch (e) {
@@ -1176,12 +1190,12 @@ class _PadScreen extends StatelessWidget {
 class _NoteScreen extends StatelessWidget {
   const _NoteScreen({
     required this.document,
-    required this.text,
+    required this.note,
     required this.service,
     required this.autosaveDelay,
   });
   final Map<String, dynamic> document;
-  final String text;
+  final _Note note;
   final PadsService service;
   final Duration autosaveDelay;
 
@@ -1201,12 +1215,31 @@ class _NoteScreen extends StatelessWidget {
     ),
     body: NotepadEditor(
       key: ValueKey('note-editor-${document['id']}'),
-      initialText: text,
+      initialText: note.text,
+      initialRuns: note.runs,
+      onUploadImage: (png) async {
+        final result = await service.call('uploadImage', {
+          'padId': document['id'],
+          'image': base64Encode(png),
+        });
+        return result['imageId'] as String;
+      },
+      onLoadImage: (imageId) async {
+        final result = await service.call('getImage', {
+          'padId': document['id'],
+          'imageId': imageId,
+        });
+        return base64Decode(result['image'] as String);
+      },
       autosaveDelay: autosaveDelay,
-      onSave: (text) async {
+      onSave: (text, runs) async {
         await service.call('savePad', {
           'padId': document['id'],
-          'doc': {'version': 1, 'text': text},
+          'doc': {
+            'version': 1,
+            'text': text,
+            if (runs.isNotEmpty) 'runs': [for (final r in runs) r.toJson()],
+          },
         });
       },
     ),

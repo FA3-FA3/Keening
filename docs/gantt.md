@@ -39,3 +39,7 @@ the day agenda and Events list. Deleting a tag clears its event assignments.
 Phases, Calendar events and Schedule sessions can link to board **panels** as well as tasks: open the item, choose **Links → Manage links** and tick the panel (labelled "Boards · <board> · Panel"). Panels are link targets only, so they have no links list of their own.
 
 A phase linked to panels also shows progress: its bar fills from the left in proportion to the completed tasks across all linked panels (archived tasks are ignored), and its tooltip reads "N of M tasks complete". Phases with no linked panels, or whose panels have no tasks, show no progress. Links are stored in `event_panel_links` (migration `12-event-panel-links.sql`), `calendar_panel_links` and `session_panel_links` (migration `13-calendar-session-panel-links.sql`) and are removed when the panel, board, event or session is deleted.
+
+## Narrow pages
+
+Each day column is at least 44 px wide, so on a thin page (a phone, a small window, or a long period) the chart is wider than the screen and **scrolls sideways**. The phase names on the left stay put while the date header and the bars move together. Scroll by dragging the chart, dragging the scrollbar along the bottom, scrolling the date header, or using a sideways mouse wheel or trackpad swipe; ordinary up-and-down scrolling still moves through the phases. On a wide page everything fits and there is nothing to scroll.

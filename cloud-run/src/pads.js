@@ -10,6 +10,10 @@ export const LIMITS = {
   folderDepth: 8,
   description: 1000,
   noteChars: 200000,
+  noteRuns: 5000,
+  boxRuns: 500,
+  noteEmbeds: 100,
+  latex: 2000,
   elements: 3000,
   penPoints: 150000,
   docBytes: 1_500_000,
@@ -36,11 +40,57 @@ const colour = value => {
   return value.toUpperCase();
 };
 
+// Formatting runs shared by Notepads and Dynamic Pad text boxes: ranges of text with a
+// size, text colour, highlight colour, bold, italic and/or underline. Runs are sorted,
+// never overlap, stay inside the text, and carry at least one attribute. A Notepad's runs
+// (those given its [text]) may also carry an "embed": a picture or equation standing in for
+// one placeholder character of the text.
+export const EMBED_CHAR = '\uFFFC';
+export function cleanRuns(value, length, max, text = null) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > max) fail('Invalid text formatting.');
+  let previousEnd = 0;
+  return value.map(r => {
+    if (!r || typeof r !== 'object' || !Number.isInteger(r.start) || !Number.isInteger(r.end)
+      || r.start < previousEnd || r.end <= r.start || r.end > length) fail('Invalid text formatting.');
+    previousEnd = r.end;
+    const run = { start: r.start, end: r.end };
+    if (r.size !== undefined) run.size = num(r.size, 8, 200, 'font size');
+    if (r.color !== undefined) run.color = colour(r.color);
+    if (r.bg !== undefined) run.bg = colour(r.bg);
+    for (const key of ['bold', 'italic', 'underline']) {
+      if (r[key] === undefined) continue;
+      if (r[key] !== true) fail('Invalid text formatting.');
+      run[key] = true;
+    }
+    if (r.embed !== undefined) {
+      const e = r.embed;
+      if (text === null || !e || typeof e !== 'object') fail('Invalid text formatting.');
+      if (e.type === 'image') {
+        if (!uuid(e.imageId)) fail('Invalid image.');
+        run.embed = { type: 'image', imageId: e.imageId };
+      } else if (e.type === 'equation') {
+        if (typeof e.latex !== 'string' || !e.latex.trim() || e.latex.length > LIMITS.latex) fail(`Equations can be up to ${LIMITS.latex} characters.`);
+        run.embed = { type: 'equation', latex: e.latex };
+      } else fail('Invalid text formatting.');
+      if (text.slice(r.start, r.end) !== EMBED_CHAR.repeat(r.end - r.start)) fail('Invalid text formatting.');
+    }
+    if (Object.keys(run).length === 2) fail('Invalid text formatting.');
+    return run;
+  });
+}
+
+// The pictures a note's runs refer to.
+export const noteImageIds = runs => [...new Set((runs ?? []).filter(r => r.embed?.type === 'image').map(r => r.embed.imageId))];
+
 // Rebuild a Notepad's content from whitelisted fields.
 export function cleanNote(doc) {
   if (!doc || typeof doc !== 'object' || typeof doc.text !== 'string') fail('Invalid note.');
   if (doc.text.length > LIMITS.noteChars) fail(`Notes can hold up to ${LIMITS.noteChars} characters.`);
-  return { version: 1, text: doc.text };
+  const runs = cleanRuns(doc.runs, doc.text.length, LIMITS.noteRuns, doc.text);
+  const embeds = runs.filter(r => r.embed).reduce((sum, r) => sum + r.end - r.start, 0);
+  if (embeds > LIMITS.noteEmbeds) fail(`A note can hold up to ${LIMITS.noteEmbeds} pictures and equations.`);
+  return { version: 1, text: doc.text, ...(runs.length ? { runs } : {}) };
 }
 
 // Rebuild a Dynamic Pad's layout from whitelisted fields so nothing unexpected is stored.
@@ -57,7 +107,12 @@ export function cleanDoc(doc) {
     switch (e.type) {
       case 'text': {
         if (typeof e.text !== 'string' || e.text.length > 10000) fail('Text boxes can hold up to 10000 characters.');
-        return { ...base, x: coord(e.x, 'position'), y: coord(e.y, 'position'), w: num(e.w, 20, 5000, 'width'), text: e.text, fontSize: num(e.fontSize, 8, 200, 'font size'), color: colour(e.color) };
+        const runs = cleanRuns(e.runs, e.text.length, LIMITS.boxRuns);
+        return { ...base, x: coord(e.x, 'position'), y: coord(e.y, 'position'), w: num(e.w, 20, 5000, 'width'), text: e.text, fontSize: num(e.fontSize, 8, 200, 'font size'), color: colour(e.color), ...(runs.length ? { runs } : {}) };
+      }
+      case 'equation': {
+        if (typeof e.latex !== 'string' || !e.latex.trim() || e.latex.length > LIMITS.latex) fail(`Equations can be up to ${LIMITS.latex} characters.`);
+        return { ...base, x: coord(e.x, 'position'), y: coord(e.y, 'position'), w: num(e.w, 10, 10000, 'width'), h: num(e.h, 10, 10000, 'height'), latex: e.latex, color: colour(e.color) };
       }
       case 'image': {
         if (!uuid(e.imageId)) fail('Invalid image.');
@@ -195,7 +250,14 @@ export function padsHandler(pool) {
           result = { deleted: true };
         } else if (b.action === 'savePad') {
           if (pad.kind === 'notepad') {
-            const saved = (await db.query('UPDATE public.pads SET doc=$1::jsonb,updated_at=now() WHERE id=$2 RETURNING updated_at', [JSON.stringify(cleanNote(b.doc)), pad.id])).rows[0];
+            const note = cleanNote(b.doc);
+            const imageIds = noteImageIds(note.runs);
+            if (imageIds.length) {
+              const known = (await db.query('SELECT id FROM public.pad_images WHERE pad_id=$1 AND id=ANY($2::uuid[])', [pad.id, imageIds])).rows.map(r => r.id);
+              if (imageIds.some(id => !known.includes(id))) fail('A picture in this note could not be found. Remove it and add it again.');
+            }
+            const saved = (await db.query('UPDATE public.pads SET doc=$1::jsonb,updated_at=now() WHERE id=$2 RETURNING updated_at', [JSON.stringify(note), pad.id])).rows[0];
+            await db.query("DELETE FROM public.pad_images WHERE pad_id=$1 AND created_at < now() - interval '1 hour' AND NOT (id=ANY($2::uuid[]))", [pad.id, imageIds]);
             result = { saved: true, updated_at: saved.updated_at };
           } else {
             const doc = cleanDoc(b.doc);
@@ -210,12 +272,10 @@ export function padsHandler(pool) {
             result = { saved: true, updated_at: saved.updated_at };
           }
         } else {
-          // Pictures belong to Dynamic Pads only.
-          if (pad.kind !== 'pad') fail('Only Dynamic Pads can hold pictures.');
           if (b.action === 'uploadImage') {
             const { data, mime } = imageBytes(b.image);
             const count = await db.query('SELECT count(*)::int AS count FROM public.pad_images WHERE pad_id=$1', [pad.id]);
-            if (count.rows[0].count >= LIMITS.imagesPerPad) fail(`A pad can hold up to ${LIMITS.imagesPerPad} pictures.`);
+            if (count.rows[0].count >= LIMITS.imagesPerPad) fail(`A document can hold up to ${LIMITS.imagesPerPad} pictures.`);
             result = { imageId: (await db.query('INSERT INTO public.pad_images(pad_id,owner_id,mime,data) VALUES($1,$2,$3,$4) RETURNING id', [pad.id, owner, mime, data])).rows[0].id };
           } else {
             if (!uuid(b.imageId)) fail('Invalid image.');

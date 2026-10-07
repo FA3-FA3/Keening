@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/utils/file_drop.dart';
 import 'package:keening/utils/pad_model.dart';
+import 'package:keening/utils/rich_text.dart';
 import 'package:keening/widgets/pad_editor.dart';
 
 // A valid 1x1 PNG.
@@ -105,6 +106,23 @@ Future<void> waitForImage(WidgetTester tester) async {
 Future<void> settle(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 100));
   await tester.pumpAndSettle();
+}
+
+/// Picks a colour through the text tool's colour picker.
+Future<void> pickColour(WidgetTester tester, String button, String hex) async {
+  await tester.tap(find.byKey(ValueKey(button)));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const ValueKey('colour-hex')), hex);
+  await tester.tap(find.byKey(const ValueKey('colour-apply')));
+  await tester.pumpAndSettle();
+}
+
+/// Chooses an item from the insert tool's menu.
+Future<void> insert(WidgetTester tester, String what) async {
+  await tester.tap(find.byKey(const ValueKey('insert-menu')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(ValueKey('insert-$what')));
+  await tester.pump();
 }
 
 String status(WidgetTester tester) =>
@@ -232,6 +250,121 @@ void main() {
       isTrue,
       reason: 'the tool switches back to select after placing text',
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the text tool shows in text mode and for text boxes only', (
+    tester,
+  ) async {
+    TextTool.shared.format = TextFormat.plain;
+    final h = await mount(tester, initial: [text('t', 100, 100)]);
+    final bar = find.byKey(const ValueKey('pad-text-tool'));
+    expect(bar, findsNothing);
+    expect(find.byKey(const ValueKey('pad-color-#2563EB')), findsOneWidget);
+    await tool(tester, PadTool.text);
+    expect(bar, findsOneWidget);
+    expect(find.byKey(const ValueKey('pad-color-#2563EB')), findsNothing);
+    await tool(tester, PadTool.select);
+    expect(bar, findsNothing);
+    // Selecting a text box shows it for that box.
+    await tester.tapAt(paper(tester, const Offset(150, 115)));
+    await tester.pumpAndSettle();
+    expect(bar, findsOneWidget);
+    expect(find.text('24'), findsOneWidget);
+    expect(h.saves, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('text mode sets how new text boxes look', (tester) async {
+    TextTool.shared.format = TextFormat.plain;
+    final h = await mount(tester);
+    await tool(tester, PadTool.text);
+    await tester.tap(find.byKey(const ValueKey('text-bold')));
+    await tester.tap(find.byKey(const ValueKey('text-size-up')));
+    await pickColour(tester, 'text-color', '#2563EB');
+    await pickColour(tester, 'text-highlight', '#FDE047');
+    await tester.pump();
+    final o = paper(tester);
+    await tester.tapAt(o + const Offset(150, 300));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('pad-text-field')), 'Hi');
+    await tester.pump();
+    await tester.tapAt(o + const Offset(900, 700));
+    await settle(tester);
+    final box = h.last.single as TextEl;
+    expect(box.text, 'Hi');
+    expect(box.runs, [
+      const StyleRun(
+        0,
+        2,
+        TextFormat(
+          size: 28,
+          color: '#2563EB',
+          highlight: '#FDE047',
+          bold: true,
+        ),
+      ),
+    ]);
+    expect(find.byType(Text), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the text tool formats the selected words while editing', (
+    tester,
+  ) async {
+    TextTool.shared.format = TextFormat.plain;
+    final h = await mount(tester, initial: [text('t', 100, 300)]);
+    final o = paper(tester);
+    await tester.tapAt(o + const Offset(150, 315));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(o + const Offset(150, 315));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('pad-text-field')),
+    );
+    final controller = field.controller! as RichTextController;
+    controller.selection = const TextSelection(baseOffset: 1, extentOffset: 4);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('text-italic')));
+    await tester.tap(find.byKey(const ValueKey('text-underline')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('pad-text-field')),
+      findsOneWidget,
+      reason: 'using the text tool keeps the box in edit mode',
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(tester);
+    final box = h.last.single as TextEl;
+    expect(box.runs, [
+      const StyleRun(1, 4, TextFormat(italic: true, underline: true)),
+    ]);
+    expect(box.text, 'Hello');
+    // Formatting is part of the undo step for the edit.
+    await tester.tap(find.byKey(const ValueKey('pad-undo')));
+    await settle(tester);
+    expect((h.last.single as TextEl).runs, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a selected text box is formatted as a whole', (tester) async {
+    TextTool.shared.format = TextFormat.plain;
+    final h = await mount(tester, initial: [text('t', 100, 300)]);
+    await tester.tapAt(paper(tester, const Offset(150, 315)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('text-bold')));
+    await tester.tap(find.byKey(const ValueKey('text-size-up')));
+    await pickColour(tester, 'text-color', '#059669');
+    await settle(tester);
+    final box = h.last.single as TextEl;
+    expect(box.runs, [
+      const StyleRun(0, 5, TextFormat(size: 28, color: '#059669', bold: true)),
+    ]);
+    expect(find.text('28'), findsOneWidget);
+    // And it can be turned off again.
+    await tester.tap(find.byKey(const ValueKey('text-bold')));
+    await settle(tester);
+    expect((h.last.single as TextEl).runs.single.format.bold, false);
     expect(tester.takeException(), isNull);
   });
 
@@ -498,7 +631,7 @@ void main() {
   ) async {
     final h = await mount(tester);
     h.pick = () async => _png;
-    await tester.tap(find.byKey(const ValueKey('pad-add-image')));
+    await insert(tester, 'image');
     await waitForImage(tester);
     await settle(tester);
     expect(h.uploads.length, 1);
@@ -515,7 +648,7 @@ void main() {
     final h = await mount(tester);
     h.pick = () async =>
         Uint8List.fromList(utf8.encode('definitely not an image'));
-    await tester.tap(find.byKey(const ValueKey('pad-add-image')));
+    await insert(tester, 'image');
     await waitForImage(tester);
     await settle(tester);
     expect(find.text('That file is not a supported image.'), findsOneWidget);

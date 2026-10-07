@@ -1,6 +1,7 @@
 import '../widgets/scrollable_workspace.dart';
 import '../widgets/app_dropdown.dart';
 import 'dart:math' as math;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
@@ -903,6 +904,17 @@ class _GanttTimelineState extends State<_GanttTimeline> {
     super.dispose();
   }
 
+  /// Scrolls the chart sideways by [delta] pixels (positive moves right).
+  void _scrollBy(double delta) {
+    if (!_horizontal.hasClients) return;
+    _horizontal.jumpTo(
+      (_horizontal.offset + delta).clamp(
+        0.0,
+        _horizontal.position.maxScrollExtent,
+      ),
+    );
+  }
+
   // Identifies the row currently under the pointer so the label and the
   // matching Gantt bar row can be highlighted together, whichever is hovered.
   Object? _hoveredKey;
@@ -1110,173 +1122,221 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                 )
                 .toList();
 
-        return Column(
-          children: [
-            if (items.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No scheduled phases in this period.'),
-              ),
-            Row(
-              children: [
-                SizedBox(
-                  width: labelWidth,
-                  height: _rowHeight,
-                  child: const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'Phases',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+        return Scrollbar(
+          key: const ValueKey('gantt-horizontal-scrollbar'),
+          controller: _horizontal,
+          thumbVisibility: true,
+          trackVisibility: true,
+          interactive: true,
+          scrollbarOrientation: ScrollbarOrientation.bottom,
+          notificationPredicate: (notification) =>
+              notification.metrics.axis == Axis.horizontal,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Listener(
+              // Sideways mouse-wheel / trackpad scrolling anywhere on the chart.
+              onPointerSignal: (event) {
+                if (event is! PointerScrollEvent || event.scrollDelta.dx == 0) {
+                  return;
+                }
+                GestureBinding.instance.pointerSignalResolver.register(
+                  event,
+                  (_) => _scrollBy(event.scrollDelta.dx),
+                );
+              },
+              child: GestureDetector(
+                onHorizontalDragUpdate: (details) =>
+                    _scrollBy(-details.delta.dx),
+                child: Column(
+                  children: [
+                    if (items.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No scheduled phases in this period.'),
                       ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: _horizontal,
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: List.generate(days, (index) {
-                        final date = _addDays(start, index);
-                        return Container(
-                          width: dayWidth,
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: labelWidth,
                           height: _rowHeight,
-                          alignment: Alignment.center,
-                          color: index == today
-                              ? scheme.primaryContainer
-                              : scheme.surfaceContainerLow,
-                          child: Text(
-                            '${DateFormat.MMMd().format(date)}\n${DateFormat.E().format(date)}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 10),
+                          child: const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Text(
+                                'Phases',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ),
                           ),
-                        );
-                      }),
+                        ),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            key: const ValueKey('gantt-horizontal-scroll'),
+                            controller: _horizontal,
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: List.generate(days, (index) {
+                                final date = _addDays(start, index);
+                                return Container(
+                                  width: dayWidth,
+                                  height: _rowHeight,
+                                  alignment: Alignment.center,
+                                  color: index == today
+                                      ? scheme.primaryContainer
+                                      : scheme.surfaceContainerLow,
+                                  child: Text(
+                                    '${DateFormat.MMMd().format(date)}\n${DateFormat.E().format(date)}',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 10),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-              ],
-            ),
-            Expanded(
-              child: Stack(
-                children: [
-                  if (items.isEmpty)
-                    SizedBox(
-                      height: _rowHeight,
-                      child: Row(
+                    Expanded(
+                      child: Stack(
                         children: [
-                          SizedBox(width: labelWidth),
-                          Expanded(child: timelineRow(null)),
-                        ],
-                      ),
-                    )
-                  else
-                    ReorderableListView.builder(
-                      key: const ValueKey('calendar-rows'),
-                      scrollController: _vertical,
-                      buildDefaultDragHandles: false,
-                      itemExtent: _rowHeight,
-                      itemCount: items.length,
-                      onReorderItem: (oldIndex, newIndex) =>
-                          widget.onReorder?.call(
-                            oldIndex,
-                            oldIndex < newIndex ? newIndex + 1 : newIndex,
-                          ),
-                      onReorderStart: (_) => setState(() => _dragging = true),
-                      onReorderEnd: (_) => setState(() => _dragging = false),
-                      proxyDecorator: (child, index, animation) => Material(
-                        elevation: 4,
-                        color: scheme.surface,
-                        child: child,
-                      ),
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return Row(
-                          key: ValueKey('calendar-row-${_keyOf(item)}'),
-                          children: [
+                          if (items.isEmpty)
                             SizedBox(
-                              width: labelWidth,
                               height: _rowHeight,
-                              child: MouseRegion(
-                                onEnter: (_) => _setHovered(_keyOf(item)),
-                                onExit: (_) => _clearHovered(_keyOf(item)),
-                                child: Container(
-                                  color: _hoveredKey == _keyOf(item)
-                                      ? scheme.primary.withValues(alpha: 0.06)
-                                      : null,
-                                  child: ListTile(
-                                    dense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                    minLeadingWidth: 20,
-                                    horizontalTitleGap: 4,
-                                    leading: !widget.showDragHandles
-                                        ? null
-                                        : ReorderableDragStartListener(
-                                            key: ValueKey(
-                                              'calendar-drag-${_keyOf(item)}',
-                                            ),
-                                            index: index,
-                                            enabled: widget.onReorder != null,
-                                            child: const MouseRegion(
-                                              cursor: SystemMouseCursors.grab,
-                                              child: Tooltip(
-                                                message: 'Drag to reorder',
-                                                child: Padding(
-                                                  padding: EdgeInsets.all(4),
-                                                  child: Icon(
-                                                    Icons.drag_handle,
-                                                    color: AppColors.grey400,
-                                                    size: 20,
-                                                  ),
+                              child: Row(
+                                children: [
+                                  SizedBox(width: labelWidth),
+                                  Expanded(child: timelineRow(null)),
+                                ],
+                              ),
+                            )
+                          else
+                            ReorderableListView.builder(
+                              key: const ValueKey('calendar-rows'),
+                              scrollController: _vertical,
+                              buildDefaultDragHandles: false,
+                              itemExtent: _rowHeight,
+                              itemCount: items.length,
+                              onReorderItem: (oldIndex, newIndex) =>
+                                  widget.onReorder?.call(
+                                    oldIndex,
+                                    oldIndex < newIndex
+                                        ? newIndex + 1
+                                        : newIndex,
+                                  ),
+                              onReorderStart: (_) =>
+                                  setState(() => _dragging = true),
+                              onReorderEnd: (_) =>
+                                  setState(() => _dragging = false),
+                              proxyDecorator: (child, index, animation) =>
+                                  Material(
+                                    elevation: 4,
+                                    color: scheme.surface,
+                                    child: child,
+                                  ),
+                              itemBuilder: (context, index) {
+                                final item = items[index];
+                                return Row(
+                                  key: ValueKey('calendar-row-${_keyOf(item)}'),
+                                  children: [
+                                    SizedBox(
+                                      width: labelWidth,
+                                      height: _rowHeight,
+                                      child: MouseRegion(
+                                        onEnter: (_) =>
+                                            _setHovered(_keyOf(item)),
+                                        onExit: (_) =>
+                                            _clearHovered(_keyOf(item)),
+                                        child: Container(
+                                          color: _hoveredKey == _keyOf(item)
+                                              ? scheme.primary.withValues(
+                                                  alpha: 0.06,
+                                                )
+                                              : null,
+                                          child: ListTile(
+                                            dense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 8,
                                                 ),
-                                              ),
+                                            minLeadingWidth: 20,
+                                            horizontalTitleGap: 4,
+                                            leading: !widget.showDragHandles
+                                                ? null
+                                                : ReorderableDragStartListener(
+                                                    key: ValueKey(
+                                                      'calendar-drag-${_keyOf(item)}',
+                                                    ),
+                                                    index: index,
+                                                    enabled:
+                                                        widget.onReorder !=
+                                                        null,
+                                                    child: const MouseRegion(
+                                                      cursor: SystemMouseCursors
+                                                          .grab,
+                                                      child: Tooltip(
+                                                        message:
+                                                            'Drag to reorder',
+                                                        child: Padding(
+                                                          padding:
+                                                              EdgeInsets.all(4),
+                                                          child: Icon(
+                                                            Icons.drag_handle,
+                                                            color: AppColors
+                                                                .grey400,
+                                                            size: 20,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                            onTap: () => onOpen(item),
+                                            title: Text(
+                                              item['title'] as String,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            subtitle: Text(
+                                              '${item['calendar_name']} · Phase',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
-                                    onTap: () => onOpen(item),
-                                    title: Text(
-                                      item['title'] as String,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
                                     ),
-                                    subtitle: Text(
-                                      '${item['calendar_name']} · Phase',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: _rowHeight,
+                                        child: timelineRow(item),
+                                      ),
                                     ),
-                                  ),
+                                  ],
+                                );
+                              },
+                            ),
+                          Positioned.fill(
+                            left: labelWidth,
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                key: const ValueKey(
+                                  'calendar-dependency-arrows',
+                                ),
+                                painter: CalendarDependencyPainter(
+                                  links: _dragging ? [] : links,
+                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
-                            Expanded(
-                              child: SizedBox(
-                                height: _rowHeight,
-                                child: timelineRow(item),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  Positioned.fill(
-                    left: labelWidth,
-                    child: IgnorePointer(
-                      child: CustomPaint(
-                        key: const ValueKey('calendar-dependency-arrows'),
-                        painter: CalendarDependencyPainter(
-                          links: _dragging ? [] : links,
-                          color: scheme.onSurfaceVariant,
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ],
+          ),
         );
       },
     );
