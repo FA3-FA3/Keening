@@ -146,6 +146,26 @@ class TextEl extends PadElement {
     return next;
   }
 
+  /// True when every line of the box is a bullet point.
+  bool get bulleted {
+    final c = RichTextController(text: text, runs: runs);
+    c.selection = TextSelection(baseOffset: 0, extentOffset: text.length);
+    final result = text.isNotEmpty && c.bulleted;
+    c.dispose();
+    return result;
+  }
+
+  /// The box with every line made a bullet point, or plain again if they all
+  /// were; the same box if nothing changed.
+  TextEl withBulletsToggled() {
+    final c = RichTextController(text: text, runs: runs, maxLength: 10000);
+    c.selection = TextSelection(baseOffset: 0, extentOffset: text.length);
+    c.toggleBullets();
+    final next = c.text == text ? this : copyWith(text: c.text, runs: c.runs);
+    c.dispose();
+    return next;
+  }
+
   /// Changes every character in the box.
   TextEl withFormat(TextFormat Function(TextFormat) change) {
     final formats = expandRuns(runs, text.length);

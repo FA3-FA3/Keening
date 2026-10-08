@@ -321,6 +321,12 @@ class TextTool extends ChangeNotifier {
   }
 }
 
+/// Asks a text field to turn its lines into bullet points, or back (Ctrl+Shift+8
+/// or Ctrl+Shift+L).
+class BulletsIntent extends Intent {
+  const BulletsIntent();
+}
+
 /// Asks a text field to indent ([direction] 1) or outdent (-1) its lines; Tab
 /// and Shift+Tab send it.
 class IndentIntent extends Intent {
@@ -328,9 +334,36 @@ class IndentIntent extends Intent {
   final int direction;
 }
 
+/// The three on/off styles with keyboard shortcuts.
+enum TextToggle {
+  bold,
+  italic,
+  underline;
+
+  bool isOn(TextFormat f) => switch (this) {
+    bold => f.bold,
+    italic => f.italic,
+    underline => f.underline,
+  };
+
+  TextFormat set(TextFormat f, bool on) => switch (this) {
+    bold => f.copyWith(bold: on),
+    italic => f.copyWith(italic: on),
+    underline => f.copyWith(underline: on),
+  };
+}
+
+/// Asks a text field to switch bold, italic or underline on or off (Ctrl/Cmd+B,
+/// I and U).
+class ToggleStyleIntent extends Intent {
+  const ToggleStyleIntent(this.style);
+  final TextToggle style;
+}
+
 /// Keys for the text fields in Notepads and text boxes: Tab indents and
-/// Shift+Tab outdents instead of moving to the next control, and Ctrl/Cmd+C, X
-/// and V copy, cut and paste.
+/// Shift+Tab outdents instead of moving to the next control, Ctrl/Cmd+C, X
+/// and V copy, cut and paste, and Ctrl/Cmd+B, I and U toggle bold, italic and
+/// underline.
 ///
 /// The clipboard keys are listed here on purpose. In the browser Flutter turns
 /// them off in text fields (leaving them to the page), which would skip the
@@ -339,6 +372,14 @@ class IndentIntent extends Intent {
 const indentShortcuts = <ShortcutActivator, Intent>{
   SingleActivator(LogicalKeyboardKey.tab): IndentIntent(1),
   SingleActivator(LogicalKeyboardKey.tab, shift: true): IndentIntent(-1),
+  SingleActivator(LogicalKeyboardKey.digit8, control: true, shift: true):
+      BulletsIntent(),
+  SingleActivator(LogicalKeyboardKey.asterisk, control: true, shift: true):
+      BulletsIntent(),
+  SingleActivator(LogicalKeyboardKey.keyL, control: true, shift: true):
+      BulletsIntent(),
+  SingleActivator(LogicalKeyboardKey.digit8, meta: true, shift: true):
+      BulletsIntent(),
   SingleActivator(LogicalKeyboardKey.keyC, control: true):
       CopySelectionTextIntent.copy,
   SingleActivator(LogicalKeyboardKey.keyC, meta: true):
@@ -352,6 +393,24 @@ const indentShortcuts = <ShortcutActivator, Intent>{
   ),
   SingleActivator(LogicalKeyboardKey.keyV, meta: true): PasteTextIntent(
     SelectionChangedCause.keyboard,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyB, control: true): ToggleStyleIntent(
+    TextToggle.bold,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyB, meta: true): ToggleStyleIntent(
+    TextToggle.bold,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyI, control: true): ToggleStyleIntent(
+    TextToggle.italic,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyI, meta: true): ToggleStyleIntent(
+    TextToggle.italic,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyU, control: true): ToggleStyleIntent(
+    TextToggle.underline,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyU, meta: true): ToggleStyleIntent(
+    TextToggle.underline,
   ),
   // Undo and redo cover formatting and indents too (Ctrl+Y redoes as well).
   SingleActivator(LogicalKeyboardKey.keyZ, control: true): UndoTextIntent(
@@ -400,6 +459,9 @@ class RichClipboard {
 
 /// Spaces added or removed by one step of the indent buttons.
 const indentWidth = 4;
+
+/// What starts a bullet point.
+const bulletMark = '• ';
 
 class _Snapshot {
   const _Snapshot(this.text, this.runs, this.selection);
@@ -503,9 +565,8 @@ class RichTextController extends TextEditingController {
     _restore(_redo.removeLast());
   }
 
-  /// Indents ([direction] 1) or outdents (-1) every line touched by the
-  /// selection, or the caret's line.
-  void indent(int direction) {
+  /// The starts of the lines touched by the selection (or the caret's line).
+  List<int> _selectedLineStarts() {
     final t = text;
     final r = _range;
     var from = r.start;
@@ -518,11 +579,84 @@ class RichTextController extends TextEditingController {
     for (var i = from; i < to; i++) {
       if (t.codeUnitAt(i) == 10) starts.add(i + 1);
     }
-    // Work out the changes first: (line start, characters added or removed).
-    final changes = <(int, int)>[];
-    for (final line in starts) {
+    return starts;
+  }
+
+  /// Where a line's text begins, after any indent.
+  int _afterIndent(int lineStart) {
+    var q = lineStart;
+    while (q < text.length && text.codeUnitAt(q) == 32) {
+      q++;
+    }
+    return q;
+  }
+
+  /// Makes several edits at once, as one undo step: each replaces [remove]
+  /// characters at its position (positions ascending, not overlapping) with
+  /// its inserted text, which takes the text size of where it goes in but none
+  /// of the marks. The selection moves along with the text.
+  void _applyEdits(List<({int at, int remove, String insert})> edits) {
+    if (edits.isEmpty) return;
+    final t = text;
+    final r = _range;
+    final grown = edits.fold<int>(
+      0,
+      (sum, e) => sum + e.insert.length - e.remove,
+    );
+    if (maxLength != null && grown > 0 && t.length + grown > maxLength!) return;
+    _checkpoint(typing: false);
+    var next = t;
+    for (final e in edits.reversed) {
+      final lineFormat = e.at < _formats.length
+          ? _formats[e.at]
+          : (_formats.isNotEmpty ? _formats.last : _fallback());
+      next = next.replaceRange(e.at, e.at + e.remove, e.insert);
+      _formats.replaceRange(
+        e.at,
+        e.at + e.remove,
+        List.filled(e.insert.length, TextFormat(size: lineFormat.size)),
+      );
+    }
+    int move(int offset, {required bool isEnd}) {
+      var o = offset;
+      for (final e in edits) {
+        if (e.remove == 0) {
+          if (isEnd ? offset >= e.at : offset > e.at) o += e.insert.length;
+        } else if (offset > e.at) {
+          o -= offset - e.at < e.remove ? offset - e.at : e.remove;
+        }
+      }
+      return o;
+    }
+
+    pending = null;
+    // A caret moves as one point; a selection keeps its ends where they are.
+    super.value = TextEditingValue(
+      text: next,
+      selection: r.isCollapsed
+          ? TextSelection.collapsed(offset: move(r.start, isEnd: true))
+          : TextSelection(
+              baseOffset: move(
+                r.baseOffset,
+                isEnd: r.baseOffset >= r.extentOffset,
+              ),
+              extentOffset: move(
+                r.extentOffset,
+                isEnd: r.extentOffset > r.baseOffset,
+              ),
+            ),
+    );
+    onFormatEdited?.call();
+  }
+
+  /// Indents ([direction] 1) or outdents (-1) every line touched by the
+  /// selection, or the caret's line.
+  void indent(int direction) {
+    final t = text;
+    final edits = <({int at, int remove, String insert})>[];
+    for (final line in _selectedLineStarts()) {
       if (direction > 0) {
-        changes.add((line, indentWidth));
+        edits.add((at: line, remove: 0, insert: ' ' * indentWidth));
       } else {
         var k = 0;
         while (k < indentWidth &&
@@ -531,53 +665,35 @@ class RichTextController extends TextEditingController {
           k++;
         }
         if (k == 0 && line < t.length && t.codeUnitAt(line) == 9) k = 1;
-        if (k > 0) changes.add((line, -k));
+        if (k > 0) edits.add((at: line, remove: k, insert: ''));
       }
     }
-    if (changes.isEmpty) return;
-    final added = changes.fold<int>(0, (sum, c) => sum + c.$2);
-    if (maxLength != null && added > 0 && t.length + added > maxLength!) return;
-    _checkpoint(typing: false);
-    var next = t;
-    for (final (line, delta) in changes.reversed) {
-      if (delta > 0) {
-        // The indent takes the line's text size, but none of its underline,
-        // highlight or other marks.
-        final lineFormat = line < _formats.length
-            ? _formats[line]
-            : (_formats.isNotEmpty ? _formats.last : _fallback());
-        final format = TextFormat(size: lineFormat.size);
-        next = next.replaceRange(line, line, ' ' * delta);
-        _formats.insertAll(line, List.filled(delta, format));
-      } else {
-        next = next.replaceRange(line, line - delta, '');
-        _formats.removeRange(line, line - delta);
-      }
-    }
-    int move(int offset, {required bool isEnd}) {
-      var o = offset;
-      for (final (line, delta) in changes) {
-        if (delta > 0) {
-          if (isEnd ? offset >= line : offset > line) o += delta;
-        } else if (offset > line) {
-          o -= offset - line < -delta ? offset - line : -delta;
-        }
-      }
-      return o;
-    }
+    _applyEdits(edits);
+  }
 
-    pending = null;
-    super.value = TextEditingValue(
-      text: next,
-      selection: TextSelection(
-        baseOffset: move(r.baseOffset, isEnd: r.baseOffset >= r.extentOffset),
-        extentOffset: move(
-          r.extentOffset,
-          isEnd: r.extentOffset > r.baseOffset,
-        ),
-      ),
-    );
-    onFormatEdited?.call();
+  /// Whether the line starting at [lineStart] is a bullet point.
+  bool _isBullet(int lineStart) =>
+      text.startsWith(bulletMark, _afterIndent(lineStart));
+
+  /// True when every line touched by the selection (or the caret's line) is a
+  /// bullet point; the bullet button shows as on then.
+  bool get bulleted => _selectedLineStarts().every(_isBullet);
+
+  /// Turns the lines touched by the selection (or the caret's line) into
+  /// bullet points, or back into plain lines if they all are bullets already.
+  void toggleBullets() {
+    final starts = _selectedLineStarts();
+    final off = starts.every(_isBullet);
+    final edits = <({int at, int remove, String insert})>[];
+    for (final line in starts) {
+      final at = _afterIndent(line);
+      if (off) {
+        edits.add((at: at, remove: bulletMark.length, insert: ''));
+      } else if (!_isBullet(line)) {
+        edits.add((at: at, remove: 0, insert: bulletMark));
+      }
+    }
+    _applyEdits(edits);
   }
 
   /// Chosen at the caret; applies to the next text typed there.
@@ -608,11 +724,13 @@ class RichTextController extends TextEditingController {
     super.value = newValue;
   }
 
-  // ---------------------------------------------------------------- indents
+  // ------------------------------------------------------- indents and bullets
   //
-  // An indent is written as [indentWidth] spaces at the start of a line, but it
-  // acts as one piece: Backspace and Delete remove all of it, and the caret and
-  // selections never stop inside it.
+  // An indent is [indentWidth] spaces at the start of a line and a bullet point
+  // is [bulletMark] after any indent, but each acts as one piece: Backspace and
+  // Delete remove all of it, and the caret and selections never stop inside it.
+  // Enter at the end of a bullet point starts the next one, and Enter on an
+  // empty one ends the list.
 
   /// Where the line holding [offset] starts.
   static int _lineStart(String t, int offset) {
@@ -623,69 +741,126 @@ class RichTextController extends TextEditingController {
     return i;
   }
 
-  /// The indent unit holding the character at [index] (its start), if that
-  /// character is a space in a complete unit at the start of its line.
-  static int? _unitHolding(String t, int index) {
+  /// The piece (a complete indent unit or a bullet marker) holding the
+  /// character at [index], as (start, end), or null.
+  static (int, int)? _pieceHolding(String t, int index) {
     if (index < 0 || index >= t.length) return null;
     final line = _lineStart(t, index);
-    final start = line + ((index - line) ~/ indentWidth) * indentWidth;
-    final end = start + indentWidth;
-    if (end > t.length) return null;
-    for (var i = line; i < end; i++) {
-      if (t.codeUnitAt(i) != 32) return null;
+    // An indent unit: a complete group of spaces at the start of the line.
+    final unit = line + ((index - line) ~/ indentWidth) * indentWidth;
+    if (unit + indentWidth <= t.length) {
+      var spaces = true;
+      for (var i = line; i < unit + indentWidth; i++) {
+        if (t.codeUnitAt(i) != 32) {
+          spaces = false;
+          break;
+        }
+      }
+      if (spaces) return (unit, unit + indentWidth);
     }
-    return start;
+    // A bullet marker after the indent.
+    var q = line;
+    while (q < t.length && t.codeUnitAt(q) == 32) {
+      q++;
+    }
+    if (t.startsWith(bulletMark, q) &&
+        index >= q &&
+        index < q + bulletMark.length) {
+      return (q, q + bulletMark.length);
+    }
+    return null;
   }
 
-  /// The start of the indent unit [offset] is strictly inside, or null when it
-  /// is on a boundary or not in an indent.
-  static int? _unitContaining(String t, int offset) {
+  /// The piece [offset] is strictly inside, or null when it is on an edge or
+  /// not in one.
+  static (int, int)? _pieceContaining(String t, int offset) {
     if (offset <= 0 || offset >= t.length) return null;
-    final line = _lineStart(t, offset);
-    if ((offset - line) % indentWidth == 0) return null;
-    return _unitHolding(t, offset - 1);
+    final piece = _pieceHolding(t, offset - 1);
+    if (piece == null || offset <= piece.$1 || offset >= piece.$2) return null;
+    return piece;
   }
 
-  /// Moves [offset] out of an indent: in the direction travelled, or to the
+  /// Moves [offset] out of a piece: in the direction travelled, or to the
   /// nearest edge after a jump (a click).
-  static int _outOfIndent(String t, int offset, int previous) {
-    final start = _unitContaining(t, offset);
-    if (start == null) return offset;
-    final end = start + indentWidth;
+  static int _outOfPiece(String t, int offset, int previous) {
+    final piece = _pieceContaining(t, offset);
+    if (piece == null) return offset;
+    final (start, end) = piece;
+    final width = end - start;
     final moved = offset - previous;
-    if (moved > 0 && moved <= indentWidth) return end;
-    if (moved < 0 && -moved <= indentWidth) return start;
-    return offset - start < indentWidth / 2 ? start : end;
+    if (moved > 0 && moved <= width) return end;
+    if (moved < 0 && -moved <= width) return start;
+    return offset - start < width / 2 ? start : end;
+  }
+
+  /// A newline typed in a bullet point: the next line is a bullet too, at the
+  /// same indent; on an empty bullet it ends the list instead. Null if [next]
+  /// is not that.
+  static TextEditingValue? _bulletEnter(String old, TextEditingValue next) {
+    final t = next.text;
+    var p = 0;
+    while (p < old.length && old.codeUnitAt(p) == t.codeUnitAt(p)) {
+      p++;
+    }
+    if (t.codeUnitAt(p) != 10 || t.substring(p + 1) != old.substring(p)) {
+      return null;
+    }
+    final line = _lineStart(old, p);
+    var q = line;
+    while (q < old.length && old.codeUnitAt(q) == 32) {
+      q++;
+    }
+    final markerEnd = q + bulletMark.length;
+    if (!old.startsWith(bulletMark, q) || p < markerEnd) return null;
+    var lineEnd = old.indexOf('\n', line);
+    if (lineEnd < 0) lineEnd = old.length;
+    if (lineEnd == markerEnd) {
+      // Nothing after the bullet: take it away and stay on this line.
+      return TextEditingValue(
+        text: old.replaceRange(q, markerEnd, ''),
+        selection: TextSelection.collapsed(offset: q),
+      );
+    }
+    final prefix = old.substring(line, q) + bulletMark;
+    return TextEditingValue(
+      text: old.replaceRange(p, p, '\n$prefix'),
+      selection: TextSelection.collapsed(offset: p + 1 + prefix.length),
+    );
   }
 
   TextEditingValue _keepIndentsWhole(TextEditingValue next) {
     final old = text;
     if (next.text != old) {
-      // One space deleted from a complete indent takes the whole indent.
-      final grew = next.text.length >= old.length;
-      if (grew || old.length - next.text.length != 1) return next;
+      if (next.text.length == old.length + 1) {
+        return _bulletEnter(old, next) ?? next;
+      }
+      // One character deleted from an indent or bullet takes all of it.
+      if (next.text.length >= old.length ||
+          old.length - next.text.length != 1) {
+        return next;
+      }
       var p = 0;
       while (p < next.text.length &&
           old.codeUnitAt(p) == next.text.codeUnitAt(p)) {
         p++;
       }
       if (old.substring(0, p) + old.substring(p + 1) != next.text) return next;
-      final start = old.codeUnitAt(p) == 32 ? _unitHolding(old, p) : null;
-      if (start == null) return next;
+      final piece = _pieceHolding(old, p);
+      if (piece == null) return next;
       return TextEditingValue(
-        text: old.replaceRange(start, start + indentWidth, ''),
-        selection: TextSelection.collapsed(offset: start),
+        text: old.replaceRange(piece.$1, piece.$2, ''),
+        selection: TextSelection.collapsed(offset: piece.$1),
       );
     }
     final sel = next.selection, before = value.selection;
     if (!sel.isValid || sel == before) return next;
     final t = next.text;
-    final base = _outOfIndent(
+    final base = _outOfPiece(
       t,
       sel.baseOffset,
       before.isValid ? before.baseOffset : sel.baseOffset,
     );
-    final extent = _outOfIndent(
+    final extent = _outOfPiece(
       t,
       sel.extentOffset,
       before.isValid ? before.extentOffset : sel.extentOffset,
@@ -902,6 +1077,13 @@ class RichTextController extends TextEditingController {
     _formats[index] = _formats[index].copyWith(embed: embed);
     notifyListeners();
     onFormatEdited?.call();
+  }
+
+  /// Switches [style] on, or off if the selection (or the next typed text) is
+  /// already that way. Returns the format now in force.
+  TextFormat toggle(TextToggle style) {
+    final on = style.isOn(currentFormat);
+    return edit((f) => style.set(f, !on));
   }
 
   /// Changes the selected text, or what is typed next at the caret. Returns the

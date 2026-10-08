@@ -426,6 +426,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
           onUndo: _controller.canUndo ? _controller.undo : null,
           onRedo: _controller.canRedo ? _controller.redo : null,
           onIndent: _controller.indent,
+          onBullets: _controller.toggleBullets,
+          bulleted: _controller.bulleted,
           onPickerOpen: _holdSelection,
           onPickerClose: _releaseSelection,
           onChange: (change) {
@@ -511,6 +513,22 @@ class _NotepadEditorState extends State<NotepadEditor> {
                       child: Actions(
                         // Undo covers formatting too, so it replaces the field's own.
                         actions: {
+                          ToggleStyleIntent: CallbackAction<ToggleStyleIntent>(
+                            onInvoke: (intent) {
+                              final format = _controller.toggle(intent.style);
+                              // Choices made at the caret carry over to new text.
+                              if (!_controller.hasSelection) {
+                                TextTool.shared.format = format;
+                              }
+                              return null;
+                            },
+                          ),
+                          BulletsIntent: CallbackAction<BulletsIntent>(
+                            onInvoke: (_) {
+                              _controller.toggleBullets();
+                              return null;
+                            },
+                          ),
                           IndentIntent: CallbackAction<IndentIntent>(
                             onInvoke: (intent) {
                               _controller.indent(intent.direction);

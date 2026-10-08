@@ -539,6 +539,8 @@ class _PadEditorState extends State<PadEditor> {
         onUndo: controller.canUndo ? controller.undo : null,
         onRedo: controller.canRedo ? controller.redo : null,
         onIndent: controller.indent,
+        onBullets: controller.toggleBullets,
+        bulleted: controller.bulleted,
         onPickerOpen: () {
           _holdEditing = true;
           _heldSelection = controller.selection;
@@ -564,6 +566,16 @@ class _PadEditorState extends State<PadEditor> {
         baseColor: padHex(selected.color),
         onUndo: _undo.isEmpty ? null : _undoStep,
         onRedo: _redo.isEmpty ? null : _redoStep,
+        bulleted: selected.bulleted,
+        onBullets: () {
+          final current = _find(selected.id);
+          if (current is! TextEl || current.text.isEmpty) return;
+          final next = current.withBulletsToggled();
+          if (identical(next, current)) return;
+          _push();
+          setState(() => _replace(next));
+          _changed();
+        },
         onIndent: (direction) {
           final current = _find(selected.id);
           if (current is! TextEl || current.text.isEmpty) return;
@@ -1121,6 +1133,40 @@ class _PadEditorState extends State<PadEditor> {
       _redoStep();
       return KeyEventResult.handled;
     }
+    // Ctrl/Cmd+B, I and U style a selected text box as a whole.
+    final toggle = command
+        ? switch (key) {
+            LogicalKeyboardKey.keyB => TextToggle.bold,
+            LogicalKeyboardKey.keyI => TextToggle.italic,
+            LogicalKeyboardKey.keyU => TextToggle.underline,
+            _ => null,
+          }
+        : null;
+    if (toggle != null) {
+      final el = _selectedEl;
+      if (el is! TextEl) return KeyEventResult.ignored;
+      final on = toggle.isOn(el.format);
+      _push();
+      setState(() => _replace(el.withFormat((f) => toggle.set(f, !on))));
+      _changed();
+      return KeyEventResult.handled;
+    }
+    // Ctrl/Cmd+Shift+8 or +L: bullet points in a selected text box.
+    if (command &&
+        keyboard.isShiftPressed &&
+        (key == LogicalKeyboardKey.digit8 ||
+            key == LogicalKeyboardKey.asterisk ||
+            key == LogicalKeyboardKey.keyL)) {
+      final el = _selectedEl;
+      if (el is! TextEl || el.text.isEmpty) return KeyEventResult.ignored;
+      final next = el.withBulletsToggled();
+      if (!identical(next, el)) {
+        _push();
+        setState(() => _replace(next));
+        _changed();
+      }
+      return KeyEventResult.handled;
+    }
     if (command && key == LogicalKeyboardKey.keyC && _selected != null) {
       _copySelected();
       return KeyEventResult.handled;
@@ -1444,6 +1490,23 @@ class _PadEditorState extends State<PadEditor> {
                 child: Actions(
                   // Undo covers formatting too, so it replaces the field's own.
                   actions: {
+                    ToggleStyleIntent: CallbackAction<ToggleStyleIntent>(
+                      onInvoke: (intent) {
+                        final controller = _textController;
+                        if (controller == null) return null;
+                        final format = controller.toggle(intent.style);
+                        if (!controller.hasSelection) {
+                          TextTool.shared.format = format;
+                        }
+                        return null;
+                      },
+                    ),
+                    BulletsIntent: CallbackAction<BulletsIntent>(
+                      onInvoke: (_) {
+                        _textController?.toggleBullets();
+                        return null;
+                      },
+                    ),
                     IndentIntent: CallbackAction<IndentIntent>(
                       onInvoke: (intent) {
                         _textController?.indent(intent.direction);

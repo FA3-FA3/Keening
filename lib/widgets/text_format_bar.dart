@@ -18,6 +18,8 @@ class TextFormatBar extends StatelessWidget {
     this.onUndo,
     this.onRedo,
     this.onIndent,
+    this.onBullets,
+    this.bulleted = false,
     this.onPickerOpen,
     this.onPickerClose,
   });
@@ -35,6 +37,10 @@ class TextFormatBar extends StatelessWidget {
   /// Null while there is nothing to undo or redo (or indent).
   final VoidCallback? onUndo, onRedo;
   final void Function(int direction)? onIndent;
+
+  /// Turns the lines into bullet points (or back); [bulleted] says they are.
+  final VoidCallback? onBullets;
+  final bool bulleted;
 
   /// Called around the colour picker, which takes focus from the text: the
   /// editor keeps its selection and gets its focus back when it closes.
@@ -218,6 +224,21 @@ class TextFormatBar extends StatelessWidget {
               highlight: true,
             ),
             const SizedBox(width: 4),
+            IconButton(
+              key: const ValueKey('text-bullets'),
+              tooltip: 'Bullet points (Ctrl+Shift+8)',
+              isSelected: bulleted,
+              onPressed: onBullets,
+              style: IconButton.styleFrom(
+                backgroundColor: bulleted
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+                foregroundColor: bulleted
+                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                    : null,
+              ),
+              icon: const Icon(Icons.format_list_bulleted),
+            ),
             IconButton(
               key: const ValueKey('text-outdent'),
               tooltip: 'Decrease indent',

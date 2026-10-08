@@ -125,6 +125,77 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('Ctrl+B, Ctrl+I and Ctrl+U toggle the style of the selection', (
+      tester,
+    ) async {
+      final c = await mount(tester, text: 'Hello world');
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      Future<void> ctrl(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+      }
+
+      c.selection = const TextSelection(baseOffset: 0, extentOffset: 5);
+      await tester.pump();
+      await ctrl(LogicalKeyboardKey.keyB);
+      await ctrl(LogicalKeyboardKey.keyI);
+      await ctrl(LogicalKeyboardKey.keyU);
+      expect(
+        c.runs.single.format,
+        const TextFormat(bold: true, italic: true, underline: true),
+      );
+      expect([c.runs.single.start, c.runs.single.end], [0, 5]);
+      // The toolbar buttons show the state.
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('text-bold')))
+            .isSelected,
+        isTrue,
+      );
+      // Pressing again turns each off.
+      await ctrl(LogicalKeyboardKey.keyB);
+      expect(c.runs.single.format.bold, isFalse);
+      expect(c.runs.single.format.italic, isTrue);
+      await ctrl(LogicalKeyboardKey.keyI);
+      await ctrl(LogicalKeyboardKey.keyU);
+      expect(c.runs, isEmpty);
+      // Each press is its own undo step and the note autosaves.
+      await ctrl(LogicalKeyboardKey.keyB);
+      await settle(tester);
+      expect(saves.last.$2.single.format.bold, isTrue);
+      await tester.tap(find.byKey(const ValueKey('text-undo')));
+      await settle(tester);
+      expect(saves.last.$2, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Ctrl+B at the caret styles what is typed next', (
+      tester,
+    ) async {
+      final c = await mount(tester, text: 'ab');
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      c.selection = const TextSelection.collapsed(offset: 2);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(
+        TextTool.shared.format.bold,
+        isTrue,
+        reason: 'remembered for new text',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('notepad-field')),
+        'abc',
+      );
+      await settle(tester);
+      expect(saves.last.$2, [const StyleRun(2, 3, TextFormat(bold: true))]);
+    });
+
     testWidgets('Ctrl+Z undoes and Ctrl+Y or Ctrl+Shift+Z redoes', (
       tester,
     ) async {
@@ -155,6 +226,75 @@ void main() {
       expect(c.runs.single.format.bold, isTrue);
       await press(LogicalKeyboardKey.keyZ, shift: true);
       expect(c.text, '    Hello');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the bullet button and Ctrl+Shift+8 make bullet points', (
+      tester,
+    ) async {
+      final c = await mount(tester, text: 'one\ntwo');
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      c.selection = const TextSelection(baseOffset: 0, extentOffset: 7);
+      await tester.pump();
+      IconButton button() =>
+          tester.widget<IconButton>(find.byKey(const ValueKey('text-bullets')));
+      expect(button().isSelected, isFalse);
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await settle(tester);
+      expect(c.text, '• one\n• two');
+      expect(saves.last.$1, '• one\n• two');
+      expect(button().isSelected, isTrue, reason: 'the button shows it is on');
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await tester.pump();
+      expect(c.text, 'one\ntwo');
+      // The keyboard does the same.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(c.text, '• one\n• two');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'Enter continues a bullet list and ends it on an empty bullet',
+      (tester) async {
+        final c = await mount(tester, text: '• one');
+        final field = find.byKey(const ValueKey('notepad-field'));
+        await tester.tap(field);
+        await tester.pump();
+        c.selection = const TextSelection.collapsed(offset: 5);
+        await tester.enterText(field, '• one\n');
+        await tester.pump();
+        expect(c.text, '• one\n• ');
+        await tester.enterText(field, '• one\n• two');
+        await tester.pump();
+        await tester.enterText(field, '• one\n• two\n');
+        await tester.pump();
+        expect(c.text, '• one\n• two\n• ');
+        // Enter again on the empty bullet ends the list.
+        await tester.enterText(field, '• one\n• two\n• \n');
+        await tester.pump();
+        expect(c.text, '• one\n• two\n');
+        await settle(tester);
+        expect(saves.last.$1, '• one\n• two\n');
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('Backspace after a bullet removes the whole bullet', (
+      tester,
+    ) async {
+      final c = await mount(tester, text: '• word');
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      c.selection = const TextSelection.collapsed(offset: 2);
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await settle(tester);
+      expect(c.text, 'word');
       expect(tester.takeException(), isNull);
     });
 
@@ -431,6 +571,67 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    testWidgets('Ctrl+B, I and U style a text box being edited or selected', (
+      tester,
+    ) async {
+      await mount(tester, initial: [box]);
+      Future<void> ctrl(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+      }
+
+      final c = await edit(tester);
+      c.selection = const TextSelection(baseOffset: 0, extentOffset: 3);
+      await ctrl(LogicalKeyboardKey.keyB);
+      await ctrl(LogicalKeyboardKey.keyU);
+      expect(
+        c.runs.single.format,
+        const TextFormat(bold: true, underline: true),
+      );
+      expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester);
+      expect((saves.last.single as TextEl).runs.single.format.bold, isTrue);
+      // With the box selected, not edited, the whole box changes.
+      await ctrl(LogicalKeyboardKey.keyI);
+      await settle(tester);
+      final styled = (saves.last.single as TextEl).runs;
+      expect(styled.any((r) => r.format.italic), isTrue);
+      expect(styled.last.end, 5, reason: 'to the end of the text');
+      await ctrl(LogicalKeyboardKey.keyI);
+      await settle(tester);
+      expect(
+        (saves.last.single as TextEl).runs.any((r) => r.format.italic),
+        isFalse,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('bullets work in a text box being edited and a selected one', (
+      tester,
+    ) async {
+      await mount(tester, initial: [box]);
+      final c = await edit(tester);
+      c.selection = const TextSelection.collapsed(offset: 2);
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await tester.pump();
+      expect(c.text, '• Hello');
+      expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester);
+      expect((saves.last.single as TextEl).text, '• Hello');
+      // With the box selected, not edited, every line changes.
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await settle(tester);
+      expect((saves.last.single as TextEl).text, 'Hello');
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await settle(tester);
+      expect((saves.last.single as TextEl).text, '• Hello');
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('Tab and Shift+Tab indent inside a text box', (tester) async {
       await mount(tester, initial: [box]);
