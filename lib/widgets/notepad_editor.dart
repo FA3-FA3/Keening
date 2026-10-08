@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderEditable;
 import 'package:flutter/services.dart';
 
+import '../utils/clipboard_image.dart';
 import '../utils/clipboard_text.dart';
 import '../utils/pad_clipboard.dart';
 import '../utils/pad_image.dart';
 import '../utils/pad_model.dart';
 import '../utils/rich_text.dart';
+import 'image_cropper.dart';
 import 'equation_editor.dart';
 import 'insert_tool.dart';
 import 'note_embeds.dart';
@@ -33,6 +36,8 @@ class NotepadEditor extends StatefulWidget {
     this.onUploadImage,
     this.onLoadImage,
     this.pickImage,
+    this.readPicture,
+    this.writePicture,
     this.autosaveDelay = const Duration(milliseconds: 800),
   });
   final String initialText;
@@ -48,6 +53,11 @@ class NotepadEditor extends StatefulWidget {
 
   /// Fetches a stored picture's bytes.
   final Future<Uint8List> Function(String imageId)? onLoadImage;
+
+  /// Read and write a picture on the system clipboard; the browser's by default
+  /// (replaced by tests).
+  final Future<Uint8List?> Function()? readPicture;
+  final Future<bool> Function(Uint8List png)? writePicture;
 
   /// Replaces the file chooser (used by tests).
   final Future<Uint8List?> Function()? pickImage;
@@ -85,6 +95,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
   void initState() {
     super.initState();
     _controller.embedBuilder = _buildEmbed;
+    _scroll.addListener(_queueSync);
   }
 
   Widget _buildEmbed(
@@ -94,15 +105,166 @@ class _NotepadEditorState extends State<NotepadEditor> {
     TextStyle? style,
   ) {
     if (embed.isImage) {
-      return NoteImageEmbed(imageId: embed.imageId!, load: _loadImage);
+      // Keyed, so the picture's real position can be found for its handle.
+      return KeyedSubtree(
+        key: _pictureKeys.putIfAbsent(index, GlobalKey.new),
+        child: NoteImageEmbed(imageId: embed.imageId!, load: _loadImage),
+      );
     }
-    return NoteEquationEmbed(
-      latex: embed.latex!,
-      index: index,
-      color: style?.color,
-      onEdit: () => _editEquation(index),
+    return _movable(
+      index,
+      NoteEquationEmbed(
+        latex: embed.latex!,
+        index: index,
+        color: style?.color,
+        onEdit: () => _editEquation(index),
+      ),
     );
   }
+
+  /// A picture or equation can be dragged to another place in the text.
+  Widget _movable(int index, Widget content) {
+    // An opaque backing, so the whole picture takes the press (a picture
+    // alone does not count as being hit).
+    final child = ColoredBox(color: Colors.transparent, child: content);
+    return _draggable(index, child);
+  }
+
+  Widget _draggable(int index, Widget child) => Draggable<int>(
+    key: ValueKey('note-embed-drag-$index'),
+    data: index,
+    dragAnchorStrategy: pointerDragAnchorStrategy,
+    onDragStarted: _focus.requestFocus,
+    feedback: Material(
+      type: MaterialType.transparency,
+      child: Opacity(opacity: 0.75, child: child),
+    ),
+    childWhenDragging: Opacity(opacity: 0.3, child: child),
+    child: child,
+  );
+
+  final _fieldArea = GlobalKey();
+  final _scroll = ScrollController();
+  final _pictureKeys = <int, GlobalKey>{};
+
+  /// Where each picture is on the page, in the coordinates of [_fieldArea].
+  /// The text field only passes presses to a strip of a picture as tall as a
+  /// line of text, so invisible handles are laid over the pictures to take
+  /// them whole.
+  List<({int index, Rect rect})> _pictures = [];
+  var _syncQueued = false;
+
+  void _queueSync() {
+    if (_syncQueued) return;
+    _syncQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncQueued = false;
+      if (mounted) _syncPictures();
+    });
+  }
+
+  void _syncPictures() {
+    final area = _fieldArea.currentContext?.findRenderObject();
+    final next = <({int index, Rect rect})>[];
+    if (area is RenderBox && area.hasSize) {
+      // A picture's position as the framework reports it ignores how far the
+      // page has been scrolled, so that is taken off here; without it the
+      // handle would stay where the picture was and catch clicks meant for the
+      // text now underneath.
+      final scrolled = _renderEditable()?.offset.pixels ?? 0.0;
+      final text = _controller.text;
+      for (var i = 0; i < text.length; i++) {
+        if (!(_controller.embedAt(i)?.isImage ?? false)) continue;
+        final box = _pictureKeys[i]?.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+        final origin = area
+            .globalToLocal(box.localToGlobal(Offset.zero))
+            .translate(0, -scrolled);
+        next.add((index: i, rect: origin & box.size));
+      }
+    }
+    var same = next.length == _pictures.length;
+    for (var i = 0; same && i < next.length; i++) {
+      same =
+          next[i].index == _pictures[i].index &&
+          (next[i].rect.topLeft - _pictures[i].rect.topLeft).distance < 0.5 &&
+          (next[i].rect.width - _pictures[i].rect.width).abs() < 0.5 &&
+          (next[i].rect.height - _pictures[i].rect.height).abs() < 0.5;
+    }
+    if (!same) setState(() => _pictures = next);
+  }
+
+  /// Handles over the pictures: a click puts the caret before or after the
+  /// picture, and a drag moves it to another place in the text.
+  List<Widget> _pictureHandles() {
+    String? id(int index) => _controller.embedAt(index)?.imageId;
+    return [
+      for (final p in _pictures)
+        if (id(p.index) != null)
+          Positioned.fromRect(
+            key: ValueKey('note-picture-handle-${p.index}'),
+            rect: p.rect,
+            child: Draggable<int>(
+              data: p.index,
+              // The drop point is the pointer itself.
+              dragAnchorStrategy: pointerDragAnchorStrategy,
+              onDragStarted: _focus.requestFocus,
+              feedback: Material(
+                type: MaterialType.transparency,
+                child: Opacity(
+                  opacity: 0.75,
+                  child: SizedBox.fromSize(
+                    size: p.rect.size,
+                    child: NoteImageEmbed(
+                      imageId: id(p.index)!,
+                      load: _loadImage,
+                    ),
+                  ),
+                ),
+              ),
+              // The picture left behind is veiled while it is being moved.
+              childWhenDragging: ColoredBox(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.7),
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                // Double-click to crop.
+                onDoubleTap: () => _cropPicture(p.index),
+                onTapUp: (details) {
+                  _focus.requestFocus();
+                  _controller.selection = TextSelection.collapsed(
+                    offset: details.localPosition.dx < p.rect.width / 2
+                        ? p.index
+                        : p.index + 1,
+                  );
+                },
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+    ];
+  }
+
+  RenderEditable? _renderEditable() {
+    RenderEditable? found;
+    void visit(RenderObject o) {
+      if (o is RenderEditable) {
+        found = o;
+        return;
+      }
+      o.visitChildren(visit);
+    }
+
+    final root = _fieldArea.currentContext?.findRenderObject();
+    if (root != null) visit(root);
+    return found;
+  }
+
+  /// The place in the text under a point on the screen.
+  int? _textOffsetAt(Offset global) =>
+      _renderEditable()?.getPositionForPoint(global).offset;
 
   Future<Uint8List> _loadImage(String id) => _imageBytes.putIfAbsent(id, () {
     final load = widget.onLoadImage;
@@ -173,7 +335,15 @@ class _NotepadEditorState extends State<NotepadEditor> {
       snapshot.plain,
       images,
     );
-    final written = await writeClipboardText(snapshot.plain);
+    // A lone picture goes on the system clipboard as a picture, so it can be
+    // pasted into other programs too.
+    final lone = snapshot.plain.isEmpty && images.length == 1
+        ? images.values.first
+        : null;
+    final written =
+        lone != null && await (widget.writePicture ?? writeClipboardImage)(lone)
+        ? true
+        : await writeClipboardText(snapshot.plain);
     if (!mounted) return;
     _snack(
       written
@@ -204,6 +374,31 @@ class _NotepadEditorState extends State<NotepadEditor> {
       return;
     }
     final text = read.text;
+    if (text.trim().isEmpty) {
+      // No text: perhaps a picture, such as a screenshot.
+      final image = await (widget.readPicture ?? readClipboardImage)();
+      if (!mounted) return;
+      if (image != null) {
+        bool has(Map<String, Uint8List> images) =>
+            images.values.any((b) => sameBytes(b, image));
+        // One copied here is the same picture: use it again rather than store
+        // another copy.
+        if (rich != null && rich.plain.isEmpty && has(rich.images)) {
+          return _pasteRich(rich);
+        }
+        if (pad != null && pad.plain.isEmpty && has(pad.images)) {
+          return _pasteFromPad(pad);
+        }
+        return _insertImage(image);
+      }
+      if (rich == null && pad == null) {
+        _snack(
+          'There is nothing to paste, or the browser would not let Keening read '
+          'the clipboard (allow clipboard access for this site).',
+        );
+        return;
+      }
+    }
     final padMatches = pad != null && (text.isEmpty || pad.matches(text));
     final richMatches = rich != null && rich.matches(text);
     if (padMatches && (!richMatches || newestIsPad)) {
@@ -288,6 +483,44 @@ class _NotepadEditorState extends State<NotepadEditor> {
     }
   }
 
+  /// Crops the picture at [index]: the cropped copy is stored as a new picture
+  /// and put in its place (the original stays until the note no longer uses it,
+  /// so undo still works).
+  Future<void> _cropPicture(int index) async {
+    final embed = _controller.embedAt(index);
+    final upload = widget.onUploadImage;
+    if (embed == null || !embed.isImage || upload == null) return;
+    Uint8List bytes;
+    try {
+      bytes = await _loadImage(embed.imageId!);
+    } catch (_) {
+      _snack('That picture could not be opened.');
+      return;
+    }
+    if (!mounted) return;
+    _holdSelection();
+    final result = await showImageCropper(context, bytes);
+    if (!mounted) return;
+    _releaseSelection();
+    if (result == null) return;
+    setState(() => _busyImages++);
+    try {
+      final id = await upload(result.png);
+      _ownedImages.add(id);
+      _imageBytes[id] = Future.value(result.png);
+      if (!mounted) return;
+      if (_controller.embedAt(index)?.imageId == embed.imageId) {
+        _controller.replaceEmbedAt(index, Embed.image(id));
+      }
+    } catch (e) {
+      _snack(
+        e is StateError ? e.message.toString() : 'Unable to crop that picture.',
+      );
+    } finally {
+      if (mounted) setState(() => _busyImages--);
+    }
+  }
+
   void _insertSymbol(String symbol) {
     if (!_controller.insertText(symbol)) {
       _snack('A note can hold up to $notepadMaxCharacters characters.');
@@ -319,6 +552,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
       // Best effort: don't lose the last edits when the note is closed.
       widget.onSave(_controller.text, _controller.runs).catchError((_) {});
     }
+    _scroll.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -465,6 +699,10 @@ class _NotepadEditorState extends State<NotepadEditor> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep the handles over the pictures in step with the page.
+    if (_pictures.isNotEmpty || _controller.text.contains(embedChar)) {
+      _queueSync();
+    }
     final status = switch (_state) {
       _SaveState.saved => 'Saved',
       _SaveState.dirty => 'Unsaved changes…',
@@ -508,109 +746,143 @@ class _NotepadEditorState extends State<NotepadEditor> {
                 child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 900),
-                    child: Shortcuts(
-                      shortcuts: indentShortcuts,
-                      child: Actions(
-                        // Undo covers formatting too, so it replaces the field's own.
-                        actions: {
-                          ToggleStyleIntent: CallbackAction<ToggleStyleIntent>(
-                            onInvoke: (intent) {
-                              final format = _controller.toggle(intent.style);
-                              // Choices made at the caret carry over to new text.
-                              if (!_controller.hasSelection) {
-                                TextTool.shared.format = format;
-                              }
-                              return null;
-                            },
-                          ),
-                          BulletsIntent: CallbackAction<BulletsIntent>(
-                            onInvoke: (_) {
-                              _controller.toggleBullets();
-                              return null;
-                            },
-                          ),
-                          IndentIntent: CallbackAction<IndentIntent>(
-                            onInvoke: (intent) {
-                              _controller.indent(intent.direction);
-                              return null;
-                            },
-                          ),
-                          UndoTextIntent: CallbackAction<UndoTextIntent>(
-                            onInvoke: (_) => _controller.undo(),
-                          ),
-                          RedoTextIntent: CallbackAction<RedoTextIntent>(
-                            onInvoke: (_) => _controller.redo(),
-                          ),
-                          // Copy, cut and paste keep formatting, equations and
-                          // pictures, which the field's own versions would lose.
-                          // (Cut is a copy that also removes the selection.)
-                          CopySelectionTextIntent:
-                              CallbackAction<CopySelectionTextIntent>(
-                                onInvoke: (intent) =>
-                                    _copy(cut: intent.collapseSelection),
-                              ),
-                          PasteTextIntent: CallbackAction<PasteTextIntent>(
-                            onInvoke: (_) => _paste(),
-                          ),
-                        },
-                        child: TextField(
-                          key: const ValueKey('notepad-field'),
-                          controller: _controller,
-                          focusNode: _focus,
-                          autofocus: true,
-                          expands: true,
-                          maxLines: null,
-                          minLines: null,
-                          textAlignVertical: TextAlignVertical.top,
-                          keyboardType: TextInputType.multiline,
-                          inputFormatters: [
-                            LengthLimitingTextInputFormatter(
-                              notepadMaxCharacters,
-                            ),
-                          ],
-                          style: const TextStyle(fontSize: 16, height: 1.5),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: 'Start typing…',
-                            contentPadding: EdgeInsets.all(24),
-                          ),
-                          onChanged: _changed,
-                          contextMenuBuilder: (context, state) =>
-                              AdaptiveTextSelectionToolbar.buttonItems(
-                                anchors: state.contextMenuAnchors,
-                                buttonItems: [
-                                  for (final item
-                                      in state.contextMenuButtonItems)
-                                    switch (item.type) {
-                                      ContextMenuButtonType.copy =>
-                                        ContextMenuButtonItem(
-                                          type: item.type,
-                                          onPressed: () {
-                                            state.hideToolbar();
-                                            _copy();
-                                          },
-                                        ),
-                                      ContextMenuButtonType.cut =>
-                                        ContextMenuButtonItem(
-                                          type: item.type,
-                                          onPressed: () {
-                                            state.hideToolbar();
-                                            _copy(cut: true);
-                                          },
-                                        ),
-                                      ContextMenuButtonType.paste =>
-                                        ContextMenuButtonItem(
-                                          type: item.type,
-                                          onPressed: () {
-                                            state.hideToolbar();
-                                            _paste();
-                                          },
-                                        ),
-                                      _ => item,
-                                    },
+                    child: DragTarget<int>(
+                      key: _fieldArea,
+                      onWillAcceptWithDetails: (_) => true,
+                      // The caret follows the dragged picture, showing where it
+                      // will land.
+                      onMove: (details) {
+                        final at = _textOffsetAt(details.offset);
+                        if (at != null) {
+                          _controller.selection = TextSelection.collapsed(
+                            offset: at,
+                          );
+                        }
+                      },
+                      onAcceptWithDetails: (details) {
+                        final at = _textOffsetAt(details.offset);
+                        if (at != null) _controller.moveEmbed(details.data, at);
+                      },
+                      builder: (context, _, _) => Stack(
+                        children: [
+                          Shortcuts(
+                            shortcuts: indentShortcuts,
+                            child: Actions(
+                              // Undo covers formatting too, so it replaces the field's own.
+                              actions: {
+                                ToggleStyleIntent:
+                                    CallbackAction<ToggleStyleIntent>(
+                                      onInvoke: (intent) {
+                                        final format = _controller.toggle(
+                                          intent.style,
+                                        );
+                                        // Choices made at the caret carry over to new text.
+                                        if (!_controller.hasSelection) {
+                                          TextTool.shared.format = format;
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                BulletsIntent: CallbackAction<BulletsIntent>(
+                                  onInvoke: (_) {
+                                    _controller.toggleBullets();
+                                    return null;
+                                  },
+                                ),
+                                IndentIntent: CallbackAction<IndentIntent>(
+                                  onInvoke: (intent) {
+                                    _controller.indent(intent.direction);
+                                    return null;
+                                  },
+                                ),
+                                UndoTextIntent: CallbackAction<UndoTextIntent>(
+                                  onInvoke: (_) => _controller.undo(),
+                                ),
+                                RedoTextIntent: CallbackAction<RedoTextIntent>(
+                                  onInvoke: (_) => _controller.redo(),
+                                ),
+                                // Copy, cut and paste keep formatting, equations and
+                                // pictures, which the field's own versions would lose.
+                                // (Cut is a copy that also removes the selection.)
+                                CopySelectionTextIntent:
+                                    CallbackAction<CopySelectionTextIntent>(
+                                      onInvoke: (intent) =>
+                                          _copy(cut: intent.collapseSelection),
+                                    ),
+                                PasteTextIntent:
+                                    CallbackAction<PasteTextIntent>(
+                                      onInvoke: (_) => _paste(),
+                                    ),
+                              },
+                              child: TextField(
+                                key: const ValueKey('notepad-field'),
+                                controller: _controller,
+                                focusNode: _focus,
+                                scrollController: _scroll,
+                                // No fixed line height, so a line with a picture is as
+                                // tall as the picture and the text below clears it.
+                                strutStyle: StrutStyle.disabled,
+                                autofocus: true,
+                                expands: true,
+                                maxLines: null,
+                                minLines: null,
+                                textAlignVertical: TextAlignVertical.top,
+                                keyboardType: TextInputType.multiline,
+                                inputFormatters: [
+                                  LengthLimitingTextInputFormatter(
+                                    notepadMaxCharacters,
+                                  ),
                                 ],
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  height: 1.5,
+                                ),
+                                decoration: const InputDecoration(
+                                  border: InputBorder.none,
+                                  hintText: 'Start typing…',
+                                  contentPadding: EdgeInsets.all(24),
+                                ),
+                                onChanged: _changed,
+                                contextMenuBuilder: (context, state) =>
+                                    AdaptiveTextSelectionToolbar.buttonItems(
+                                      anchors: state.contextMenuAnchors,
+                                      buttonItems: [
+                                        for (final item
+                                            in state.contextMenuButtonItems)
+                                          switch (item.type) {
+                                            ContextMenuButtonType.copy =>
+                                              ContextMenuButtonItem(
+                                                type: item.type,
+                                                onPressed: () {
+                                                  state.hideToolbar();
+                                                  _copy();
+                                                },
+                                              ),
+                                            ContextMenuButtonType.cut =>
+                                              ContextMenuButtonItem(
+                                                type: item.type,
+                                                onPressed: () {
+                                                  state.hideToolbar();
+                                                  _copy(cut: true);
+                                                },
+                                              ),
+                                            ContextMenuButtonType.paste =>
+                                              ContextMenuButtonItem(
+                                                type: item.type,
+                                                onPressed: () {
+                                                  state.hideToolbar();
+                                                  _paste();
+                                                },
+                                              ),
+                                            _ => item,
+                                          },
+                                      ],
+                                    ),
                               ),
-                        ),
+                            ),
+                          ),
+                          ..._pictureHandles(),
+                        ],
                       ),
                     ),
                   ),

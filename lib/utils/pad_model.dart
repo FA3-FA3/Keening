@@ -251,13 +251,19 @@ class ImageEl extends PadElement {
   @override
   Rect get bounds => Rect.fromLTWH(x, y, w, h);
 
-  ImageEl copyWith({double? x, double? y, double? w, double? h}) => ImageEl(
+  ImageEl copyWith({
+    double? x,
+    double? y,
+    double? w,
+    double? h,
+    String? imageId,
+  }) => ImageEl(
     id: id,
     x: x ?? this.x,
     y: y ?? this.y,
     w: w ?? this.w,
     h: h ?? this.h,
-    imageId: imageId,
+    imageId: imageId ?? this.imageId,
   );
 
   @override

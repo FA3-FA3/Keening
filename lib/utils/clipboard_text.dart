@@ -26,3 +26,12 @@ Future<bool> writeClipboardText(String text) async {
     return false;
   }
 }
+
+/// Whether two byte lists hold the same bytes.
+bool sameBytes(Uint8List? a, Uint8List? b) {
+  if (a == null || b == null || a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}

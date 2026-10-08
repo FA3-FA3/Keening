@@ -4,12 +4,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/file_drop.dart';
+import '../utils/clipboard_image.dart';
 import '../utils/clipboard_text.dart';
 import '../utils/pad_clipboard.dart';
 import '../utils/pad_image.dart';
 import '../utils/pad_model.dart';
 import '../utils/rich_text.dart';
 import 'equation_editor.dart';
+import 'image_cropper.dart';
 import 'insert_tool.dart';
 import 'text_format_bar.dart';
 
@@ -39,6 +41,8 @@ class PadEditor extends StatefulWidget {
     this.active = true,
     this.autosaveDelay = const Duration(milliseconds: 800),
     this.pickImage,
+    this.readPicture,
+    this.writePicture,
     this.attachDrop = attachFileDrop,
   });
 
@@ -57,6 +61,11 @@ class PadEditor extends StatefulWidget {
 
   /// Chooses a picture file. Defaults to the system file chooser.
   final Future<Uint8List?> Function()? pickImage;
+
+  /// Read and write a picture on the system clipboard; the browser's by default
+  /// (replaced by tests).
+  final Future<Uint8List?> Function()? readPicture;
+  final Future<bool> Function(Uint8List png)? writePicture;
   final AttachFileDrop attachDrop;
 
   @override
@@ -335,6 +344,10 @@ class _PadEditorState extends State<PadEditor> {
         hit.id == _lastTapId &&
         now.difference(_lastTapAt) < _doubleTap) {
       _editEquation(hit);
+    } else if (hit is ImageEl &&
+        hit.id == _lastTapId &&
+        now.difference(_lastTapAt) < _doubleTap) {
+      _cropImage(hit);
     }
     _lastTapId = hit?.id;
     _lastTapAt = now;
@@ -802,7 +815,14 @@ class _PadEditorState extends State<PadEditor> {
     };
     PadClipboard.current = PadClip([el], images, plain);
     if (cut) _deleteSelected();
-    final written = await writeClipboardText(plain);
+    // A picture goes on the system clipboard as a picture, so it can be pasted
+    // into other programs too.
+    final picture = el is ImageEl ? images[el.imageId] : null;
+    final written =
+        picture != null &&
+            await (widget.writePicture ?? writeClipboardImage)(picture)
+        ? true
+        : await writeClipboardText(plain);
     if (!mounted) return;
     _snack(
       written
@@ -835,6 +855,32 @@ class _PadEditorState extends State<PadEditor> {
       return;
     }
     final text = read.text;
+    if (text.trim().isEmpty) {
+      // No text: perhaps a picture, such as a screenshot.
+      final image = await (widget.readPicture ?? readClipboardImage)();
+      if (!mounted) return;
+      if (image != null) {
+        bool has(Map<String, Uint8List> images) =>
+            images.values.any((b) => sameBytes(b, image));
+        // One copied here is the same picture: use it again rather than store
+        // another copy.
+        if (pad != null && pad.plain.isEmpty && has(pad.images)) {
+          return _pasteClip(pad);
+        }
+        if (rich != null && rich.plain.isEmpty && has(rich.images)) {
+          return _pasteFromNote(rich);
+        }
+        _finishEditing();
+        return _addImage(image);
+      }
+      if (rich == null && pad == null) {
+        _snack(
+          'There is nothing to paste, or the browser would not let Keening read '
+          'the clipboard (allow clipboard access for this site).',
+        );
+        return;
+      }
+    }
     final padMatches = pad != null && (text.isEmpty || pad.matches(text));
     final richMatches = rich != null && rich.matches(text);
     if (padMatches && (!richMatches || !newestIsRich)) {
@@ -1026,6 +1072,60 @@ class _PadEditorState extends State<PadEditor> {
       math.min(padCanvasWidth / size.width, padCanvasHeight / size.height),
     );
     return Size(size.width * scale, size.height * scale);
+  }
+
+  /// Crops a picture: the cropped copy is stored as a new picture that takes
+  /// the old one's place, at the same scale (the original stays until the pad no
+  /// longer uses it, so undo still works).
+  Future<void> _cropImage(ImageEl el) async {
+    var bytes = _images[el.imageId];
+    if (bytes == null) {
+      try {
+        bytes = await widget.onLoadImage(el.imageId);
+      } catch (_) {
+        _snack('That picture could not be opened.');
+        return;
+      }
+    }
+    if (!mounted) return;
+    final result = await showImageCropper(context, bytes);
+    if (!mounted) return;
+    _focus.requestFocus();
+    if (result == null) return;
+    setState(() => _busyImages++);
+    try {
+      final id = await widget.onUploadImage(result.png);
+      if (!mounted) return;
+      final current = _find(el.id);
+      if (current is! ImageEl || current.imageId != el.imageId) return;
+      var w = current.w * result.crop.width / result.source.width;
+      var h = current.h * result.crop.height / result.source.height;
+      if (w < 24) {
+        h *= 24 / w;
+        w = 24;
+      }
+      _push();
+      setState(() {
+        _images[id] = result.png;
+        _ownedImages.add(id);
+        _replace(
+          current.copyWith(
+            imageId: id,
+            w: w,
+            h: h,
+            x: math.min(current.x, padCanvasWidth - w),
+            y: math.min(current.y, padCanvasHeight - h),
+          ),
+        );
+      });
+      _changed();
+    } catch (e) {
+      _snack(
+        e is StateError ? e.message.toString() : 'Unable to crop that picture.',
+      );
+    } finally {
+      if (mounted) setState(() => _busyImages--);
+    }
   }
 
   Future<void> _editEquation(EquationEl el) async {

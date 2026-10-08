@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'equation_editor.dart' show EquationView, equationParses;
+import 'horizontal_scroll.dart';
 
 /// How a table's edges are drawn.
 enum TableStyle {
@@ -232,8 +233,8 @@ class _TableBuilderState extends State<_TableBuilder> {
                       onChanged: (v) => setState(() => _words = v ?? true),
                     ),
                     const SizedBox(height: 4),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
+                    HorizontalScroll(
+                      key: const ValueKey('table-cells-scroll'),
                       child: Column(
                         children: [
                           for (var r = 0; r < _rows; r++)
@@ -273,8 +274,8 @@ class _TableBuilderState extends State<_TableBuilder> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: valid
-                          ? SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                          ? HorizontalScroll(
+                              key: const ValueKey('table-preview-scroll'),
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: EquationView(latex: latex),

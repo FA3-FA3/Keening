@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'equation_table.dart';
+import 'horizontal_scroll.dart';
 
 /// The size equations are measured and first drawn at.
 const equationFontSize = 24.0;
@@ -484,8 +485,8 @@ class _EquationEditorState extends State<_EquationEditor> {
                               empty ? 'The equation appears here.' : '',
                               style: Theme.of(context).textTheme.bodySmall,
                             )
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                          : HorizontalScroll(
+                              key: const ValueKey('equation-preview-scroll'),
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: KeyedSubtree(

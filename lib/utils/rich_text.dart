@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 /// Text sizes the format bar steps through.
@@ -455,6 +456,43 @@ class RichClip {
 /// The last rich copy; shared by every Notepad.
 class RichClipboard {
   static RichClip? current;
+}
+
+/// A box that tells text layout its baseline is [distance] below its top,
+/// whatever it holds. Placed in a line of text, its top then lines up with the
+/// top of the line, and what is below the baseline makes the line taller.
+class BaselineAt extends SingleChildRenderObjectWidget {
+  const BaselineAt({super.key, required this.distance, super.child});
+  final double distance;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderBaselineAt(distance);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderBaselineAt).distance = distance;
+  }
+}
+
+class _RenderBaselineAt extends RenderProxyBox {
+  _RenderBaselineAt(this._distance);
+  double _distance;
+
+  set distance(double value) {
+    if (value == _distance) return;
+    _distance = value;
+    markNeedsLayout();
+  }
+
+  @override
+  double? computeDistanceToActualBaseline(TextBaseline baseline) => _distance;
+
+  @override
+  double? computeDryBaseline(
+    BoxConstraints constraints,
+    TextBaseline baseline,
+  ) => _distance;
 }
 
 /// Spaces added or removed by one step of the indent buttons.
@@ -1070,6 +1108,40 @@ class RichTextController extends TextEditingController {
   /// Places a picture or equation at the caret, replacing any selection.
   bool insertEmbed(Embed embed) => insertText(embedChar, embed: embed);
 
+  /// Moves the picture or equation at [from] so that it sits at offset [to]
+  /// (an offset in the text as it is now), as one undo step. Returns false if
+  /// there is nothing to move or it would not go anywhere new.
+  bool moveEmbed(int from, int to) {
+    if (embedAt(from) == null || to < 0 || to > text.length) return false;
+    if (to == from || to == from + 1) return false;
+    final at = to > from ? to - 1 : to; // where it ends up once lifted out
+    _checkpoint(typing: false);
+    final format = _formats.removeAt(from);
+    final char = text[from];
+    final without = text.replaceRange(from, from + 1, '');
+    _formats.insert(at, format);
+    pending = null;
+    super.value = TextEditingValue(
+      text: without.replaceRange(at, at, char),
+      selection: TextSelection.collapsed(offset: at + 1),
+    );
+    onFormatEdited?.call();
+    return true;
+  }
+
+  /// How far the text's baseline is below the top of its line in [style].
+  static double _textAscent(TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'x', style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final distance = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
+    painter.dispose();
+    return distance;
+  }
+
   /// Changes an equation already in the text (as one undo step).
   void replaceEmbedAt(int index, Embed embed) {
     if (embedAt(index) == null) return;
@@ -1114,6 +1186,7 @@ class RichTextController extends TextEditingController {
     required bool withComposing,
   }) {
     final children = <InlineSpan>[];
+    double? ascent; // worked out only if there is a picture
     var i = 0;
     while (i < _formats.length) {
       var j = i + 1;
@@ -1125,10 +1198,23 @@ class RichTextController extends TextEditingController {
         // One widget for each placeholder character.
         for (var k = i; k < j; k++) {
           children.add(
-            WidgetSpan(
-              alignment: PlaceholderAlignment.middle,
-              child: embedBuilder!(context, embed, k, style),
-            ),
+            embed.isImage
+                // A picture hangs from the top of its line, so the caret beside
+                // it is at its top-left corner, and the line is as tall as the
+                // picture, so the text below starts under it.
+                ? WidgetSpan(
+                    alignment: PlaceholderAlignment.baseline,
+                    baseline: TextBaseline.alphabetic,
+                    child: BaselineAt(
+                      distance: ascent ??= _textAscent(style),
+                      child: embedBuilder!(context, embed, k, style),
+                    ),
+                  )
+                // An equation sits in the middle of the line.
+                : WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: embedBuilder!(context, embed, k, style),
+                  ),
           );
         }
       } else {
