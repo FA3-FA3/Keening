@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderEditable;
+import '../forked/render_editable.dart' show HangRenderEditable;
+import '../forked/text_field.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/clipboard_image.dart';
@@ -247,10 +248,10 @@ class _NotepadEditorState extends State<NotepadEditor> {
     ];
   }
 
-  RenderEditable? _renderEditable() {
-    RenderEditable? found;
+  HangRenderEditable? _renderEditable() {
+    HangRenderEditable? found;
     void visit(RenderObject o) {
-      if (o is RenderEditable) {
+      if (o is HangRenderEditable) {
         found = o;
         return;
       }
@@ -716,24 +717,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
           padding: const EdgeInsets.all(8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(child: _settings()),
-              const SizedBox(width: 12),
-              Text(status, key: const ValueKey('notepad-save-status')),
-              if (_state == _SaveState.error) ...[
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    _error ?? '',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-                TextButton(onPressed: _save, child: const Text('Retry')),
-              ],
-            ],
+            children: [Expanded(child: _settings())],
           ),
         ),
         const Divider(height: 1),
@@ -783,6 +767,9 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                         return null;
                                       },
                                     ),
+                                BulletEnterIntent: BulletEnterAction(
+                                  () => _controller,
+                                ),
                                 BulletsIntent: CallbackAction<BulletsIntent>(
                                   onInvoke: (_) {
                                     _controller.toggleBullets();
@@ -814,7 +801,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                       onInvoke: (_) => _paste(),
                                     ),
                               },
-                              child: TextField(
+                              child: RichField(
                                 key: const ValueKey('notepad-field'),
                                 controller: _controller,
                                 focusNode: _focus,
@@ -894,14 +881,43 @@ class _NotepadEditorState extends State<NotepadEditor> {
         const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              '$_words ${_words == 1 ? 'word' : 'words'} · '
-              '${_controller.text.length} characters',
-              key: const ValueKey('notepad-count'),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        status,
+                        key: const ValueKey('notepad-save-status'),
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    if (_state == _SaveState.error) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _error ?? '',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                      TextButton(onPressed: _save, child: const Text('Retry')),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$_words ${_words == 1 ? 'word' : 'words'} · '
+                '${_controller.text.length} characters',
+                key: const ValueKey('notepad-count'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
         ),
       ],

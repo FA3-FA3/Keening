@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/pad_clipboard.dart';
 import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
@@ -133,7 +134,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('notepad-field')));
     await tester.pump();
     return tester
-            .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+            .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
             .controller!
         as RichTextController;
   }
@@ -196,7 +197,7 @@ void main() {
       await tester.pumpAndSettle();
       final c =
           tester
-                  .widget<TextField>(
+                  .widget<RichField>(
                     find.byKey(const ValueKey('pad-text-field')),
                   )
                   .controller!

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/clipboard_text.dart';
 import 'package:keening/utils/pad_clipboard.dart';
 import 'package:keening/utils/pad_model.dart';
@@ -285,7 +286,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('notepad-field')));
       await tester.pump();
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
     }

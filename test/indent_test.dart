@@ -4,6 +4,7 @@ import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
 
 void main() {
+  caretIndentTests();
   const bold = TextFormat(bold: true);
 
   RichTextController make(String text, [List<StyleRun> runs = const []]) =>
@@ -16,10 +17,10 @@ void main() {
 
   test('the caret line, or every selected line, moves by four spaces', () {
     final c = make('one\ntwo\nthree');
-    c.selection = const TextSelection.collapsed(offset: 5); // inside "two"
+    c.selection = const TextSelection.collapsed(offset: 4); // start of "two"
     c.indent(1);
     expect(c.text, 'one\n    two\nthree');
-    expect(c.selection, const TextSelection.collapsed(offset: 9));
+    expect(c.selection, const TextSelection.collapsed(offset: 8));
     c.selection = const TextSelection(baseOffset: 2, extentOffset: 14);
     c.indent(1);
     expect(c.text, '    one\n        two\n    three');
@@ -65,7 +66,7 @@ void main() {
     final c = make('abc');
     var edited = 0;
     c.onFormatEdited = () => edited++;
-    c.selection = const TextSelection.collapsed(offset: 1);
+    c.selection = const TextSelection.collapsed(offset: 0);
     c.indent(1);
     expect(edited, 1);
     c.indent(-1);
@@ -75,7 +76,7 @@ void main() {
 
   test('indenting stops at the length limit', () {
     final c = RichTextController(text: 'abc', maxLength: 5);
-    c.selection = const TextSelection.collapsed(offset: 1);
+    c.selection = const TextSelection.collapsed(offset: 0);
     c.indent(1);
     expect(c.text, 'abc');
   });
@@ -94,5 +95,53 @@ void main() {
     expect(more.text, '    one\n    two');
     expect(more.indented(-1).text, 'one\ntwo');
     expect(identical(el.indented(-1), el), isTrue, reason: 'nothing to remove');
+  });
+}
+
+void caretIndentTests() {
+  RichTextController make(String text) => RichTextController(
+    text: text,
+    runs: const [],
+    typingGap: Duration.zero,
+    fallback: () => TextFormat.plain,
+  );
+  test('indenting after a character leaves the text before the caret alone', () {
+    final c = make('one\ntwo three');
+    c.selection = const TextSelection.collapsed(offset: 7); // after "two"
+    c.indent(1);
+    expect(c.text, 'one\ntwo\t three');
+    expect(c.selection, const TextSelection.collapsed(offset: 8));
+  });
+
+  test('indenting at the end of a line adds the indent there', () {
+    final c = make('abc');
+    c.selection = const TextSelection.collapsed(offset: 3);
+    c.indent(1);
+    expect(c.text, 'abc\t');
+    expect(c.selection, const TextSelection.collapsed(offset: 4));
+  });
+
+  test('inside the indent or at a line start the whole line still moves', () {
+    final c = make('    abc');
+    c.selection = const TextSelection.collapsed(offset: 2);
+    c.indent(1);
+    expect(c.text, '        abc');
+    c.selection = const TextSelection.collapsed(offset: 0);
+    c.indent(1);
+    expect(c.text, '            abc');
+  });
+
+  test('a caret right after a bullet indents the whole bullet line', () {
+    final c = make('• item');
+    c.selection = const TextSelection.collapsed(offset: 2);
+    c.indent(1);
+    expect(c.text, '    • item');
+  });
+
+  test('a selection still indents whole lines', () {
+    final c = make('one two');
+    c.selection = const TextSelection(baseOffset: 2, extentOffset: 5);
+    c.indent(1);
+    expect(c.text, '    one two');
   });
 }

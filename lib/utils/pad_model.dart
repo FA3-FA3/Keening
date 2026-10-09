@@ -1,3 +1,5 @@
+import '../forked/hang_text_painter.dart';
+import '../widgets/hang_text.dart';
 import 'dart:math' as math;
 import 'package:flutter/painting.dart';
 import 'rich_text.dart';
@@ -186,8 +188,10 @@ class TextEl extends PadElement {
 
   /// Height needed to show the text at its current width.
   double get height {
-    final painter = TextPainter(text: span, textDirection: TextDirection.ltr)
-      ..layout(maxWidth: math.max(1, w - 2 * padTextPadding));
+    final painter =
+        HangTextPainter(text: span, textDirection: TextDirection.ltr)
+          ..setPlaceholderDimensions(scriptDimensions(span))
+          ..layout(maxWidth: math.max(1, w - 2 * padTextPadding));
     final h = painter.height;
     painter.dispose();
     return h + 2 * padTextPadding;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'rich_field_helpers.dart';
 import 'package:keening/pages/documents_page.dart';
 import 'package:keening/utils/pads_service.dart';
 
@@ -197,9 +198,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('doc-type-$type')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('doc-name-field')), name);
+    await enterRich(tester, find.byKey(const ValueKey('doc-name-field')), name);
     if (description != null) {
-      await tester.enterText(
+      await enterRich(tester, 
         find.byKey(const ValueKey('doc-description-field')),
         description,
       );
@@ -211,7 +212,7 @@ void main() {
   Future<void> createFolder(WidgetTester tester, String name) async {
     await tester.tap(find.byKey(const ValueKey('folder-create')));
     await tester.pumpAndSettle();
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('folder-name-field')),
       name,
     );
@@ -273,11 +274,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('doc-type-notepad')));
     await tester.pumpAndSettle();
     expect(find.text('New Notepad'), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('doc-name-field')),
       'Shopping',
     );
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('doc-description-field')),
       'Weekly list',
     );
@@ -363,7 +364,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('folder-rename-${work['id']}')));
     await tester.pumpAndSettle();
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('folder-name-field')),
       'Projects',
     );
@@ -447,11 +448,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Edit Notepad'), findsOneWidget);
     expect(find.text('Old text'), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('doc-name-field')),
       'Plan v2',
     );
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('doc-description-field')),
       'New text',
     );
@@ -568,14 +569,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('doc-screen-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('notepad-field')), findsOneWidget);
-    expect(find.text('Milk\neggs'), findsOneWidget);
+    expect(findRichText('Milk\neggs'), findsOneWidget);
     expect(find.byKey(const ValueKey('pad-paper')), findsNothing);
     expect(
       find.byKey(const ValueKey('document-create')),
       findsNothing,
       reason: 'covered',
     );
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Milk\neggs\nbread',
     );
@@ -626,7 +627,7 @@ void main() {
     expect(find.byKey(const ValueKey('doc-screen-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('pad-paper')), findsOneWidget);
     expect(find.byKey(const ValueKey('notepad-field')), findsNothing);
-    expect(find.text('Plan text'), findsOneWidget);
+    expect(findPadText('Plan text'), findsOneWidget);
     expect(api.calls, containsAll(['getPad', 'getImage']));
     await tester.tap(find.byKey(const ValueKey('pad-tool-line')));
     await tester.pumpAndSettle();
@@ -650,7 +651,7 @@ void main() {
     await openDetails(tester, api, 'Note');
     await tester.tap(find.byKey(const ValueKey('doc-details-open')));
     await tester.pumpAndSettle();
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Quick thought',
     );
@@ -708,7 +709,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
     expect(find.text('Enter a folder name.'), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('folder-name-field')),
       'Taken',
     );

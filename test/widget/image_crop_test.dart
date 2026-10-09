@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/image_crop.dart';
 import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
@@ -411,7 +412,7 @@ void main() {
         return shown.evaluate().isNotEmpty && tester.getSize(shown).height > 0;
       });
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
     }

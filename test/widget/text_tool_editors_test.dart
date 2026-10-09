@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'rich_field_helpers.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
 import 'package:keening/widgets/notepad_editor.dart';
@@ -10,7 +12,7 @@ import 'package:keening/widgets/pad_editor.dart';
 Future<void> pickColour(WidgetTester tester, String button, String hex) async {
   await tester.tap(find.byKey(ValueKey(button)));
   await tester.pumpAndSettle();
-  await tester.enterText(find.byKey(const ValueKey('colour-hex')), hex);
+  await enterRich(tester, find.byKey(const ValueKey('colour-hex')), hex);
   await tester.tap(find.byKey(const ValueKey('colour-apply')));
   await tester.pumpAndSettle();
 }
@@ -50,7 +52,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
     }
@@ -89,12 +91,15 @@ void main() {
           isTrue,
         );
         expect(find.byKey(const ValueKey('text-size-up')), findsOneWidget);
-        // The save status sits with the settings.
+        // The save status is along the bottom left, the count on the right.
+        final status = tester.getTopLeft(
+          find.byKey(const ValueKey('notepad-save-status')),
+        );
+        expect(status.dy, greaterThan(field.dy));
+        expect(status.dx, lessThan(100));
         expect(
-          tester
-              .getTopLeft(find.byKey(const ValueKey('notepad-save-status')))
-              .dy,
-          lessThan(field.dy),
+          tester.getTopLeft(find.byKey(const ValueKey('notepad-count'))).dx,
+          greaterThan(status.dx + 200),
         );
       },
     );
@@ -105,7 +110,7 @@ void main() {
       final c = await mount(tester, text: 'word');
       await tester.tap(find.byKey(const ValueKey('notepad-field')));
       await tester.pump();
-      c.selection = const TextSelection.collapsed(offset: 2);
+      c.selection = const TextSelection.collapsed(offset: 0);
       await tester.tap(find.byKey(const ValueKey('text-indent')));
       await tester.pump();
       expect(c.text, '    word');
@@ -188,7 +193,7 @@ void main() {
         isTrue,
         reason: 'remembered for new text',
       );
-      await tester.enterText(
+      await enterRich(tester, 
         find.byKey(const ValueKey('notepad-field')),
         'abc',
       );
@@ -267,16 +272,16 @@ void main() {
         await tester.tap(field);
         await tester.pump();
         c.selection = const TextSelection.collapsed(offset: 5);
-        await tester.enterText(field, '• one\n');
+        await enterRich(tester, field, '• one\n');
         await tester.pump();
         expect(c.text, '• one\n• ');
-        await tester.enterText(field, '• one\n• two');
+        await enterRich(tester, field, '• one\n• two');
         await tester.pump();
-        await tester.enterText(field, '• one\n• two\n');
+        await enterRich(tester, field, '• one\n• two\n');
         await tester.pump();
         expect(c.text, '• one\n• two\n• ');
         // Enter again on the empty bullet ends the list.
-        await tester.enterText(field, '• one\n• two\n• \n');
+        await enterRich(tester, field, '• one\n• two\n• \n');
         await tester.pump();
         expect(c.text, '• one\n• two\n');
         await settle(tester);
@@ -302,7 +307,7 @@ void main() {
       final c = await mount(tester, text: 'one\ntwo');
       await tester.tap(find.byKey(const ValueKey('notepad-field')));
       await tester.pump();
-      c.selection = const TextSelection.collapsed(offset: 5);
+      c.selection = const TextSelection.collapsed(offset: 4);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await settle(tester);
       expect(c.text, 'one\n    two');
@@ -349,7 +354,7 @@ void main() {
       expect(find.byKey(const ValueKey('text-undo')), findsOneWidget);
       expect(find.byKey(const ValueKey('text-redo')), findsOneWidget);
       // The page can still be typed in and undone from here.
-      await tester.enterText(
+      await enterRich(tester, 
         find.byKey(const ValueKey('notepad-field')),
         'Hello!',
       );
@@ -520,7 +525,7 @@ void main() {
       await tester.tapAt(paper(tester, const Offset(150, 315)));
       await tester.pumpAndSettle();
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('pad-text-field')))
+              .widget<RichField>(find.byKey(const ValueKey('pad-text-field')))
               .controller!
           as RichTextController;
     }
@@ -636,7 +641,7 @@ void main() {
     testWidgets('Tab and Shift+Tab indent inside a text box', (tester) async {
       await mount(tester, initial: [box]);
       final c = await edit(tester);
-      c.selection = const TextSelection.collapsed(offset: 2);
+      c.selection = const TextSelection.collapsed(offset: 0);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       expect(c.text, '    Hello');
@@ -660,7 +665,7 @@ void main() {
     ) async {
       await mount(tester, initial: [box]);
       final c = await edit(tester);
-      c.selection = const TextSelection.collapsed(offset: 2);
+      c.selection = const TextSelection.collapsed(offset: 0);
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('text-indent')));
       await tester.pump();

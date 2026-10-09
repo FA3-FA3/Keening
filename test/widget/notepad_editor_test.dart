@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'rich_field_helpers.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/rich_text.dart';
 import 'package:keening/widgets/notepad_editor.dart';
 
@@ -41,7 +43,7 @@ Future<Notes> mount(
 Future<void> pickColour(WidgetTester tester, String button, String hex) async {
   await tester.tap(find.byKey(ValueKey(button)));
   await tester.pumpAndSettle();
-  await tester.enterText(find.byKey(const ValueKey('colour-hex')), hex);
+  await enterRich(tester, find.byKey(const ValueKey('colour-hex')), hex);
   await tester.tap(find.byKey(const ValueKey('colour-apply')));
   await tester.pumpAndSettle();
 }
@@ -61,13 +63,13 @@ void main() {
     tester,
   ) async {
     await mount(tester, text: 'Milk and eggs\nplease');
-    expect(find.text('Milk and eggs\nplease'), findsOneWidget);
+    expect(findRichText('Milk and eggs\nplease'), findsOneWidget);
     expect(status(tester), 'Saved');
     expect(count(tester), '4 words · 20 characters');
-    await tester.enterText(find.byKey(const ValueKey('notepad-field')), 'one');
+    await enterRich(tester, find.byKey(const ValueKey('notepad-field')), 'one');
     await tester.pump();
     expect(count(tester), '1 word · 3 characters');
-    await tester.enterText(find.byKey(const ValueKey('notepad-field')), '');
+    await enterRich(tester, find.byKey(const ValueKey('notepad-field')), '');
     await tester.pump();
     expect(count(tester), '0 words · 0 characters');
     await settle(tester);
@@ -76,7 +78,7 @@ void main() {
   testWidgets('typing autosaves after a short pause', (tester) async {
     final notes = await mount(tester);
     expect(find.text('Start typing…'), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'First line',
     );
@@ -87,12 +89,12 @@ void main() {
     expect(status(tester), 'Saved');
     expect(notes.saves, ['First line']);
     // Several quick edits are saved together.
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'First line!',
     );
     await tester.pump(const Duration(milliseconds: 10));
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'First line!!',
     );
@@ -104,7 +106,7 @@ void main() {
   testWidgets('failed saves can be retried', (tester) async {
     final notes = await mount(tester);
     notes.fail = true;
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Important',
     );
@@ -123,7 +125,7 @@ void main() {
     tester,
   ) async {
     final notes = await mount(tester);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Last words',
     );
@@ -136,7 +138,7 @@ void main() {
 
   testWidgets('a note is capped at its character limit', (tester) async {
     await mount(tester);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'x' * (notepadMaxCharacters + 50),
     );
@@ -147,7 +149,7 @@ void main() {
 
   RichTextController controller(WidgetTester tester) =>
       tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
 
@@ -206,20 +208,20 @@ void main() {
       runs: const [StyleRun(6, 11, TextFormat(bold: true))],
     );
     // Typing before a run moves it along; typing inside it stays formatted.
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello world',
     );
     await settle(tester);
     expect(notes.runs.last, [const StyleRun(9, 14, TextFormat(bold: true))]);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello wXorld',
     );
     await settle(tester);
     expect(notes.runs.last, [const StyleRun(9, 15, TextFormat(bold: true))]);
     // Deleting all the formatted text removes the run.
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello ',
     );
@@ -241,7 +243,7 @@ void main() {
       true,
       reason: 'remembered for new text',
     );
-    await tester.enterText(find.byKey(const ValueKey('notepad-field')), 'abc');
+    await enterRich(tester, find.byKey(const ValueKey('notepad-field')), 'abc');
     await settle(tester);
     expect(notes.runs.last, [const StyleRun(2, 3, TextFormat(italic: true))]);
   });
@@ -251,7 +253,7 @@ void main() {
   ) async {
     final notes = await mount(tester);
     TextTool.shared.format = const TextFormat(bold: true, size: 24);
-    await tester.enterText(find.byKey(const ValueKey('notepad-field')), 'Hi');
+    await enterRich(tester, find.byKey(const ValueKey('notepad-field')), 'Hi');
     await settle(tester);
     expect(notes.runs.last, [
       const StyleRun(0, 2, TextFormat(bold: true, size: 24)),

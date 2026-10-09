@@ -1,1 +1,7 @@
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # Copies of Flutter's text field, changed so wrapped lines hang under
+    # their indent (see lib/forked/README.md); not ours to lint.
+    - lib/forked/**

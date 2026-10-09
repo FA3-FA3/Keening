@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/rich_text.dart';
 import 'package:keening/widgets/notepad_editor.dart';
 
@@ -71,7 +72,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     return tester
-            .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+            .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
             .controller!
         as RichTextController;
   }

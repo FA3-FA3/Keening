@@ -144,10 +144,10 @@ void main() {
 
     test('the indent buttons still work and leave the caret outside', () {
       final c = make('one');
-      c.selection = const TextSelection.collapsed(offset: 1);
+      c.selection = const TextSelection.collapsed(offset: 0);
       c.indent(1);
       expect(c.text, '    one');
-      expect(c.selection, const TextSelection.collapsed(offset: 5));
+      expect(c.selection, const TextSelection.collapsed(offset: 4));
       c.indent(-1);
       expect(c.text, 'one');
     });

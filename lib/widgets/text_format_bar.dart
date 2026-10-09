@@ -185,6 +185,22 @@ class TextFormatBar extends StatelessWidget {
               (f, v) => f.copyWith(underline: v),
               context,
             ),
+            _toggle(
+              'subscript',
+              Icons.subscript,
+              'Subscript (Ctrl+,)',
+              format.subscript,
+              (f, v) => f.copyWith(subscript: v),
+              context,
+            ),
+            _toggle(
+              'superscript',
+              Icons.superscript,
+              'Superscript (Ctrl+.)',
+              format.superscript,
+              (f, v) => f.copyWith(superscript: v),
+              context,
+            ),
             const SizedBox(width: 4),
             IconButton(
               key: const ValueKey('text-size-down'),

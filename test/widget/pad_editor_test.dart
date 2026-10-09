@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'rich_field_helpers.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/file_drop.dart';
 import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
@@ -112,7 +114,7 @@ Future<void> settle(WidgetTester tester) async {
 Future<void> pickColour(WidgetTester tester, String button, String hex) async {
   await tester.tap(find.byKey(ValueKey(button)));
   await tester.pumpAndSettle();
-  await tester.enterText(find.byKey(const ValueKey('colour-hex')), hex);
+  await enterRich(tester, find.byKey(const ValueKey('colour-hex')), hex);
   await tester.tap(find.byKey(const ValueKey('colour-apply')));
   await tester.pumpAndSettle();
 }
@@ -230,7 +232,7 @@ void main() {
     await tester.tapAt(o + const Offset(150, 120));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('pad-text-field')),
       'Meeting notes',
     );
@@ -242,7 +244,7 @@ void main() {
     final box = h.last.single as TextEl;
     expect(box.text, 'Meeting notes');
     expect([box.x, box.y], [150, 120]);
-    expect(find.text('Meeting notes'), findsOneWidget);
+    expect(findPadText('Meeting notes'), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(find.byKey(const ValueKey('pad-tool-select')))
@@ -287,7 +289,7 @@ void main() {
     final o = paper(tester);
     await tester.tapAt(o + const Offset(150, 300));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('pad-text-field')), 'Hi');
+    await enterRich(tester, find.byKey(const ValueKey('pad-text-field')), 'Hi');
     await tester.pump();
     await tester.tapAt(o + const Offset(900, 700));
     await settle(tester);
@@ -319,7 +321,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tapAt(o + const Offset(150, 315));
     await tester.pumpAndSettle();
-    final field = tester.widget<TextField>(
+    final field = tester.widget<RichField>(
       find.byKey(const ValueKey('pad-text-field')),
     );
     final controller = field.controller! as RichTextController;
@@ -391,12 +393,12 @@ void main() {
     await tester.tapAt(o + const Offset(150, 115));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('pad-text-field')),
       'Changed',
     );
     await tester.pump();
-    await tester.enterText(
+    await enterRich(tester, 
       find.byKey(const ValueKey('pad-text-field')),
       'Changed again',
     );
@@ -530,11 +532,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pad-delete')));
     await settle(tester);
     expect(h.last.map((e) => e.id), ['b']);
-    expect(find.text('First'), findsNothing);
+    expect(findPadText('First'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('pad-undo')));
     await settle(tester);
     expect(h.last.map((e) => e.id), ['a', 'b']);
-    expect(find.text('First'), findsOneWidget);
+    expect(findPadText('First'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('pad-redo')));
     await settle(tester);
     expect(h.last.map((e) => e.id), ['b']);

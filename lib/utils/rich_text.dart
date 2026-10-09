@@ -101,12 +101,19 @@ class TextFormat {
     this.bold = false,
     this.italic = false,
     this.underline = false,
+    this.subscript = false,
+    this.superscript = false,
     this.embed,
   });
 
   final double? size;
   final String? color, highlight;
   final bool bold, italic, underline;
+
+  /// Raised or lowered, and smaller (at most one of the two is on).
+  final bool subscript, superscript;
+
+  bool get scripted => subscript || superscript;
 
   /// Set on the single character standing for a picture or equation.
   final Embed? embed;
@@ -123,6 +130,8 @@ class TextFormat {
     bool? bold,
     bool? italic,
     bool? underline,
+    bool? subscript,
+    bool? superscript,
     Object? embed = _keep,
   }) => TextFormat(
     size: identical(size, _keep) ? this.size : size as double?,
@@ -133,6 +142,9 @@ class TextFormat {
     bold: bold ?? this.bold,
     italic: italic ?? this.italic,
     underline: underline ?? this.underline,
+    // Turning one on turns the other off.
+    subscript: subscript ?? (superscript == true ? false : this.subscript),
+    superscript: superscript ?? (subscript == true ? false : this.superscript),
     embed: identical(embed, _keep) ? this.embed : embed as Embed?,
   );
 
@@ -157,11 +169,22 @@ class TextFormat {
       other.bold == bold &&
       other.italic == italic &&
       other.underline == underline &&
+      other.subscript == subscript &&
+      other.superscript == superscript &&
       other.embed == embed;
 
   @override
-  int get hashCode =>
-      Object.hash(size, color, highlight, bold, italic, underline, embed);
+  int get hashCode => Object.hash(
+    size,
+    color,
+    highlight,
+    bold,
+    italic,
+    underline,
+    subscript,
+    superscript,
+    embed,
+  );
 }
 
 /// A range of text with a format (end is exclusive). Only non-plain stretches
@@ -181,6 +204,8 @@ class StyleRun {
     if (format.bold) 'bold': true,
     if (format.italic) 'italic': true,
     if (format.underline) 'underline': true,
+    if (format.subscript) 'sub': true,
+    if (format.superscript) 'sup': true,
     if (format.embed != null) 'embed': format.embed!.toJson(),
   };
 
@@ -194,6 +219,8 @@ class StyleRun {
       bold: json['bold'] == true,
       italic: json['italic'] == true,
       underline: json['underline'] == true,
+      subscript: json['sub'] == true,
+      superscript: json['sup'] == true,
       embed: Embed.fromJson(json['embed']),
     ),
   );
@@ -253,6 +280,57 @@ List<StyleRun> compactRuns(List<TextFormat> formats) {
   return runs;
 }
 
+/// How much smaller subscript and superscript text is, and how far it moves (as a
+/// fraction of the text size): up for superscript, down for subscript.
+const scriptScale = 0.7, superscriptRaise = 0.4, subscriptDrop = 0.15;
+
+/// One raised or lowered character. Flutter text has no baseline shift, so each
+/// such character is a small widget standing in the line like a picture does;
+/// it counts as one character, so the text keeps its positions.
+class ScriptChar extends StatelessWidget {
+  const ScriptChar(this.char, this.style, {required this.up, super.key});
+  final String char;
+
+  /// The style at full size.
+  final TextStyle style;
+  final bool up;
+
+  double get fullSize => style.fontSize ?? 14;
+
+  TextStyle get scaledStyle => style.copyWith(fontSize: fullSize * scriptScale);
+
+  @override
+  Widget build(BuildContext context) => Transform.translate(
+    offset: Offset(0, fullSize * (up ? -superscriptRaise : subscriptDrop)),
+    child: Text(char, style: scaledStyle),
+  );
+}
+
+/// [chars] as inline spans, each character raised or lowered as [format] says.
+List<InlineSpan> scriptSpans(String chars, TextFormat format, TextStyle? base) {
+  final style = (base ?? const TextStyle()).merge(format.style);
+  final spans = <InlineSpan>[];
+  for (var i = 0; i < chars.length; i++) {
+    final unit = chars.codeUnitAt(i);
+    // Line breaks and characters made of two code units stay ordinary text.
+    final pair = (unit & 0xFC00) == 0xD800 && i + 1 < chars.length;
+    if (unit == 10 || pair || (unit & 0xF800) == 0xD800) {
+      final end = pair ? i + 2 : i + 1;
+      spans.add(TextSpan(text: chars.substring(i, end), style: format.style));
+      i = end - 1;
+      continue;
+    }
+    spans.add(
+      WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: ScriptChar(chars[i], style, up: format.superscript),
+      ),
+    );
+  }
+  return spans;
+}
+
 /// Text with its runs as an inline span, laid over [base].
 TextSpan richSpan(String text, List<StyleRun> runs, TextStyle base) {
   if (runs.isEmpty) {
@@ -263,6 +341,13 @@ TextSpan richSpan(String text, List<StyleRun> runs, TextStyle base) {
   for (final run in runs) {
     if (run.start > at) {
       children.add(TextSpan(text: text.substring(at, run.start)));
+    }
+    if (run.format.scripted) {
+      children.addAll(
+        scriptSpans(text.substring(run.start, run.end), run.format, base),
+      );
+      at = run.end;
+      continue;
     }
     children.add(
       TextSpan(
@@ -290,6 +375,8 @@ TextFormat sharedFormat(Iterable<TextFormat> formats) {
             bold: shared.bold && f.bold,
             italic: shared.italic && f.italic,
             underline: shared.underline && f.underline,
+            subscript: shared.subscript && f.subscript,
+            superscript: shared.superscript && f.superscript,
           );
   }
   return shared ?? TextFormat.plain;
@@ -305,6 +392,10 @@ TextFormat mergeFormat(TextFormat own, TextFormat from, TextFormat to) {
   if (from.bold != to.bold) f = f.copyWith(bold: to.bold);
   if (from.italic != to.italic) f = f.copyWith(italic: to.italic);
   if (from.underline != to.underline) f = f.copyWith(underline: to.underline);
+  if (from.subscript != to.subscript) f = f.copyWith(subscript: to.subscript);
+  if (from.superscript != to.superscript) {
+    f = f.copyWith(superscript: to.superscript);
+  }
   return f;
 }
 
@@ -328,6 +419,28 @@ class BulletsIntent extends Intent {
   const BulletsIntent();
 }
 
+/// Enter pressed in a text field: in a bullet point the next line is a bullet
+/// too. Elsewhere the action is disabled, so Enter works as usual.
+class BulletEnterIntent extends Intent {
+  const BulletEnterIntent();
+}
+
+/// Runs [BulletEnterIntent] on the controller [of] returns (if any).
+class BulletEnterAction extends Action<BulletEnterIntent> {
+  BulletEnterAction(this.of);
+  final RichTextController? Function() of;
+
+  @override
+  bool isEnabled(BulletEnterIntent intent) =>
+      of()?.enterContinuesBullet ?? false;
+
+  @override
+  Object? invoke(BulletEnterIntent intent) {
+    of()?.enterInBullet();
+    return null;
+  }
+}
+
 /// Asks a text field to indent ([direction] 1) or outdent (-1) its lines; Tab
 /// and Shift+Tab send it.
 class IndentIntent extends Intent {
@@ -339,18 +452,24 @@ class IndentIntent extends Intent {
 enum TextToggle {
   bold,
   italic,
-  underline;
+  underline,
+  subscript,
+  superscript;
 
   bool isOn(TextFormat f) => switch (this) {
     bold => f.bold,
     italic => f.italic,
     underline => f.underline,
+    subscript => f.subscript,
+    superscript => f.superscript,
   };
 
   TextFormat set(TextFormat f, bool on) => switch (this) {
     bold => f.copyWith(bold: on),
     italic => f.copyWith(italic: on),
     underline => f.copyWith(underline: on),
+    subscript => f.copyWith(subscript: on),
+    superscript => f.copyWith(superscript: on),
   };
 }
 
@@ -372,6 +491,8 @@ class ToggleStyleIntent extends Intent {
 /// the field wins over that.
 const indentShortcuts = <ShortcutActivator, Intent>{
   SingleActivator(LogicalKeyboardKey.tab): IndentIntent(1),
+  SingleActivator(LogicalKeyboardKey.enter): BulletEnterIntent(),
+  SingleActivator(LogicalKeyboardKey.numpadEnter): BulletEnterIntent(),
   SingleActivator(LogicalKeyboardKey.tab, shift: true): IndentIntent(-1),
   SingleActivator(LogicalKeyboardKey.digit8, control: true, shift: true):
       BulletsIntent(),
@@ -412,6 +533,19 @@ const indentShortcuts = <ShortcutActivator, Intent>{
   ),
   SingleActivator(LogicalKeyboardKey.keyU, meta: true): ToggleStyleIntent(
     TextToggle.underline,
+  ),
+  // Ctrl+, lowers and Ctrl+. raises the text (as in Google Docs).
+  SingleActivator(LogicalKeyboardKey.comma, control: true): ToggleStyleIntent(
+    TextToggle.subscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.comma, meta: true): ToggleStyleIntent(
+    TextToggle.subscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.period, control: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.period, meta: true): ToggleStyleIntent(
+    TextToggle.superscript,
   ),
   // Undo and redo cover formatting and indents too (Ctrl+Y redoes as well).
   SingleActivator(LogicalKeyboardKey.keyZ, control: true): UndoTextIntent(
@@ -692,6 +826,22 @@ class RichTextController extends TextEditingController {
   void indent(int direction) {
     final t = text;
     final edits = <({int at, int remove, String insert})>[];
+    // A caret after some text: the indent goes in at the caret and only what
+    // follows moves; the text before it stays where it is. It is one tab
+    // character, drawn out to the next tab stop, so it is deleted as one and the
+    // text after it lines up with the same place on other lines.
+    if (direction > 0 && selection.isValid && selection.isCollapsed) {
+      final caret = selection.baseOffset.clamp(0, t.length);
+      final line = _lineStart(t, caret);
+      final after = _afterIndent(line);
+      final inBullet =
+          t.startsWith(bulletMark, after) &&
+          caret <= after + bulletMark.length;
+      if (caret > after && !inBullet) {
+        _applyEdits([(at: caret, remove: 0, insert: String.fromCharCode(9))]);
+        return;
+      }
+    }
     for (final line in _selectedLineStarts()) {
       if (direction > 0) {
         edits.add((at: line, remove: 0, insert: ' ' * indentWidth));
@@ -829,6 +979,30 @@ class RichTextController extends TextEditingController {
     if (moved > 0 && moved <= width) return end;
     if (moved < 0 && -moved <= width) return start;
     return offset - start < width / 2 ? start : end;
+  }
+
+  /// True when Enter at the caret would continue (or end) a bullet list.
+  bool get enterContinuesBullet => _enterValue() != null;
+
+  TextEditingValue? _enterValue() {
+    final sel = selection;
+    if (!sel.isValid || !sel.isCollapsed || sel.baseOffset > text.length) {
+      return null;
+    }
+    final at = sel.baseOffset;
+    final typed = TextEditingValue(
+      text: text.replaceRange(at, at, String.fromCharCode(10)),
+      selection: TextSelection.collapsed(offset: at + 1),
+    );
+    return _bulletEnter(text, typed) == null ? null : typed;
+  }
+
+  /// Handles Enter in a bullet point; false (nothing done) elsewhere.
+  bool enterInBullet() {
+    final typed = _enterValue();
+    if (typed == null) return false;
+    value = typed;
+    return true;
   }
 
   /// A newline typed in a bullet point: the next line is a bullet too, at the
@@ -1217,6 +1391,8 @@ class RichTextController extends TextEditingController {
                   ),
           );
         }
+      } else if (_formats[i].scripted) {
+        children.addAll(scriptSpans(text.substring(i, j), _formats[i], style));
       } else {
         children.add(
           TextSpan(text: text.substring(i, j), style: _formats[i].style),

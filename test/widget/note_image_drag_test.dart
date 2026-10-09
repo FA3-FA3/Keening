@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:keening/forked/render_editable.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/rich_text.dart';
 import 'package:keening/widgets/notepad_editor.dart';
 
@@ -20,10 +21,10 @@ Future<Uint8List> makePng(int w, int h) async {
   return data!.buffer.asUint8List();
 }
 
-RenderEditable editable(WidgetTester tester) {
-  late RenderEditable found;
+HangRenderEditable editable(WidgetTester tester) {
+  late HangRenderEditable found;
   void visit(RenderObject o) {
-    if (o is RenderEditable) found = o;
+    if (o is HangRenderEditable) found = o;
     o.visitChildren(visit);
   }
 
@@ -132,7 +133,7 @@ void main() {
       }
       await tester.pumpAndSettle();
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
     }
@@ -324,7 +325,7 @@ void main() {
       await tester.pumpAndSettle();
       final controller =
           tester
-                  .widget<TextField>(
+                  .widget<RichField>(
                     find.byKey(const ValueKey('notepad-field')),
                   )
                   .controller!

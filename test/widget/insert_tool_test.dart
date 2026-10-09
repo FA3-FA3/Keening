@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'rich_field_helpers.dart';
+import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/pad_model.dart';
 import 'package:keening/utils/rich_text.dart';
 import 'package:keening/utils/symbol_library.dart';
@@ -31,7 +33,7 @@ Future<void> insert(WidgetTester tester, String what) async {
 }
 
 Future<void> typeEquation(WidgetTester tester, String latex) async {
-  await tester.enterText(find.byKey(const ValueKey('equation-field')), latex);
+  await enterRich(tester, find.byKey(const ValueKey('equation-field')), latex);
   await tester.pump();
 }
 
@@ -239,7 +241,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       return tester
-              .widget<TextField>(find.byKey(const ValueKey('notepad-field')))
+              .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
               .controller!
           as RichTextController;
     }
@@ -314,7 +316,7 @@ void main() {
       );
       expect(find.byType(Math), findsOneWidget);
       // Typing after it is ordinary text, not another equation.
-      await tester.enterText(
+      await enterRich(tester, 
         find.byKey(const ValueKey('notepad-field')),
         'Area $embedChar!',
       );
@@ -424,7 +426,7 @@ void main() {
         runs: const [StyleRun(1, 2, TextFormat(embed: Embed.equation('x')))],
       );
       expect(find.byType(Math), findsOneWidget);
-      await tester.enterText(find.byKey(const ValueKey('notepad-field')), 'ab');
+      await enterRich(tester, find.byKey(const ValueKey('notepad-field')), 'ab');
       await settle(tester);
       expect(saves.last.$2, isEmpty);
       expect(find.byType(Math), findsNothing);
@@ -570,7 +572,7 @@ void main() {
       await tester.pumpAndSettle();
       final c =
           tester
-                  .widget<TextField>(
+                  .widget<RichField>(
                     find.byKey(const ValueKey('pad-text-field')),
                   )
                   .controller!

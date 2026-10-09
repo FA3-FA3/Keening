@@ -41,7 +41,7 @@ const colour = value => {
 };
 
 // Formatting runs shared by Notepads and Dynamic Pad text boxes: ranges of text with a
-// size, text colour, highlight colour, bold, italic and/or underline. Runs are sorted,
+// size, text colour, highlight colour, bold, italic, underline and/or sub/superscript. Runs are sorted,
 // never overlap, stay inside the text, and carry at least one attribute. A Notepad's runs
 // (those given its [text]) may also carry an "embed": a picture or equation standing in for
 // one placeholder character of the text.
@@ -58,11 +58,12 @@ export function cleanRuns(value, length, max, text = null) {
     if (r.size !== undefined) run.size = num(r.size, 8, 200, 'font size');
     if (r.color !== undefined) run.color = colour(r.color);
     if (r.bg !== undefined) run.bg = colour(r.bg);
-    for (const key of ['bold', 'italic', 'underline']) {
+    for (const key of ['bold', 'italic', 'underline', 'sub', 'sup']) {
       if (r[key] === undefined) continue;
       if (r[key] !== true) fail('Invalid text formatting.');
       run[key] = true;
     }
+    if (run.sub && run.sup) fail('Invalid text formatting.');
     if (r.embed !== undefined) {
       const e = r.embed;
       if (text === null || !e || typeof e !== 'object') fail('Invalid text formatting.');

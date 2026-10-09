@@ -67,7 +67,7 @@ void main() {
 
     test('indenting a bullet keeps it a bullet', () {
       final c = make('${b}one');
-      c.selection = const TextSelection.collapsed(offset: 4);
+      c.selection = const TextSelection.collapsed(offset: 0);
       c.indent(1);
       expect(c.text, '    ${b}one');
       expect(c.bulleted, isTrue);

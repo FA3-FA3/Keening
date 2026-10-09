@@ -124,6 +124,9 @@ test('plain notes are validated and rebuilt from the text only', ()=>{
   const runs=[{start:0,end:5,bold:true,size:24,color:'#dc2626',evil:1},{start:6,end:11,underline:true,italic:true,bg:'#fde047'}];
   assert.deepEqual(cleanNote({text:'Hello world',runs}).runs,[{start:0,end:5,size:24,color:'#DC2626',bold:true},{start:6,end:11,bg:'#FDE047',italic:true,underline:true}]);
   assert.equal(cleanNote({text:'Hello',runs:[]}).runs,undefined,'plain notes carry no runs');
+  assert.deepEqual(cleanNote({text:'Hello',runs:[{start:0,end:2,sub:true},{start:3,end:5,sup:true}]}).runs,[{start:0,end:2,sub:true},{start:3,end:5,sup:true}]);
+  assert.throws(()=>cleanNote({text:'Hello',runs:[{start:0,end:2,sub:true,sup:true}]}),/./,'not both');
+  assert.throws(()=>cleanNote({text:'Hello',runs:[{start:0,end:2,sub:false}]}),/./);
   assert.deepEqual(cleanRuns(undefined,5,10),[]);
   for(const bad of [{start:0,end:12,bold:true},{start:3,end:3,bold:true},{start:-1,end:2,bold:true},{start:0.5,end:2,bold:true},{start:0,end:2},{start:0,end:2,bold:false},{start:0,end:2,size:4},{start:0,end:2,color:'red'},{start:0,end:2,bg:'#FFF'}])
     assert.throws(()=>cleanNote({text:'Hello world',runs:[bad]}),/./,JSON.stringify(bad));

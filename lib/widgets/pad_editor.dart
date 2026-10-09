@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../forked/text_field.dart';
+import 'hang_text.dart';
 import 'package:flutter/services.dart';
 import '../utils/file_drop.dart';
 import '../utils/clipboard_image.dart';
@@ -1239,6 +1241,8 @@ class _PadEditorState extends State<PadEditor> {
             LogicalKeyboardKey.keyB => TextToggle.bold,
             LogicalKeyboardKey.keyI => TextToggle.italic,
             LogicalKeyboardKey.keyU => TextToggle.underline,
+            LogicalKeyboardKey.comma => TextToggle.subscript,
+            LogicalKeyboardKey.period => TextToggle.superscript,
             _ => null,
           }
         : null;
@@ -1378,12 +1382,6 @@ class _PadEditorState extends State<PadEditor> {
   Widget _toolbar() {
     final selected = _selectedEl;
     final textMode = _textContext;
-    final status = switch (_saveState) {
-      PadSaveState.saved => 'Saved',
-      PadSaveState.dirty => 'Unsaved changes…',
-      PadSaveState.saving => 'Saving…',
-      PadSaveState.error => 'Not saved',
-    };
     return Padding(
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -1463,18 +1461,41 @@ class _PadEditorState extends State<PadEditor> {
                 onPressed: _zoom >= 2 ? null : () => _setZoom(_zoom + 0.25),
                 icon: const Icon(Icons.zoom_in),
               ),
-              const SizedBox(width: 8),
-              Text(status, key: const ValueKey('pad-save-status')),
-              if (_saveState == PadSaveState.error) ...[
-                const SizedBox(width: 4),
-                Text(
-                  _saveError ?? '',
-                  style: const TextStyle(color: Colors.red),
-                ),
-                TextButton(onPressed: _save, child: const Text('Retry')),
-              ],
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// The saved / unsaved notice, along the bottom left.
+  Widget _statusBar() {
+    final status = switch (_saveState) {
+      PadSaveState.saved => 'Saved',
+      PadSaveState.dirty => 'Unsaved changes…',
+      PadSaveState.saving => 'Saving…',
+      PadSaveState.error => 'Not saved',
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Text(
+            status,
+            key: const ValueKey('pad-save-status'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (_saveState == PadSaveState.error) ...[
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                _saveError ?? '',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+            TextButton(onPressed: _save, child: const Text('Retry')),
+          ],
         ],
       ),
     );
@@ -1561,7 +1582,7 @@ class _PadEditorState extends State<PadEditor> {
               child: IgnorePointer(
                 child: Padding(
                   padding: const EdgeInsets.all(padTextPadding),
-                  child: Text.rich(e.span),
+                  child: HangText(e.span),
                 ),
               ),
             ),
@@ -1601,6 +1622,7 @@ class _PadEditorState extends State<PadEditor> {
                         return null;
                       },
                     ),
+                    BulletEnterIntent: BulletEnterAction(() => _textController),
                     BulletsIntent: CallbackAction<BulletsIntent>(
                       onInvoke: (_) {
                         _textController?.toggleBullets();
@@ -1620,7 +1642,7 @@ class _PadEditorState extends State<PadEditor> {
                       onInvoke: (_) => _textController?.redo(),
                     ),
                   },
-                  child: TextField(
+                  child: RichField(
                     key: const ValueKey('pad-text-field'),
                     controller: _textController,
                     focusNode: _textFocus,
@@ -1811,6 +1833,8 @@ class _PadEditorState extends State<PadEditor> {
           ],
         ),
       ),
+      const Divider(height: 1),
+      _statusBar(),
     ],
   );
 }
