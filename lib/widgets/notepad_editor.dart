@@ -359,24 +359,10 @@ class _NotepadEditorState extends State<NotepadEditor> {
     final rich = RichClipboard.current, pad = PadClipboard.current;
     final newestIsPad =
         pad != null && (rich == null || pad.copiedAt.isAfter(rich.copiedAt));
-    if (read.failed) {
-      // The browser would not let us read the clipboard: use our own last copy.
-      if (rich == null && pad == null) {
-        _snack(
-          'The browser would not let Keening read the clipboard. Allow '
-          'clipboard access for this site (the icon next to the address), or '
-          'paste inside the page after copying here.',
-        );
-      } else if (newestIsPad) {
-        await _pasteFromPad(pad);
-      } else {
-        await _pasteRich(rich!);
-      }
-      return;
-    }
     final text = read.text;
     if (text.trim().isEmpty) {
-      // No text: perhaps a picture, such as a screenshot.
+      // No text (or the browser refused to read it, as some do when the
+      // clipboard holds only a picture): perhaps a screenshot.
       final image = await (widget.readPicture ?? readClipboardImage)();
       if (!mounted) return;
       if (image != null) {
@@ -399,6 +385,15 @@ class _NotepadEditorState extends State<NotepadEditor> {
         );
         return;
       }
+    }
+    if (read.failed) {
+      // The browser would not let us read the clipboard: use our own last copy.
+      if (newestIsPad) {
+        await _pasteFromPad(pad);
+      } else {
+        await _pasteRich(rich!);
+      }
+      return;
     }
     final padMatches = pad != null && (text.isEmpty || pad.matches(text));
     final richMatches = rich != null && rich.matches(text);
