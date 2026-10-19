@@ -6,12 +6,14 @@ import 'firebase_options.dart';
 import 'router.dart';
 import 'widgets/app_dropdown.dart';
 import 'utils/app_colors.dart';
+import 'utils/clipboard_image.dart';
 
 const useAuthEmulator =
     kDebugMode && bool.fromEnvironment('USE_EMULATOR', defaultValue: true);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  listenForPastedImages();
   try {
     if (useAuthEmulator) {
       // demoProjectId otherwise names the app "demo-keening", while the

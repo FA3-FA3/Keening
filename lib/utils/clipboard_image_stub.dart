@@ -6,3 +6,6 @@ Future<Uint8List?> readClipboardImage() async => null;
 
 /// Puts a PNG picture on the system clipboard; false if that is not possible.
 Future<bool> writeClipboardImage(Uint8List png) async => false;
+
+/// Starts noting pictures pasted into the page; only the browser build can.
+void listenForPastedImages() {}
