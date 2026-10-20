@@ -23,6 +23,7 @@ import 'package:flutter/services.dart' show TextBoundary;
 /// The marker a bullet line starts with (kept equal to `bulletMark` in
 /// `rich_text.dart`).
 const String hangBulletMark = '• ';
+const String hangSquareBulletMark = '▪ ';
 
 const String _blank = '​';
 
@@ -148,7 +149,8 @@ class HangTextPainter extends TextPainter {
       }
       var h = k;
       if (!single &&
-          plain.startsWith(hangBulletMark, start + k) &&
+          (plain.startsWith(hangBulletMark, start + k) ||
+              plain.startsWith(hangSquareBulletMark, start + k)) &&
           start + k + hangBulletMark.length <= end) {
         h = k + hangBulletMark.length;
       }

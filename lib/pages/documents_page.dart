@@ -1,11 +1,25 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../utils/csv_file.dart';
+import '../utils/equation_png.dart';
+import '../utils/export_handle.dart';
+import '../utils/file_export.dart';
+import '../utils/note_export.dart';
+import '../utils/note_import.dart';
+import '../utils/note_settings.dart';
+import '../utils/pad_image.dart';
+import '../utils/pad_export.dart';
 import '../utils/pad_model.dart';
 import '../utils/pads_service.dart';
 import '../utils/rich_text.dart';
+import '../utils/sheet_model.dart';
+import '../widgets/document_settings_dialogs.dart';
+import '../widgets/export_dialog.dart';
 import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
+import '../widgets/sheet_editor.dart';
 
 /// A kind of document that can be created.
 class DocumentType {
@@ -27,6 +41,12 @@ const documentTypes = [
     Icons.description_outlined,
     'A plain page of text for quick notes.',
   ),
+  DocumentType(
+    'sheet',
+    'Spreadsheet',
+    Icons.grid_on_outlined,
+    'A grid of cells with formulas. Imports and exports CSV files.',
+  ),
 ];
 
 DocumentType documentTypeOf(String? kind) => documentTypes.firstWhere(
@@ -34,9 +54,32 @@ DocumentType documentTypeOf(String? kind) => documentTypes.firstWhere(
   orElse: () => documentTypes.first,
 );
 
-/// Documents: folders and documents (Dynamic Pads and Notepads) shown as icons,
+/// What touches the device: choosing a CSV file to import, and choosing a
+/// folder and writing the files that are exported. Tests replace these.
+class DocumentIo {
+  const DocumentIo({
+    this.pickCsv,
+    this.pickNote,
+    this.chooseFolder,
+    this.write,
+    this.canChoose,
+  });
+  final Future<PickedFile?> Function()? pickCsv;
+  final Future<PickedFile?> Function()? pickNote;
+  final Future<ExportFolder?> Function()? chooseFolder;
+  final Future<String> Function(
+    ExportFolder? folder,
+    String name,
+    Uint8List bytes,
+    String mime,
+  )?
+  write;
+  final bool? canChoose;
+}
+
+/// Documents: folders and documents (Dynamic Pads, Notepads and Spreadsheets) shown as icons,
 /// like a file explorer. Picking a document shows its details, from where it
-/// can be edited, moved, deleted or opened full screen.
+/// can be edited, moved, deleted or opened in the page (and from there full screen).
 class DocumentsPage extends StatefulWidget {
   const DocumentsPage({
     super.key,
@@ -44,8 +87,21 @@ class DocumentsPage extends StatefulWidget {
     this.autosaveDelay = const Duration(milliseconds: 800),
     this.attachDrop,
     this.searchTarget,
+    this.io = const DocumentIo(),
+    this.onOpenDocument,
+    this.onDocumentsChanged,
   });
   final PadsService? service;
+  final DocumentIo io;
+
+  /// Called with the document when the user opens one. When given (the
+  /// dashboard does), the document is shown by the caller, in a tab of its
+  /// own; when not, it opens inside this page.
+  final void Function(Map<String, dynamic> document)? onOpenDocument;
+
+  /// Called with every document the user has each time the list is loaded, so
+  /// the caller can keep tabs of open documents in step (renamed, deleted).
+  final void Function(List<Map<String, dynamic>> documents)? onDocumentsChanged;
   final Duration autosaveDelay;
   final AttachFileDrop? attachDrop;
 
@@ -62,11 +118,19 @@ class DocumentsPage extends StatefulWidget {
 const _tileIconSize = 44.0;
 const _folderColor = Color(0xFFF59E0B);
 
+/// A Dynamic Pad's items and page settings.
+class _PadContent {
+  const _PadContent(this.elements, this.page);
+  final List<PadElement> elements;
+  final PadPage page;
+}
+
 /// A Notepad's text with its formatting.
 class _Note {
-  const _Note(this.text, this.runs);
+  const _Note(this.text, this.runs, [this.settings = NoteSettings.standard]);
   final String text;
   final List<StyleRun> runs;
+  final NoteSettings settings;
 }
 
 class _Chosen {
@@ -87,6 +151,11 @@ class _DocumentsPageState extends State<DocumentsPage> {
   String? _current, _error; // the folder being viewed (null = top level)
   bool _loading = true;
   int _request = 0;
+
+  // The document open in the page (null: the grid is shown); only used when
+  // the caller does not show documents itself.
+  Map<String, dynamic>? _openDoc;
+  Object? _openPayload;
 
   @override
   void initState() {
@@ -110,6 +179,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
 
   Future<void> _openSearchTarget() async {
     final target = widget.searchTarget!;
+    // A document open in the page makes way for the search result.
+    if (_openDoc != null) setState(() => _openDoc = null);
     await _load();
     if (!mounted || widget.searchTarget != target || _error != null) return;
     final id = target['id'] as String?;
@@ -155,6 +226,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
         if (_current != null && _folder(_current) == null) _current = null;
         _loading = false;
       });
+      widget.onDocumentsChanged?.call(List.of(_documents));
     } catch (e) {
       if (mounted && request == _request) {
         setState(() {
@@ -502,6 +574,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
           document: doc,
           service: _service,
           message: _message,
+          loadContent: widget.onOpenDocument == null,
         ),
       );
       if (!mounted || chosen == null) return;
@@ -529,7 +602,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
           }
           return;
         case 'open':
-          await _openFullScreen(doc, chosen.payload);
+          _openDocument(doc, chosen.payload);
           return;
         case 'delete':
           await _load();
@@ -538,30 +611,27 @@ class _DocumentsPageState extends State<DocumentsPage> {
     }
   }
 
-  Future<void> _openFullScreen(
-    Map<String, dynamic> doc,
-    Object? payload,
-  ) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => doc['kind'] == 'notepad'
-            ? _NoteScreen(
-                document: doc,
-                note: payload as _Note? ?? const _Note('', []),
-                service: _service,
-                autosaveDelay: widget.autosaveDelay,
-              )
-            : _PadScreen(
-                pad: doc,
-                elements: payload as List<PadElement>? ?? [],
-                service: _service,
-                autosaveDelay: widget.autosaveDelay,
-                attachDrop: widget.attachDrop ?? defaultAttachDrop,
-              ),
-      ),
-    );
-    if (mounted) await _load();
+  /// Opens [doc]: in a tab of its own when the caller shows documents, else in
+  /// the page itself (the sidebar stays), in place of the grid.
+  void _openDocument(Map<String, dynamic> doc, Object? payload) {
+    final show = widget.onOpenDocument;
+    if (show != null) {
+      show(doc);
+      return;
+    }
+    setState(() {
+      _openDoc = doc;
+      _openPayload = payload;
+    });
+  }
+
+  /// Back to the grid of documents; the open document has saved its edits.
+  void _closeDocument() {
+    setState(() {
+      _openDoc = null;
+      _openPayload = null;
+    });
+    _load();
   }
 
   // ------------------------------------------------------------------ build
@@ -733,6 +803,19 @@ class _DocumentsPageState extends State<DocumentsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final open = _openDoc;
+    if (open != null) {
+      return DocumentViewer(
+        key: ValueKey('open-document-${open['id']}'),
+        document: open,
+        payload: _openPayload,
+        service: _service,
+        autosaveDelay: widget.autosaveDelay,
+        attachDrop: widget.attachDrop ?? defaultAttachDrop,
+        io: widget.io,
+        onClose: _closeDocument,
+      );
+    }
     final folders = _folders.where((f) => f['parent_id'] == _current).toList();
     final documents = _documents
         .where((d) => d['folder_id'] == _current)
@@ -832,7 +915,9 @@ class _DocumentDetails extends StatefulWidget {
     required this.document,
     required this.service,
     required this.message,
+    this.loadContent = true,
   });
+  final bool loadContent;
   final Map<String, dynamic> document;
   final PadsService service;
   final String Function(Object, [String]) message;
@@ -841,11 +926,32 @@ class _DocumentDetails extends StatefulWidget {
   State<_DocumentDetails> createState() => _DocumentDetailsState();
 }
 
+/// What an editor starts from, read from a saved document.
+Object _payloadOf(Map<String, dynamic> pad) {
+  final doc = pad['doc'] == null
+      ? null
+      : Map<String, dynamic>.from(pad['doc'] as Map);
+  return pad['kind'] == 'sheet'
+      ? SheetData.fromJson(doc)
+      : pad['kind'] == 'notepad'
+      ? _Note(
+          doc?['text'] as String? ?? '',
+          runsFromJson(doc?['runs'], (doc?['text'] as String? ?? '').length),
+          NoteSettings.fromJson(doc?['settings']),
+        )
+      : _PadContent(padElementsFromDoc(doc), padPageFromDoc(doc));
+}
+
 class _DocumentDetailsState extends State<_DocumentDetails> {
   bool _busy = false;
   String? _opening, _error;
 
   Future<void> _open() async {
+    // A caller that shows documents itself loads the content too.
+    if (!widget.loadContent) {
+      Navigator.pop(context, const _Chosen('open'));
+      return;
+    }
     setState(() {
       _busy = true;
       _opening = 'Opening…';
@@ -856,19 +962,7 @@ class _DocumentDetailsState extends State<_DocumentDetails> {
         'padId': widget.document['id'],
       });
       final pad = Map<String, dynamic>.from(result['pad'] as Map);
-      final doc = pad['doc'] == null
-          ? null
-          : Map<String, dynamic>.from(pad['doc'] as Map);
-      final Object payload = pad['kind'] == 'notepad'
-          ? _Note(
-              doc?['text'] as String? ?? '',
-              runsFromJson(
-                doc?['runs'],
-                (doc?['text'] as String? ?? '').length,
-              ),
-            )
-          : padElementsFromDoc(doc);
-      if (mounted) Navigator.pop(context, _Chosen('open', payload));
+      if (mounted) Navigator.pop(context, _Chosen('open', _payloadOf(pad)));
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -1125,46 +1219,177 @@ class _MoveDialogState extends State<_MoveDialog> {
   );
 }
 
+/// Where an open document is shown, and how it moves between the page and full
+/// screen or goes back to the grid.
+class _DocView {
+  const _DocView({
+    required this.fullScreen,
+    required this.onToggle,
+    required this.onClose,
+    this.closeTooltip = 'Back to documents',
+  });
+  final bool fullScreen;
+
+  /// What the back arrow is called (it closes the tab in a document tab).
+  final String closeTooltip;
+
+  /// Switches between the page and full screen, given what the editor holds now.
+  final void Function(Object content) onToggle;
+  final VoidCallback onClose;
+}
+
+/// What a full-screen view hands back when it closes: to the page (with the
+/// document as it is now) or all the way back to the grid.
+class _FullScreenResult {
+  const _FullScreenResult({required this.close, this.payload});
+  final bool close;
+  final Object? payload;
+}
+
+/// The way back to the document grid, the document's name and the full screen
+/// button, shared by the editors.
+AppBar _documentBar(
+  BuildContext context,
+  Map<String, dynamic> document, {
+  required _DocView view,
+  required Object Function() snapshot,
+  required VoidCallback onSettings,
+  List<Widget> actions = const [],
+}) => AppBar(
+  leading: IconButton(
+    key: const ValueKey('doc-back'),
+    tooltip: view.closeTooltip,
+    icon: const Icon(Icons.arrow_back),
+    onPressed: view.onClose,
+  ),
+  title: Text(
+    document['name'] as String,
+    key: const ValueKey('doc-screen-title'),
+  ),
+  actions: [
+    ...actions,
+    IconButton(
+      key: const ValueKey('doc-settings'),
+      tooltip: 'Document settings',
+      icon: const Icon(Icons.tune),
+      onPressed: onSettings,
+    ),
+    IconButton(
+      key: const ValueKey('doc-fullscreen'),
+      tooltip: view.fullScreen ? 'Exit full screen' : 'Full screen',
+      icon: Icon(view.fullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
+      onPressed: () => view.onToggle(snapshot()),
+    ),
+  ],
+);
+
+Widget _exportAction(VoidCallback onPressed) => IconButton(
+  key: const ValueKey('doc-export'),
+  tooltip: 'Export…',
+  icon: const Icon(Icons.file_download_outlined),
+  onPressed: onPressed,
+);
+
+Future<void> _showExport(
+  BuildContext context,
+  DocumentIo io,
+  String name,
+  List<ExportFormat> formats,
+) => showExportDialog(
+  context,
+  documentName: name,
+  formats: formats,
+  chooseFolder: io.chooseFolder,
+  write: io.write,
+  canChoose: io.canChoose,
+);
+
 /// A Dynamic Pad, full screen, with a way back to the document grid.
-class _PadScreen extends StatelessWidget {
+class _PadScreen extends StatefulWidget {
   const _PadScreen({
     required this.pad,
-    required this.elements,
+    required this.content,
     required this.service,
     required this.autosaveDelay,
     required this.attachDrop,
+    required this.io,
+    required this.view,
   });
+  final _DocView view;
   final Map<String, dynamic> pad;
-  final List<PadElement> elements;
+  final _PadContent content;
   final PadsService service;
   final Duration autosaveDelay;
   final AttachFileDrop attachDrop;
+  final DocumentIo io;
+
+  @override
+  State<_PadScreen> createState() => _PadScreenState();
+}
+
+class _PadScreenState extends State<_PadScreen> {
+  final _handle = PadHandle();
+  late PadPage _page = widget.content.page;
+
+  /// What the page is called in the export list: its paper size, or its pixels.
+  String get _pageName {
+    final paper = padPaperOf(_page);
+    if (paper == null) {
+      return '${_page.width.round()} × ${_page.height.round()} px';
+    }
+    return '${paper.paper.name} ${paper.landscape ? 'landscape' : 'portrait'}';
+  }
+
+  PadExporter _exporter({required bool wholePage}) => PadExporter(
+    elements: _handle.elements(),
+    loadImage: _handle.loadImage,
+    renderEquation: (latex, color) =>
+        renderEquationPng(context, latex, color: color),
+    page: _page,
+    wholePage: wholePage,
+  );
+
+  void _export() =>
+      _showExport(context, widget.io, widget.pad['name'] as String, [
+        ExportFormat(
+          'PDF, the whole page ($_pageName)',
+          'pdf',
+          exportMimePdf,
+          () => _exporter(wholePage: true).toPdf(),
+        ),
+        ExportFormat(
+          'PDF, cropped to the items',
+          'pdf',
+          exportMimePdf,
+          () => _exporter(wholePage: false).toPdf(),
+        ),
+      ]);
 
   @override
   Widget build(BuildContext context) {
-    final padId = pad['id'] as String;
+    final padId = widget.pad['id'] as String;
+    final service = widget.service;
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          key: const ValueKey('doc-back'),
-          tooltip: 'Back to documents',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.maybePop(context),
-        ),
-        title: Text(
-          pad['name'] as String,
-          key: const ValueKey('doc-screen-title'),
-        ),
+      appBar: _documentBar(
+        context,
+        widget.pad,
+        view: widget.view,
+        snapshot: () => _PadContent(_handle.elements(), _page),
+        onSettings: () => _handle.openSettings(),
+        actions: [_exportAction(_export)],
       ),
       body: PadEditor(
         key: ValueKey('pad-editor-$padId'),
-        initialElements: elements,
-        autosaveDelay: autosaveDelay,
-        attachDrop: attachDrop,
+        initialElements: widget.content.elements,
+        initialPage: widget.content.page,
+        onPageChanged: (page) => _page = page,
+        autosaveDelay: widget.autosaveDelay,
+        attachDrop: widget.attachDrop,
+        handle: _handle,
         onSave: (elements) async {
           await service.call('savePad', {
             'padId': padId,
-            'doc': padDocFromElements(elements),
+            'doc': padDocFromElements(elements, page: _page),
           });
         },
         onUploadImage: (png) async {
@@ -1187,61 +1412,621 @@ class _PadScreen extends StatelessWidget {
 }
 
 /// A Notepad, full screen, with a way back to the document grid.
-class _NoteScreen extends StatelessWidget {
+class _NoteScreen extends StatefulWidget {
   const _NoteScreen({
     required this.document,
     required this.note,
     required this.service,
     required this.autosaveDelay,
+    required this.io,
+    required this.view,
   });
+  final _DocView view;
   final Map<String, dynamic> document;
   final _Note note;
   final PadsService service;
   final Duration autosaveDelay;
+  final DocumentIo io;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      leading: IconButton(
-        key: const ValueKey('doc-back'),
-        tooltip: 'Back to documents',
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.maybePop(context),
-      ),
-      title: Text(
-        document['name'] as String,
-        key: const ValueKey('doc-screen-title'),
-      ),
-    ),
-    body: NotepadEditor(
-      key: ValueKey('note-editor-${document['id']}'),
-      initialText: note.text,
-      initialRuns: note.runs,
-      onUploadImage: (png) async {
-        final result = await service.call('uploadImage', {
-          'padId': document['id'],
-          'image': base64Encode(png),
-        });
-        return result['imageId'] as String;
-      },
-      onLoadImage: (imageId) async {
-        final result = await service.call('getImage', {
-          'padId': document['id'],
-          'imageId': imageId,
-        });
-        return base64Decode(result['image'] as String);
-      },
-      autosaveDelay: autosaveDelay,
-      onSave: (text, runs) async {
-        await service.call('savePad', {
-          'padId': document['id'],
-          'doc': {
-            'version': 1,
-            'text': text,
-            if (runs.isNotEmpty) 'runs': [for (final r in runs) r.toJson()],
-          },
-        });
-      },
-    ),
+  State<_NoteScreen> createState() => _NoteScreenState();
+}
+
+class _NoteScreenState extends State<_NoteScreen> {
+  final _handle = NoteHandle();
+  late NoteSettings _settings = widget.note.settings;
+
+  /// Pages on or off and the background colour, saved with the note.
+  Future<void> _openSettings() async {
+    final next = await showNoteSettingsDialog(context, _settings);
+    if (next == null || next == _settings || !mounted) return;
+    setState(() => _settings = next);
+    _handle.touch(); // saves the note with its new settings
+  }
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Replaces the note with a Word, PDF or text file the user chooses.
+  Future<void> _import() async {
+    final NoteImport imported;
+    final String fileName;
+    try {
+      final file = await (widget.io.pickNote ?? pickNoteFile)();
+      if (file == null || !mounted) return;
+      if (file.bytes.length > noteFileMaxBytes) {
+        _snack('That file is too large (up to 25 MB).');
+        return;
+      }
+      fileName = file.name;
+      imported = importNoteFile(file.name, file.bytes);
+    } on NoteImportException catch (e) {
+      _snack(e.message);
+      return;
+    } catch (_) {
+      _snack('Unable to import that file.');
+      return;
+    }
+    final hasContent =
+        _handle.text().trim().isNotEmpty ||
+        _handle.runs().any((r) => r.format.embed != null);
+    if (hasContent) {
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const ValueKey('import-confirm'),
+          title: const Text('Replace this note?'),
+          content: const Text(
+            'The imported file replaces everything in this note. '
+            'You can undo it with Ctrl+Z.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('import-confirm-yes'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (yes != true || !mounted) return;
+    }
+    // Pictures in the file are stored with the note, then the text goes in.
+    final ids = <int, String>{};
+    final stored = <String, Uint8List>{};
+    var failed = 0;
+    var stopped = false;
+    if (imported.images.isNotEmpty) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const AlertDialog(
+          key: ValueKey('import-busy'),
+          content: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 16),
+              Expanded(child: Text('Importing pictures…')),
+            ],
+          ),
+        ),
+      );
+      for (var i = 0; i < imported.images.length; i++) {
+        if (stopped) {
+          failed++;
+          continue;
+        }
+        try {
+          final prepared = await preparePadImage(imported.images[i]);
+          final result = await widget.service.call('uploadImage', {
+            'padId': widget.document['id'],
+            'image': base64Encode(prepared.png),
+          });
+          final id = result['imageId'] as String;
+          ids[i] = id;
+          stored[id] = prepared.png;
+        } on FormatException {
+          failed++;
+        } catch (_) {
+          // The note cannot hold any more pictures, or the server is not
+          // reachable: do not keep trying.
+          failed++;
+          stopped = true;
+        }
+      }
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+    if (!mounted) return;
+    final resolved = withStoredPictures(imported, ids);
+    _handle.replace(resolved.text, resolved.runs, stored);
+    final notes = [
+      ...imported.notes,
+      if (failed > 0)
+        '$failed picture${failed == 1 ? '' : 's'} could not be added to the note.',
+    ];
+    _snack(
+      notes.isEmpty
+          ? 'Imported “$fileName”.'
+          : 'Imported “$fileName”. ${notes.join(' ')}',
+    );
+  }
+
+  NoteExporter _exporter() => NoteExporter(
+    text: _handle.text(),
+    runs: _handle.runs(),
+    loadImage: _handle.loadImage,
+    renderEquation: (latex, color) =>
+        renderEquationPng(context, latex, color: color),
   );
+
+  void _export() =>
+      _showExport(context, widget.io, widget.document['name'] as String, [
+        ExportFormat(
+          'Word document (.docx)',
+          'docx',
+          exportMimeDocx,
+          () => _exporter().toDocx(),
+        ),
+        ExportFormat(
+          'PDF document (.pdf)',
+          'pdf',
+          exportMimePdf,
+          () => _exporter().toPdf(),
+        ),
+        ExportFormat(
+          'Plain text (.txt)',
+          'txt',
+          exportMimeTxt,
+          () async => _exporter().toTxt(),
+        ),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final document = widget.document, service = widget.service;
+    return Scaffold(
+      appBar: _documentBar(
+        context,
+        document,
+        view: widget.view,
+        snapshot: () => _Note(_handle.text(), _handle.runs(), _settings),
+        onSettings: _openSettings,
+        actions: [
+          IconButton(
+            key: const ValueKey('note-import'),
+            tooltip: 'Import a Word, PDF or text file…',
+            icon: const Icon(Icons.file_upload_outlined),
+            onPressed: _import,
+          ),
+          _exportAction(_export),
+        ],
+      ),
+      body: NotepadEditor(
+        key: ValueKey('note-editor-${document['id']}'),
+        initialText: widget.note.text,
+        initialRuns: widget.note.runs,
+        settings: _settings,
+        handle: _handle,
+        onUploadImage: (png) async {
+          final result = await service.call('uploadImage', {
+            'padId': document['id'],
+            'image': base64Encode(png),
+          });
+          return result['imageId'] as String;
+        },
+        onLoadImage: (imageId) async {
+          final result = await service.call('getImage', {
+            'padId': document['id'],
+            'imageId': imageId,
+          });
+          return base64Decode(result['image'] as String);
+        },
+        autosaveDelay: widget.autosaveDelay,
+        onSave: (text, runs) async {
+          await service.call('savePad', {
+            'padId': document['id'],
+            'doc': noteDoc(text, [
+              for (final r in runs) r.toJson(),
+            ], settings: _settings),
+          });
+        },
+      ),
+    );
+  }
+}
+
+/// A Spreadsheet, full screen, with a way back to the document grid.
+class _SheetScreen extends StatefulWidget {
+  const _SheetScreen({
+    required this.document,
+    required this.sheet,
+    required this.service,
+    required this.autosaveDelay,
+    required this.io,
+    required this.view,
+  });
+  final _DocView view;
+  final Map<String, dynamic> document;
+  final SheetData sheet;
+  final PadsService service;
+  final Duration autosaveDelay;
+  final DocumentIo io;
+
+  @override
+  State<_SheetScreen> createState() => _SheetScreenState();
+}
+
+class _SheetScreenState extends State<_SheetScreen> {
+  final _handle = SheetHandle();
+
+  /// Gridlines, headers and the usual column width, saved with the sheet.
+  Future<void> _openSettings() async {
+    final next = await showSheetSettingsDialog(
+      context,
+      _handle.data().settings,
+    );
+    if (next != null && mounted) _handle.updateSettings(next);
+  }
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _import() async {
+    try {
+      final file = await (widget.io.pickCsv ?? pickCsvFile)();
+      if (file == null || !mounted) return;
+      if (file.bytes.length > csvMaxBytes) {
+        _snack('That file is too large (up to 5 MB).');
+        return;
+      }
+      final imported = sheetFromCsv(decodeCsvBytes(file.bytes));
+      if (_handle.data().used.row >= 0) {
+        final yes = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            key: const ValueKey('import-confirm'),
+            title: const Text('Replace this spreadsheet?'),
+            content: const Text(
+              'The imported file replaces everything in this spreadsheet. '
+              'You can undo it with Ctrl+Z.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                key: const ValueKey('import-confirm-yes'),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Replace'),
+              ),
+            ],
+          ),
+        );
+        if (yes != true || !mounted) return;
+      }
+      _handle.replace(imported.data);
+      _snack(
+        imported.cut
+            ? 'Imported, but only the first $sheetMaxRows rows and '
+                  '$sheetMaxCols columns fit in a spreadsheet.'
+            : 'Imported “${file.name}”.',
+      );
+    } catch (_) {
+      _snack('Unable to import that file.');
+    }
+  }
+
+  void _export() =>
+      _showExport(context, widget.io, widget.document['name'] as String, [
+        ExportFormat(
+          'CSV file (.csv)',
+          'csv',
+          exportMimeCsv,
+          // A byte order mark lets Excel read accents and symbols correctly.
+          () async => Uint8List.fromList([
+            0xEF,
+            0xBB,
+            0xBF,
+            ...utf8.encode(sheetToCsv(_handle.data())),
+          ]),
+        ),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final document = widget.document;
+    return Scaffold(
+      appBar: _documentBar(
+        context,
+        document,
+        view: widget.view,
+        snapshot: () => _handle.data(),
+        onSettings: _openSettings,
+        actions: [
+          IconButton(
+            key: const ValueKey('sheet-import'),
+            tooltip: 'Import a CSV file…',
+            icon: const Icon(Icons.file_upload_outlined),
+            onPressed: _import,
+          ),
+          _exportAction(_export),
+        ],
+      ),
+      body: SheetEditor(
+        key: ValueKey('sheet-editor-${document['id']}'),
+        initialData: widget.sheet,
+        handle: _handle,
+        autosaveDelay: widget.autosaveDelay,
+        onSave: (data) async {
+          await widget.service.call('savePad', {
+            'padId': document['id'],
+            'doc': data.toJson(),
+          });
+        },
+      ),
+    );
+  }
+}
+
+/// An open document: its editor, with the full screen button. It is shown in
+/// the Documents page, or by the dashboard in a tab of its own. [payload] is
+/// what the editor starts from (see [DocumentTab], which loads it).
+class DocumentViewer extends StatefulWidget {
+  const DocumentViewer({
+    super.key,
+    required this.document,
+    required this.payload,
+    required this.service,
+    required this.autosaveDelay,
+    required this.attachDrop,
+    required this.io,
+    required this.onClose,
+    this.closeTooltip = 'Back to documents',
+  });
+  final Map<String, dynamic> document;
+  final Object? payload;
+  final PadsService service;
+  final Duration autosaveDelay;
+  final AttachFileDrop attachDrop;
+  final DocumentIo io;
+
+  /// The back arrow (and the back arrow of the full-screen view).
+  final VoidCallback onClose;
+  final String closeTooltip;
+
+  @override
+  State<DocumentViewer> createState() => _DocumentViewerState();
+}
+
+class _DocumentViewerState extends State<DocumentViewer> {
+  late Object? _payload = widget.payload;
+  bool _inFullScreen = false;
+  int _serial = 0;
+
+  Widget _screen(_DocView view) {
+    final doc = widget.document;
+    return doc['kind'] == 'sheet'
+        ? _SheetScreen(
+            document: doc,
+            sheet: _payload as SheetData? ?? SheetData(),
+            service: widget.service,
+            autosaveDelay: widget.autosaveDelay,
+            io: widget.io,
+            view: view,
+          )
+        : doc['kind'] == 'notepad'
+        ? _NoteScreen(
+            document: doc,
+            note: _payload as _Note? ?? const _Note('', []),
+            service: widget.service,
+            autosaveDelay: widget.autosaveDelay,
+            io: widget.io,
+            view: view,
+          )
+        : _PadScreen(
+            pad: doc,
+            content:
+                _payload as _PadContent? ??
+                const _PadContent([], PadPage.standard),
+            service: widget.service,
+            autosaveDelay: widget.autosaveDelay,
+            attachDrop: widget.attachDrop,
+            io: widget.io,
+            view: view,
+          );
+  }
+
+  /// Moves the document to a full-screen view, keeping what has been typed
+  /// ([payload]); leaving it returns here, and its back arrow closes it.
+  Future<void> _enterFullScreen(Object payload) async {
+    if (_inFullScreen) return;
+    setState(() {
+      _payload = payload;
+      _inFullScreen = true;
+    });
+    final result = await Navigator.of(context).push<_FullScreenResult>(
+      MaterialPageRoute<_FullScreenResult>(
+        fullscreenDialog: true,
+        builder: (ctx) => _screen(
+          _DocView(
+            fullScreen: true,
+            closeTooltip: widget.closeTooltip,
+            onToggle: (now) => Navigator.pop(
+              ctx,
+              _FullScreenResult(close: false, payload: now),
+            ),
+            onClose: () =>
+                Navigator.pop(ctx, const _FullScreenResult(close: true)),
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == null || result.close) {
+      widget.onClose();
+    } else {
+      setState(() {
+        _payload = result.payload;
+        _inFullScreen = false;
+        _serial++;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      // While it is full screen this shows nothing, so there is only ever one
+      // editor on the document.
+      _inFullScreen
+      ? const SizedBox.shrink()
+      : KeyedSubtree(
+          key: ValueKey('viewer-$_serial'),
+          child: _screen(
+            _DocView(
+              fullScreen: false,
+              closeTooltip: widget.closeTooltip,
+              onToggle: _enterFullScreen,
+              onClose: widget.onClose,
+            ),
+          ),
+        );
+}
+
+/// A document in a tab of its own: loads the document and shows its editor.
+class DocumentTab extends StatefulWidget {
+  const DocumentTab({
+    super.key,
+    required this.document,
+    required this.onClose,
+    this.service,
+    this.autosaveDelay = const Duration(milliseconds: 800),
+    this.attachDrop,
+    this.io = const DocumentIo(),
+    this.closeIfMissing = false,
+  });
+
+  /// True for a tab remembered from last time: if its document has been
+  /// deleted since, the tab just closes instead of showing an error.
+  final bool closeIfMissing;
+
+  /// Which document (at least its `id`, `name` and `kind`).
+  final Map<String, dynamic> document;
+  final VoidCallback onClose;
+  final PadsService? service;
+  final Duration autosaveDelay;
+  final AttachFileDrop? attachDrop;
+  final DocumentIo io;
+
+  @override
+  State<DocumentTab> createState() => _DocumentTabState();
+}
+
+class _DocumentTabState extends State<DocumentTab> {
+  late final PadsService _service = widget.service ?? PadsService();
+  Map<String, dynamic>? _pad;
+  Object? _payload;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    if (widget.service == null) _service.close();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final result = await _service.call('getPad', {
+        'padId': widget.document['id'],
+      });
+      final pad = Map<String, dynamic>.from(result['pad'] as Map);
+      if (!mounted) return;
+      setState(() {
+        _pad = pad;
+        _payload = _payloadOf(pad);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // A document that has been deleted (a tab remembered from last time):
+      // there is nothing to show, so the tab goes.
+      if (widget.closeIfMissing &&
+          e is StateError &&
+          e.message.toString().contains('not found')) {
+        widget.onClose();
+        return;
+      }
+      setState(
+        () => _error = e is StateError
+            ? e.message.toString()
+            : 'Unable to open the document. Please try again.',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = _pad;
+    if (pad != null) {
+      return DocumentViewer(
+        document: {...widget.document, ...pad, 'name': pad['name']},
+        payload: _payload,
+        service: _service,
+        autosaveDelay: widget.autosaveDelay,
+        attachDrop: widget.attachDrop ?? defaultAttachDrop,
+        io: widget.io,
+        onClose: widget.onClose,
+        closeTooltip: 'Close tab',
+      );
+    }
+    return Center(
+      child: _error == null
+          ? const CircularProgressIndicator(
+              key: ValueKey('document-tab-loading'),
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!, key: const ValueKey('document-tab-error')),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: widget.onClose,
+                      child: const Text('Close tab'),
+                    ),
+                    FilledButton(
+                      key: const ValueKey('document-tab-retry'),
+                      onPressed: _load,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+    );
+  }
 }

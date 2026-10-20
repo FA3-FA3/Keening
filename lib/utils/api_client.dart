@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+/// Where the live server is (used by release builds of the desktop app).
+const productionApiUrl =
+    'https://keening-api-321783087335.europe-west2.run.app';
+
 class ApiClient {
   ApiClient({http.Client? client, String? baseUrl})
     : _client = client ?? http.Client(),
@@ -10,7 +14,11 @@ class ApiClient {
           baseUrl ??
           const String.fromEnvironment(
             'API_BASE_URL',
-            defaultValue: kDebugMode ? 'http://localhost:8080' : '',
+            // The web build is given its address when it is built; the desktop
+            // app (which has no host page to take it from) uses the live server.
+            defaultValue: kDebugMode
+                ? 'http://localhost:8080'
+                : (kIsWeb ? '' : productionApiUrl),
           );
 
   final http.Client _client;
@@ -41,6 +49,10 @@ class ApiClient {
   ) => _workspace('/calendar', token, data);
   Future<Map<String, dynamic>> pads(String token, Map<String, dynamic> data) =>
       _workspace('/pads', token, data);
+  Future<Map<String, dynamic>> projects(
+    String token,
+    Map<String, dynamic> data,
+  ) => _workspace('/projects', token, data);
   Future<Map<String, dynamic>> attachments(
     String token,
     Map<String, dynamic> data,

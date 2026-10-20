@@ -1,6 +1,6 @@
 import 'dart:js_interop';
 import 'dart:typed_data';
-import 'dart:ui';
+import 'package:flutter/widgets.dart';
 import 'package:web/web.dart' as web;
 
 typedef FileDropHandler =
@@ -10,6 +10,16 @@ bool _hasFiles(web.DragEvent event) {
   final types = event.dataTransfer?.types;
   if (types == null) return false;
   return types.toDart.any((t) => t.toDart == 'Files');
+}
+
+/// In the browser files are received through the page's own drag events (see
+/// [attachFileDrop]), so the host just shows its child.
+class FileDropHost extends StatelessWidget {
+  const FileDropHost({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
 }
 
 /// Lets files be dragged in from the desktop onto the page.

@@ -79,25 +79,33 @@ void main() {
       expect(scroll.pixels, 0);
     });
 
-    testWidgets('dragging with a mouse scrolls it', (tester) async {
-      await open(tester);
-      await type(tester, wide);
-      final scroll = position(tester, 'equation-preview-scroll');
-      final centre = tester.getCenter(
-        find.byKey(const ValueKey('equation-preview-scroll')),
-      );
-      final mouse = await tester.startGesture(
-        centre,
-        kind: PointerDeviceKind.mouse,
-      );
-      await mouse.moveBy(const Offset(-60, 0));
-      await tester.pump();
-      await mouse.moveBy(const Offset(-140, 0));
-      await tester.pump();
-      await mouse.up();
-      await tester.pump();
-      expect(scroll.pixels, greaterThan(100));
-    });
+    testWidgets(
+      'the scroller is half as tall as it was: a 4 px bar, 7 px beneath',
+      (tester) async {
+        expect(horizontalScrollThickness, 4, reason: 'it was 8');
+        expect(horizontalScrollRoom, 7, reason: 'it was 14');
+        await open(tester);
+        await type(tester, r'x');
+        final scroller = find.byKey(const ValueKey('equation-preview-scroll'));
+        final bar = tester.widget<Scrollbar>(
+          find.descendant(of: scroller, matching: find.byType(Scrollbar)),
+        );
+        expect(bar.thickness, 4);
+        // The room left under the equation for the bar.
+        final padding = tester.widget<Padding>(
+          find
+              .descendant(
+                of: find.descendant(
+                  of: scroller,
+                  matching: find.byType(SingleChildScrollView),
+                ),
+                matching: find.byType(Padding),
+              )
+              .first,
+        );
+        expect(padding.padding, const EdgeInsets.only(bottom: 7));
+      },
+    );
 
     testWidgets('the sideways wheel and trackpad scroll it', (tester) async {
       await open(tester);

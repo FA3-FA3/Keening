@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {createPool} from '../src/database.js';
 import {buildApp} from '../src/app.js';
-import {cleanDoc,cleanNote,cleanRuns,noteImageIds} from '../src/pads.js';
+import {cleanDoc,cleanNote,cleanRuns,cleanSheet,noteImageIds} from '../src/pads.js';
 
 // A valid 1x1 PNG.
 const PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -41,7 +41,7 @@ const databaseUrl=process.env.TEST_DATABASE_URL;
 test('pads persist, validate, isolate owners and keep images', {skip:!databaseUrl}, async t=>{
   assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(databaseUrl).hostname));
   const pool=createPool(databaseUrl);
-  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql','12-event-panel-links.sql','13-calendar-session-panel-links.sql','14-pads.sql','15-pad-descriptions.sql','16-document-folders.sql','17-attachments.sql'])
+  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql','12-event-panel-links.sql','13-calendar-session-panel-links.sql','14-pads.sql','15-pad-descriptions.sql','16-document-folders.sql','17-attachments.sql','18-sheets.sql','20-board-order.sql'])
     await pool.query(await readFile(new URL(`../../postgres/init/${file}`,import.meta.url),'utf8'));
   const prefix=`pads-${randomUUID()}`;
   const app=await buildApp({pool,logger:false,origins:[],verifyIdToken:async token=>({uid:`${prefix}-${token}`,firebase:{sign_in_provider:'password'}})});
@@ -116,6 +116,39 @@ test('pads persist, validate, isolate owners and keep images', {skip:!databaseUr
   assert.deepEqual((await call({action:'listPads'})).pads,[]);
 });
 
+test('a pad keeps its page size, background and grid, validated', ()=>{
+  assert.equal(cleanDoc({elements:[]}).page,undefined,'untouched pads store no page');
+  const page={width:794,height:1123.456,background:'#e3f2fd',grid:{show:true,size:25,color:'#d1d5db',evil:1},evil:1};
+  assert.deepEqual(cleanDoc({elements:[],page}).page,{width:794,height:1123.46,background:'#E3F2FD',grid:{show:true,size:25,color:'#D1D5DB'}});
+  assert.deepEqual(cleanDoc({elements:[],page:{width:100,height:10000,background:'#000000'}}).page,{width:100,height:10000,background:'#000000',grid:{show:false,size:50,color:'#D1D5DB'}});
+  for(const bad of [null,[],'x',{},{width:99,height:500,background:'#ffffff'},{width:500,height:10001,background:'#ffffff'},{width:'500',height:500,background:'#ffffff'},
+    {width:500,height:500},{width:500,height:500,background:'white'},{width:500,height:500,background:'#fff'},
+    {width:500,height:500,background:'#ffffff',grid:[]},{width:500,height:500,background:'#ffffff',grid:{show:'yes'}},
+    {width:500,height:500,background:'#ffffff',grid:{show:true,size:4}},{width:500,height:500,background:'#ffffff',grid:{show:true,size:501}},
+    {width:500,height:500,background:'#ffffff',grid:{show:true,color:'grey'}}])
+    assert.throws(()=>cleanDoc({elements:[],page:bad}),/./,JSON.stringify(bad));
+});
+
+test('spreadsheets are validated and rebuilt from whitelisted fields', ()=>{
+  const sheet={rows:50,cols:12,cells:{A1:{v:'Name',b:true,a:'c',evil:1},B2:{v:'=SUM(A1:A3)',i:true},C3:{},D4:{v:''}},widths:{B:150.456},evil:true};
+  assert.deepEqual(cleanSheet(sheet),{version:1,rows:50,cols:12,cells:{A1:{v:'Name',b:true,a:'c'},B2:{v:'=SUM(A1:A3)',i:true}},widths:{B:150.46}});
+  assert.deepEqual(cleanSheet({rows:1,cols:1}),{version:1,rows:1,cols:1,cells:{}});
+  assert.deepEqual(cleanSheet({rows:1000,cols:52,cells:{AZ1000:{v:'x'}}}).cells,{AZ1000:{v:'x'}});
+  const cells=n=>Object.fromEntries(Array.from({length:n},(_,i)=>[`A${i+1}`,{v:'x'}]));
+  assert.equal(Object.keys(cleanSheet({rows:1000,cols:12,cells:cells(1000)}).cells).length,1000);
+  for(const bad of [
+    null,[],'x',{},{rows:0,cols:5},{rows:1001,cols:5},{rows:5,cols:53},{rows:5.5,cols:5},{rows:'5',cols:5},
+    {rows:5,cols:5,cells:[]},{rows:5,cols:5,cells:'x'},
+    {rows:5,cols:5,cells:{a1:{v:'x'}}},{rows:5,cols:5,cells:{A0:{v:'x'}}},{rows:5,cols:5,cells:{'A01':{v:'x'}}},{rows:5,cols:5,cells:{ZZZ1:{v:'x'}}},
+    {rows:5,cols:5,cells:{A6:{v:'x'}}},{rows:5,cols:5,cells:{F1:{v:'x'}}},   // outside the sheet
+    {rows:5,cols:5,cells:{A1:'x'}},{rows:5,cols:5,cells:{A1:[]}},{rows:5,cols:5,cells:{A1:{v:5}}},
+    {rows:5,cols:5,cells:{A1:{v:'x'.repeat(1001)}}},
+    {rows:5,cols:5,cells:{A1:{b:false}}},{rows:5,cols:5,cells:{A1:{i:'yes'}}},{rows:5,cols:5,cells:{A1:{a:'x'}}},
+    {rows:5,cols:5,widths:[]},{rows:5,cols:5,widths:{F:100}},{rows:5,cols:5,widths:{a:100}},{rows:5,cols:5,widths:{A:10}},{rows:5,cols:5,widths:{A:5000}},{rows:5,cols:5,widths:{A:'x'}},
+    {rows:1000,cols:52,cells:Object.fromEntries(Array.from({length:20001},(_,i)=>[`${String.fromCharCode(65+i%26)}${Math.floor(i/26)+1}`,{v:'x'}]))},
+  ])assert.throws(()=>cleanSheet(bad),/./,JSON.stringify(bad).slice(0,80));
+});
+
 test('plain notes are validated and rebuilt from the text only', ()=>{
   assert.deepEqual(cleanNote({text:'Hello\nworld',evil:1}),{version:1,text:'Hello\nworld'});
   assert.deepEqual(cleanNote({text:''}),{version:1,text:''});
@@ -167,7 +200,7 @@ test('plain notes are validated and rebuilt from the text only', ()=>{
 
 test('documents: folders, document types, moving and notes', {skip:!databaseUrl}, async t=>{
   const pool=createPool(databaseUrl);
-  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql','12-event-panel-links.sql','13-calendar-session-panel-links.sql','14-pads.sql','15-pad-descriptions.sql','16-document-folders.sql','17-attachments.sql'])
+  for(const file of ['01-schema.sql','02-usernames.sql','08-profile-picture.sql','03-gantt.sql','04-boards.sql','05-event-task-links.sql','06-calendar.sql','07-schedule.sql','09-calendar-sessions.sql','10-calendar-location.sql','11-calendar-tags.sql','12-event-panel-links.sql','13-calendar-session-panel-links.sql','14-pads.sql','15-pad-descriptions.sql','16-document-folders.sql','17-attachments.sql','18-sheets.sql','20-board-order.sql'])
     await pool.query(await readFile(new URL(`../../postgres/init/${file}`,import.meta.url),'utf8'));
   const prefix=`docs-${randomUUID()}`;
   const app=await buildApp({pool,logger:false,origins:[],verifyIdToken:async token=>({uid:`${prefix}-${token}`,firebase:{sign_in_provider:'password'}})});
@@ -275,4 +308,19 @@ test('documents: folders, document types, moving and notes', {skip:!databaseUrl}
   assert.deepEqual((await call({action:'listFolders'})).folders,[]);
   assert.deepEqual((await call({action:'listPads'})).pads.map(p=>p.name),['Loose']);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM public.pad_images WHERE pad_id=$1',[pad.id])).rows[0].n,0);
+
+  // Spreadsheets: created empty, saved through their own validation, no pictures.
+  const sheet=(await call({action:'createPad',name:'Budget',kind:'sheet',folderId:null})).pad;
+  assert.equal(sheet.kind,'sheet');
+  assert.deepEqual(sheet.doc,{version:1,rows:50,cols:12,cells:{}});
+  const saved={version:1,rows:60,cols:6,cells:{A1:{v:'Total',b:true},B1:{v:'=SUM(B2:B9)'}},widths:{A:200}};
+  await call({action:'savePad',padId:sheet.id,doc:{...saved,evil:1}});
+  assert.deepEqual((await call({action:'getPad',padId:sheet.id})).pad.doc,saved);
+  await call({action:'savePad',padId:sheet.id,doc:{version:1,elements:[]}},'owner',400); // not a spreadsheet
+  await call({action:'savePad',padId:sheet.id,doc:{rows:5,cols:5,cells:{F1:{v:'x'}}}},'owner',400);
+  await call({action:'savePad',padId:sheet.id,doc:saved},'other',404);
+  await call({action:'uploadImage',padId:sheet.id,image:PNG},'owner',400);
+  await call({action:'createPad',name:'Bad',kind:'chart'},'owner',400);
+  assert.equal((await call({action:'listPads'})).pads.find(p=>p.id===sheet.id).kind,'sheet');
+  await call({action:'deletePad',padId:sheet.id});
 });

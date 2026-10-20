@@ -1,9 +1,10 @@
-// Documents: folders, and documents of two types: Dynamic Pads ("pad": text boxes,
-// images, lines and pen strokes) and plain Notepads ("notepad": text).
+// Documents: folders, and documents of three types: Dynamic Pads ("pad": text boxes,
+// images, lines and pen strokes), Notepads ("notepad": formatted text) and spreadsheets
+// ("sheet": a grid of cells holding text, numbers and formulas).
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { publicMessage: message, statusCode }); };
 
-export const KINDS = ['pad', 'notepad'];
+export const KINDS = ['pad', 'notepad', 'sheet'];
 export const LIMITS = {
   documents: 500,
   folders: 200,
@@ -20,6 +21,13 @@ export const LIMITS = {
   imagesPerPad: 50,
   imageBytes: 3 * 1024 * 1024,
   coordinate: 20000,
+  pageSize: [100, 10000],
+  gridSize: [5, 500],
+  sheetRows: 1000,
+  sheetCols: 52,
+  sheetCells: 20000,
+  sheetCellChars: 1000,
+  sheetColWidth: [40, 600],
 };
 
 function name(value) {
@@ -84,6 +92,20 @@ export function cleanRuns(value, length, max, text = null) {
 // The pictures a note's runs refer to.
 export const noteImageIds = runs => [...new Set((runs ?? []).filter(r => r.embed?.type === 'image').map(r => r.embed.imageId))];
 
+// A Notepad's own settings: laid out on A4 pages or not, and its background colour.
+function cleanNoteSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) fail('Invalid note settings.');
+  if (typeof settings.pages !== 'boolean') fail('Invalid note settings.');
+  return { pages: settings.pages, background: colour(settings.background) };
+}
+
+// A spreadsheet's own settings: gridlines, headers and the usual column width.
+function cleanSheetSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) fail('Invalid spreadsheet settings.');
+  if (typeof settings.gridlines !== 'boolean' || typeof settings.headers !== 'boolean') fail('Invalid spreadsheet settings.');
+  return { gridlines: settings.gridlines, headers: settings.headers, colWidth: num(settings.colWidth, LIMITS.sheetColWidth[0], LIMITS.sheetColWidth[1], 'column width') };
+}
+
 // Rebuild a Notepad's content from whitelisted fields.
 export function cleanNote(doc) {
   if (!doc || typeof doc !== 'object' || typeof doc.text !== 'string') fail('Invalid note.');
@@ -91,7 +113,20 @@ export function cleanNote(doc) {
   const runs = cleanRuns(doc.runs, doc.text.length, LIMITS.noteRuns, doc.text);
   const embeds = runs.filter(r => r.embed).reduce((sum, r) => sum + r.end - r.start, 0);
   if (embeds > LIMITS.noteEmbeds) fail(`A note can hold up to ${LIMITS.noteEmbeds} pictures and equations.`);
-  return { version: 1, text: doc.text, ...(runs.length ? { runs } : {}) };
+  return { version: 1, text: doc.text, ...(runs.length ? { runs } : {}), ...(doc.settings === undefined ? {} : { settings: cleanNoteSettings(doc.settings) }) };
+}
+
+// A Dynamic Pad's page: its size in pixels, background colour and grid lines.
+function cleanPage(page) {
+  if (!page || typeof page !== 'object' || Array.isArray(page)) fail('Invalid page settings.');
+  const grid = page.grid ?? {};
+  if (typeof grid !== 'object' || Array.isArray(grid) || typeof (grid.show ?? false) !== 'boolean') fail('Invalid page settings.');
+  return {
+    width: num(page.width, ...LIMITS.pageSize, 'page width'),
+    height: num(page.height, ...LIMITS.pageSize, 'page height'),
+    background: colour(page.background),
+    grid: { show: grid.show ?? false, size: num(grid.size ?? 50, ...LIMITS.gridSize, 'grid spacing'), color: colour(grid.color ?? '#D1D5DB') },
+  };
 }
 
 // Rebuild a Dynamic Pad's layout from whitelisted fields so nothing unexpected is stored.
@@ -138,8 +173,58 @@ export function cleanDoc(doc) {
       default: fail('Unknown pad item.');
     }
   });
-  const clean = { version: 1, elements };
+  const clean = { version: 1, elements, ...(doc.page === undefined ? {} : { page: cleanPage(doc.page) }) };
   if (Buffer.byteLength(JSON.stringify(clean)) > LIMITS.docBytes) fail('This pad is too large to save.');
+  return clean;
+}
+
+// Spreadsheet column names: A..Z, AA..AZ (at most sheetCols of them).
+const columnIndex = letters => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+
+// Rebuild a spreadsheet from whitelisted fields: its size, the cells that hold
+// something (the text typed, or a formula starting with "="; bold, italic and
+// alignment) and any changed column widths.
+export function cleanSheet(doc) {
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) fail('Invalid spreadsheet.');
+  const size = (value, max, label) => {
+    if (!Number.isInteger(value) || value < 1 || value > max) fail(`A spreadsheet can have 1–${max} ${label}.`);
+    return value;
+  };
+  const rows = size(doc.rows, LIMITS.sheetRows, 'rows'), cols = size(doc.cols, LIMITS.sheetCols, 'columns');
+  const given = doc.cells ?? {};
+  if (typeof given !== 'object' || Array.isArray(given)) fail('Invalid spreadsheet.');
+  const keys = Object.keys(given);
+  if (keys.length > LIMITS.sheetCells) fail(`A spreadsheet can hold up to ${LIMITS.sheetCells} filled cells.`);
+  const cells = {};
+  for (const key of keys) {
+    const m = /^([A-Z]{1,2})([1-9][0-9]{0,3})$/.exec(key);
+    const cell = given[key];
+    if (!m || !cell || typeof cell !== 'object' || Array.isArray(cell) || columnIndex(m[1]) >= cols || Number(m[2]) > rows) fail('Invalid spreadsheet cell.');
+    const clean = {};
+    if (cell.v !== undefined) {
+      if (typeof cell.v !== 'string' || cell.v.length > LIMITS.sheetCellChars) fail(`A cell can hold up to ${LIMITS.sheetCellChars} characters.`);
+      if (cell.v) clean.v = cell.v;
+    }
+    for (const flag of ['b', 'i']) {
+      if (cell[flag] === undefined) continue;
+      if (cell[flag] !== true) fail('Invalid spreadsheet cell.');
+      clean[flag] = true;
+    }
+    if (cell.a !== undefined) {
+      if (!['l', 'c', 'r'].includes(cell.a)) fail('Invalid spreadsheet cell.');
+      clean.a = cell.a;
+    }
+    if (Object.keys(clean).length) cells[key] = clean;
+  }
+  const widths = {};
+  const givenWidths = doc.widths ?? {};
+  if (typeof givenWidths !== 'object' || Array.isArray(givenWidths)) fail('Invalid spreadsheet.');
+  for (const [letters, width] of Object.entries(givenWidths)) {
+    if (!/^[A-Z]{1,2}$/.test(letters) || columnIndex(letters) >= cols) fail('Invalid column width.');
+    widths[letters] = num(width, LIMITS.sheetColWidth[0], LIMITS.sheetColWidth[1], 'column width');
+  }
+  const clean = { version: 1, rows, cols, cells, ...(Object.keys(widths).length ? { widths } : {}), ...(doc.settings === undefined ? {} : { settings: cleanSheetSettings(doc.settings) }) };
+  if (Buffer.byteLength(JSON.stringify(clean)) > LIMITS.docBytes) fail('This spreadsheet is too large to save.');
   return clean;
 }
 
@@ -227,7 +312,7 @@ export function padsHandler(pool) {
         const folder = await ownedFolder(b.folderId);
         const count = await db.query('SELECT count(*)::int AS count FROM public.pads WHERE owner_id=$1', [owner]);
         if (count.rows[0].count >= LIMITS.documents) fail(`You can create up to ${LIMITS.documents} documents.`);
-        const doc = kind === 'notepad' ? { version: 1, text: '' } : { version: 1, elements: [] };
+        const doc = kind === 'notepad' ? { version: 1, text: '' } : kind === 'sheet' ? { version: 1, rows: 50, cols: 12, cells: {} } : { version: 1, elements: [] };
         result = { pad: (await db.query(`INSERT INTO public.pads(owner_id,name,description,kind,folder_id,doc) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING ${DOCUMENT_COLUMNS},doc`, [owner, padName, padDescription, kind, folder?.id ?? null, JSON.stringify(doc)])).rows[0] };
       } else {
         if (!uuid(b.padId)) fail('Invalid document.');
@@ -250,7 +335,11 @@ export function padsHandler(pool) {
           await db.query('DELETE FROM public.pads WHERE id=$1', [pad.id]);
           result = { deleted: true };
         } else if (b.action === 'savePad') {
-          if (pad.kind === 'notepad') {
+          if (pad.kind === 'sheet') {
+            const sheet = cleanSheet(b.doc);
+            const saved = (await db.query('UPDATE public.pads SET doc=$1::jsonb,updated_at=now() WHERE id=$2 RETURNING updated_at', [JSON.stringify(sheet), pad.id])).rows[0];
+            result = { saved: true, updated_at: saved.updated_at };
+          } else if (pad.kind === 'notepad') {
             const note = cleanNote(b.doc);
             const imageIds = noteImageIds(note.runs);
             if (imageIds.length) {
@@ -273,6 +362,7 @@ export function padsHandler(pool) {
             result = { saved: true, updated_at: saved.updated_at };
           }
         } else {
+          if (pad.kind === 'sheet') fail('Spreadsheets cannot hold pictures.');
           if (b.action === 'uploadImage') {
             const { data, mime } = imageBytes(b.image);
             const count = await db.query('SELECT count(*)::int AS count FROM public.pad_images WHERE pad_id=$1', [pad.id]);

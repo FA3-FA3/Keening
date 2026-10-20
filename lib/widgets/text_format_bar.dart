@@ -20,6 +20,8 @@ class TextFormatBar extends StatelessWidget {
     this.onIndent,
     this.onBullets,
     this.bulleted = false,
+    this.onSquareBullets,
+    this.squareBulleted = false,
     this.onPickerOpen,
     this.onPickerClose,
   });
@@ -41,6 +43,10 @@ class TextFormatBar extends StatelessWidget {
   /// Turns the lines into bullet points (or back); [bulleted] says they are.
   final VoidCallback? onBullets;
   final bool bulleted;
+
+  /// The same with square bullet points; [squareBulleted] says they all are.
+  final VoidCallback? onSquareBullets;
+  final bool squareBulleted;
 
   /// Called around the colour picker, which takes focus from the text: the
   /// editor keeps its selection and gets its focus back when it closes.
@@ -188,7 +194,7 @@ class TextFormatBar extends StatelessWidget {
             _toggle(
               'subscript',
               Icons.subscript,
-              'Subscript (Ctrl+,)',
+              'Subscript (Ctrl+-)',
               format.subscript,
               (f, v) => f.copyWith(subscript: v),
               context,
@@ -196,7 +202,7 @@ class TextFormatBar extends StatelessWidget {
             _toggle(
               'superscript',
               Icons.superscript,
-              'Superscript (Ctrl+.)',
+              'Superscript (Ctrl++)',
               format.superscript,
               (f, v) => f.copyWith(superscript: v),
               context,
@@ -243,17 +249,32 @@ class TextFormatBar extends StatelessWidget {
             IconButton(
               key: const ValueKey('text-bullets'),
               tooltip: 'Bullet points (Ctrl+Shift+8)',
-              isSelected: bulleted,
+              isSelected: bulleted && !squareBulleted,
               onPressed: onBullets,
               style: IconButton.styleFrom(
-                backgroundColor: bulleted
+                backgroundColor: bulleted && !squareBulleted
                     ? Theme.of(context).colorScheme.primaryContainer
                     : null,
-                foregroundColor: bulleted
+                foregroundColor: bulleted && !squareBulleted
                     ? Theme.of(context).colorScheme.onPrimaryContainer
                     : null,
               ),
               icon: const Icon(Icons.format_list_bulleted),
+            ),
+            IconButton(
+              key: const ValueKey('text-bullets-square'),
+              tooltip: 'Square bullet points',
+              isSelected: squareBulleted,
+              onPressed: onSquareBullets,
+              style: IconButton.styleFrom(
+                backgroundColor: squareBulleted
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : null,
+                foregroundColor: squareBulleted
+                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                    : null,
+              ),
+              icon: const _SquareBulletsIcon(),
             ),
             IconButton(
               key: const ValueKey('text-outdent'),
@@ -267,6 +288,42 @@ class TextFormatBar extends StatelessWidget {
               onPressed: onIndent == null ? null : () => onIndent!(1),
               icon: const Icon(Icons.format_indent_increase),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A list icon with square bullets (the standard one has round ones).
+class _SquareBulletsIcon extends StatelessWidget {
+  const _SquareBulletsIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final iconTheme = IconTheme.of(context);
+    final color = iconTheme.color ?? Colors.black;
+    final size = iconTheme.size ?? 24;
+    Widget row() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: size * .17, height: size * .17, color: color),
+        SizedBox(width: size * .12),
+        Container(width: size * .5, height: size * .09, color: color),
+      ],
+    );
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            row(),
+            SizedBox(height: size * .15),
+            row(),
+            SizedBox(height: size * .15),
+            row(),
           ],
         ),
       ),

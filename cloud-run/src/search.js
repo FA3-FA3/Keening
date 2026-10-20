@@ -47,9 +47,9 @@ export function searchHandler(pool) {
       };
       for (const f of folders) add('Folder', 'Documents', f, {parentId: f.id, parent: folderPath(f.parent_id)});
       for (const d of documents) {
-        const note = d.kind === 'notepad' ? (d.doc?.text ?? '') : '';
-        // Notepad text is searchable and its start shows as the result's description; it is not sent whole.
-        add(d.kind === 'notepad' ? 'Notepad' : 'Dynamic Pad', 'Documents', {...d, description: d.description || note.slice(0, 200)}, {parentId: d.folder_id, parent: folderPath(d.folder_id), searchBody: note});
+        const note = d.kind === 'notepad' ? (d.doc?.text ?? '') : d.kind === 'sheet' ? Object.values(d.doc?.cells ?? {}).map(c => c.v).filter(Boolean).join(' ') : '';
+        // Notepad text (and a spreadsheet's cell text) is searchable and its start shows as the result's description; it is not sent whole.
+        add(d.kind === 'notepad' ? 'Notepad' : d.kind === 'sheet' ? 'Spreadsheet' : 'Dynamic Pad', 'Documents', {...d, description: d.description || note.slice(0, 200)}, {parentId: d.folder_id, parent: folderPath(d.folder_id), searchBody: note});
       }
       const terms = query.trim().toLocaleLowerCase().split(/\s+/);
       const matches = all.filter(item => {

@@ -32,7 +32,7 @@ class _SchedulePageState extends State<SchedulePage> {
   late DateTime _start = _selected;
   final _horizontal = ScrollController();
   final _vertical = ScrollController();
-  int _days = 1;
+  int _days = 7;
   bool _followBottom = false;
   List<Map<String, dynamic>> _blocks = [];
   List<Map<String, dynamic>> _tags = [];

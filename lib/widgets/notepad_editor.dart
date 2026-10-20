@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../utils/clipboard_image.dart';
 import '../utils/clipboard_text.dart';
+import '../utils/export_handle.dart';
+import '../utils/note_settings.dart';
 import '../utils/pad_clipboard.dart';
 import '../utils/pad_image.dart';
 import '../utils/pad_model.dart';
@@ -17,6 +19,77 @@ import 'note_embeds.dart';
 import 'text_format_bar.dart';
 
 const notepadMaxCharacters = 200000;
+
+/// A4 at 96 pixels to the inch, and the one-inch margin of a printed page.
+const notepadPageWidth = 794.0;
+const notepadPageHeight = 1123.0;
+const notepadPageMargin = 96.0;
+
+/// How much text fits on a page (the page less its top and bottom margins).
+const notepadPageContent = notepadPageHeight - 2 * notepadPageMargin;
+
+/// Where page breaks fall in a note whose scrolled content is [extent] tall
+/// (text, and a margin above and below): a break after every page of text, but
+/// only where more text follows.
+List<double> pageBreakOffsets(double extent) => [
+  for (
+    var k = 1;
+    notepadPageMargin + k * notepadPageContent < extent - notepadPageMargin - 1;
+    k++
+  )
+    notepadPageMargin + k * notepadPageContent,
+];
+
+/// Dotted lines across the page where one printed page ends and the next
+/// begins, each with its page number. It follows the note's scrolling.
+class PageBreakPainter extends CustomPainter {
+  PageBreakPainter({
+    required this.scroll,
+    required Listenable text,
+    required this.line,
+    required this.label,
+  }) : super(repaint: Listenable.merge([scroll, text]));
+  final ScrollController scroll;
+  final Color line, label;
+
+  /// The breaks at this moment, as positions down the whole note.
+  List<double> breaks(Size size) {
+    final position = scroll.hasClients ? scroll.position : null;
+    final extent = position == null
+        ? size.height
+        : position.maxScrollExtent + position.viewportDimension;
+    return pageBreakOffsets(extent);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final offset = scroll.hasClients ? scroll.offset : 0.0;
+    final paint = Paint()
+      ..color = line
+      ..strokeWidth = 1.5;
+    final all = breaks(size);
+    for (var i = 0; i < all.length; i++) {
+      final y = all[i] - offset;
+      if (y < -20 || y > size.height + 20) continue;
+      for (var x = 0.0; x < size.width; x += 10) {
+        canvas.drawLine(Offset(x, y), Offset(x + 5, y), paint);
+      }
+      final tp = TextPainter(
+        text: TextSpan(
+          text: 'Page ${i + 2}',
+          style: TextStyle(fontSize: 11, color: label),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(size.width - 16 - tp.width, y + 4));
+      tp.dispose();
+    }
+  }
+
+  @override
+  bool shouldRepaint(PageBreakPainter old) =>
+      old.line != line || old.label != label || old.scroll != scroll;
+}
 
 enum _SaveState { saved, dirty, saving, error }
 
@@ -40,8 +113,17 @@ class NotepadEditor extends StatefulWidget {
     this.readPicture,
     this.writePicture,
     this.autosaveDelay = const Duration(milliseconds: 800),
+    this.handle,
+    this.settings = NoteSettings.standard,
   });
   final String initialText;
+
+  /// Pages on or off, and the background colour; the screen around the editor
+  /// keeps them (and saves them with the note).
+  final NoteSettings settings;
+
+  /// Filled in so the screen around the editor can export what is in it.
+  final NoteHandle? handle;
   final List<StyleRun> initialRuns;
 
   /// Saves the whole text and its formatting. Throw to report a failure.
@@ -96,6 +178,18 @@ class _NotepadEditorState extends State<NotepadEditor> {
   void initState() {
     super.initState();
     _controller.embedBuilder = _buildEmbed;
+    widget.handle
+      ?..text = (() => _controller.text)
+      ..runs = (() => _controller.runs)
+      ..loadImage = _loadImage
+      ..touch = (() => _changed(''))
+      ..replace = (text, runs, images) {
+        images.forEach((id, bytes) {
+          _ownedImages.add(id);
+          _imageBytes[id] = Future.value(bytes);
+        });
+        _controller.replaceAll(text, runs);
+      };
     _scroll.addListener(_queueSync);
   }
 
@@ -380,8 +474,12 @@ class _NotepadEditorState extends State<NotepadEditor> {
       }
       if (rich == null && pad == null) {
         _snack(
-          'There is nothing to paste, or the browser would not let Keening read '
-          'the clipboard (allow clipboard access for this site).',
+          read.failed
+              ? 'The browser would not let Keening read the clipboard. Allow '
+                    'clipboard access for this site (the icon next to the address), or '
+                    'paste inside the page after copying here.'
+              : 'There is nothing to paste, or the browser would not let Keening read '
+                    'the clipboard (allow clipboard access for this site).',
         );
         return;
       }
@@ -658,6 +756,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
           onIndent: _controller.indent,
           onBullets: _controller.toggleBullets,
           bulleted: _controller.bulleted,
+          onSquareBullets: () => _controller.toggleBullets(squareBulletMark),
+          squareBulleted: _controller.bulletStyle == squareBulletMark,
           onPickerOpen: _holdSelection,
           onPickerClose: _releaseSelection,
           onChange: (change) {
@@ -695,6 +795,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = widget.settings;
+    final pages = settings.pages;
     // Keep the handles over the pictures in step with the page.
     if (_pictures.isNotEmpty || _controller.text.contains(embedChar)) {
       _queueSync();
@@ -722,149 +824,216 @@ class _NotepadEditorState extends State<NotepadEditor> {
             children: [
               _toolRail(),
               Expanded(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 900),
-                    child: DragTarget<int>(
-                      key: _fieldArea,
-                      onWillAcceptWithDetails: (_) => true,
-                      // The caret follows the dragged picture, showing where it
-                      // will land.
-                      onMove: (details) {
-                        final at = _textOffsetAt(details.offset);
-                        if (at != null) {
-                          _controller.selection = TextSelection.collapsed(
-                            offset: at,
-                          );
-                        }
-                      },
-                      onAcceptWithDetails: (details) {
-                        final at = _textOffsetAt(details.offset);
-                        if (at != null) _controller.moveEmbed(details.data, at);
-                      },
-                      builder: (context, _, _) => Stack(
-                        children: [
-                          Shortcuts(
-                            shortcuts: indentShortcuts,
-                            child: Actions(
-                              // Undo covers formatting too, so it replaces the field's own.
-                              actions: {
-                                ToggleStyleIntent:
-                                    CallbackAction<ToggleStyleIntent>(
+                child: ColoredBox(
+                  key: const ValueKey('notepad-desk'),
+                  // With pages off the whole area is the note's background.
+                  color: pages
+                      ? Theme.of(context).colorScheme.surfaceContainerHighest
+                      : settings.backgroundColour,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: pages ? notepadPageWidth : double.infinity,
+                      ),
+                      child: DecoratedBox(
+                        key: const ValueKey('notepad-page'),
+                        decoration: BoxDecoration(
+                          color: settings.backgroundColour,
+                          boxShadow: pages
+                              ? const [
+                                  BoxShadow(
+                                    color: Color(0x33000000),
+                                    blurRadius: 10,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: DragTarget<int>(
+                          key: _fieldArea,
+                          onWillAcceptWithDetails: (_) => true,
+                          // The caret follows the dragged picture, showing where it
+                          // will land.
+                          onMove: (details) {
+                            final at = _textOffsetAt(details.offset);
+                            if (at != null) {
+                              _controller.selection = TextSelection.collapsed(
+                                offset: at,
+                              );
+                            }
+                          },
+                          onAcceptWithDetails: (details) {
+                            final at = _textOffsetAt(details.offset);
+                            if (at != null) {
+                              _controller.moveEmbed(details.data, at);
+                            }
+                          },
+                          builder: (context, _, _) => Stack(
+                            children: [
+                              Shortcuts(
+                                shortcuts: indentShortcuts,
+                                child: Actions(
+                                  // Undo covers formatting too, so it replaces the field's own.
+                                  actions: {
+                                    ToggleStyleIntent:
+                                        CallbackAction<ToggleStyleIntent>(
+                                          onInvoke: (intent) {
+                                            final format = _controller.toggle(
+                                              intent.style,
+                                            );
+                                            // Choices made at the caret carry over to new text.
+                                            if (!_controller.hasSelection) {
+                                              TextTool.shared.format = format;
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                    BulletEnterIntent: BulletEnterAction(
+                                      () => _controller,
+                                    ),
+                                    BulletsIntent:
+                                        CallbackAction<BulletsIntent>(
+                                          onInvoke: (_) {
+                                            _controller.toggleBullets();
+                                            return null;
+                                          },
+                                        ),
+                                    IndentIntent: CallbackAction<IndentIntent>(
                                       onInvoke: (intent) {
-                                        final format = _controller.toggle(
-                                          intent.style,
-                                        );
-                                        // Choices made at the caret carry over to new text.
-                                        if (!_controller.hasSelection) {
-                                          TextTool.shared.format = format;
-                                        }
+                                        _controller.indent(intent.direction);
                                         return null;
                                       },
                                     ),
-                                BulletEnterIntent: BulletEnterAction(
-                                  () => _controller,
-                                ),
-                                BulletsIntent: CallbackAction<BulletsIntent>(
-                                  onInvoke: (_) {
-                                    _controller.toggleBullets();
-                                    return null;
+                                    UndoTextIntent:
+                                        CallbackAction<UndoTextIntent>(
+                                          onInvoke: (_) => _controller.undo(),
+                                        ),
+                                    RedoTextIntent:
+                                        CallbackAction<RedoTextIntent>(
+                                          onInvoke: (_) => _controller.redo(),
+                                        ),
+                                    // Copy, cut and paste keep formatting, equations and
+                                    // pictures, which the field's own versions would lose.
+                                    // (Cut is a copy that also removes the selection.)
+                                    CopySelectionTextIntent:
+                                        CallbackAction<CopySelectionTextIntent>(
+                                          onInvoke: (intent) => _copy(
+                                            cut: intent.collapseSelection,
+                                          ),
+                                        ),
+                                    PasteTextIntent:
+                                        CallbackAction<PasteTextIntent>(
+                                          onInvoke: (_) => _paste(),
+                                        ),
                                   },
-                                ),
-                                IndentIntent: CallbackAction<IndentIntent>(
-                                  onInvoke: (intent) {
-                                    _controller.indent(intent.direction);
-                                    return null;
-                                  },
-                                ),
-                                UndoTextIntent: CallbackAction<UndoTextIntent>(
-                                  onInvoke: (_) => _controller.undo(),
-                                ),
-                                RedoTextIntent: CallbackAction<RedoTextIntent>(
-                                  onInvoke: (_) => _controller.redo(),
-                                ),
-                                // Copy, cut and paste keep formatting, equations and
-                                // pictures, which the field's own versions would lose.
-                                // (Cut is a copy that also removes the selection.)
-                                CopySelectionTextIntent:
-                                    CallbackAction<CopySelectionTextIntent>(
-                                      onInvoke: (intent) =>
-                                          _copy(cut: intent.collapseSelection),
+                                  child: RichField(
+                                    key: const ValueKey('notepad-field'),
+                                    controller: _controller,
+                                    focusNode: _focus,
+                                    scrollController: _scroll,
+                                    // No fixed line height, so a line with a picture is as
+                                    // tall as the picture and the text below clears it.
+                                    strutStyle: StrutStyle.disabled,
+                                    autofocus: true,
+                                    expands: true,
+                                    maxLines: null,
+                                    minLines: null,
+                                    textAlignVertical: TextAlignVertical.top,
+                                    keyboardType: TextInputType.multiline,
+                                    inputFormatters: [
+                                      LengthLimitingTextInputFormatter(
+                                        notepadMaxCharacters,
+                                      ),
+                                    ],
+                                    // Dark text on a light background and light text on
+                                    // a dark one, in light and dark themes.
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      height: 1.5,
+                                      color: settings.textColour,
                                     ),
-                                PasteTextIntent:
-                                    CallbackAction<PasteTextIntent>(
-                                      onInvoke: (_) => _paste(),
+                                    cursorColor: settings.textColour,
+                                    decoration: InputDecoration(
+                                      border: InputBorder.none,
+                                      hintText: 'Start typing…',
+                                      hintStyle: TextStyle(
+                                        color: settings.mutedColour,
+                                      ),
+                                      // On pages: a one-inch margin all round, as on
+                                      // paper (smaller sides on a narrow window).
+                                      // Without pages: a small margin.
+                                      contentPadding: pages
+                                          ? EdgeInsets.symmetric(
+                                              horizontal:
+                                                  MediaQuery.sizeOf(
+                                                        context,
+                                                      ).width >=
+                                                      900
+                                                  ? notepadPageMargin
+                                                  : 32,
+                                              vertical: notepadPageMargin,
+                                            )
+                                          : const EdgeInsets.all(24),
                                     ),
-                              },
-                              child: RichField(
-                                key: const ValueKey('notepad-field'),
-                                controller: _controller,
-                                focusNode: _focus,
-                                scrollController: _scroll,
-                                // No fixed line height, so a line with a picture is as
-                                // tall as the picture and the text below clears it.
-                                strutStyle: StrutStyle.disabled,
-                                autofocus: true,
-                                expands: true,
-                                maxLines: null,
-                                minLines: null,
-                                textAlignVertical: TextAlignVertical.top,
-                                keyboardType: TextInputType.multiline,
-                                inputFormatters: [
-                                  LengthLimitingTextInputFormatter(
-                                    notepadMaxCharacters,
+                                    onChanged: _changed,
+                                    contextMenuBuilder: (context, state) =>
+                                        AdaptiveTextSelectionToolbar.buttonItems(
+                                          anchors: state.contextMenuAnchors,
+                                          buttonItems: [
+                                            for (final item
+                                                in state.contextMenuButtonItems)
+                                              switch (item.type) {
+                                                ContextMenuButtonType.copy =>
+                                                  ContextMenuButtonItem(
+                                                    type: item.type,
+                                                    onPressed: () {
+                                                      state.hideToolbar();
+                                                      _copy();
+                                                    },
+                                                  ),
+                                                ContextMenuButtonType.cut =>
+                                                  ContextMenuButtonItem(
+                                                    type: item.type,
+                                                    onPressed: () {
+                                                      state.hideToolbar();
+                                                      _copy(cut: true);
+                                                    },
+                                                  ),
+                                                ContextMenuButtonType.paste =>
+                                                  ContextMenuButtonItem(
+                                                    type: item.type,
+                                                    onPressed: () {
+                                                      state.hideToolbar();
+                                                      _paste();
+                                                    },
+                                                  ),
+                                                _ => item,
+                                              },
+                                          ],
+                                        ),
                                   ),
-                                ],
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  height: 1.5,
                                 ),
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  hintText: 'Start typing…',
-                                  contentPadding: EdgeInsets.all(24),
-                                ),
-                                onChanged: _changed,
-                                contextMenuBuilder: (context, state) =>
-                                    AdaptiveTextSelectionToolbar.buttonItems(
-                                      anchors: state.contextMenuAnchors,
-                                      buttonItems: [
-                                        for (final item
-                                            in state.contextMenuButtonItems)
-                                          switch (item.type) {
-                                            ContextMenuButtonType.copy =>
-                                              ContextMenuButtonItem(
-                                                type: item.type,
-                                                onPressed: () {
-                                                  state.hideToolbar();
-                                                  _copy();
-                                                },
-                                              ),
-                                            ContextMenuButtonType.cut =>
-                                              ContextMenuButtonItem(
-                                                type: item.type,
-                                                onPressed: () {
-                                                  state.hideToolbar();
-                                                  _copy(cut: true);
-                                                },
-                                              ),
-                                            ContextMenuButtonType.paste =>
-                                              ContextMenuButtonItem(
-                                                type: item.type,
-                                                onPressed: () {
-                                                  state.hideToolbar();
-                                                  _paste();
-                                                },
-                                              ),
-                                            _ => item,
-                                          },
-                                      ],
-                                    ),
                               ),
-                            ),
+                              if (pages)
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: CustomPaint(
+                                      key: const ValueKey(
+                                        'notepad-page-breaks',
+                                      ),
+                                      painter: PageBreakPainter(
+                                        scroll: _scroll,
+                                        text: _controller,
+                                        line: settings.mutedColour,
+                                        label: settings.mutedColour,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ..._pictureHandles(),
+                            ],
                           ),
-                          ..._pictureHandles(),
-                        ],
+                        ),
                       ),
                     ),
                   ),

@@ -61,7 +61,9 @@ void main() {
     expect(find.byType(ScriptChar), findsOneWidget);
   });
 
-  testWidgets('Ctrl+, and Ctrl+. do the same from the keyboard', (tester) async {
+  testWidgets('Ctrl+, and Ctrl+. do the same from the keyboard', (
+    tester,
+  ) async {
     final c = await mount(tester);
     await tester.tap(find.byKey(const ValueKey('notepad-field')));
     await tester.pump(const Duration(milliseconds: 400));
@@ -79,6 +81,66 @@ void main() {
     expect(c.runs.single.format.subscript, isTrue);
     expect(c.runs.single.format.superscript, isFalse);
     expect(c.text, 'H2O and x2');
+  });
+
+  testWidgets('Ctrl++, Ctrl+= and Ctrl+- do it too, instead of zooming', (
+    tester,
+  ) async {
+    final c = await mount(tester);
+    await tester.tap(find.byKey(const ValueKey('notepad-field')));
+    await tester.pump(const Duration(milliseconds: 400));
+    c.selection = const TextSelection(baseOffset: 9, extentOffset: 10);
+    await tester.pump();
+    Future<void> press(
+      List<LogicalKeyboardKey> keys,
+      LogicalKeyboardKey key,
+    ) async {
+      for (final k in keys) {
+        await tester.sendKeyDownEvent(k);
+      }
+      await tester.sendKeyEvent(key);
+      for (final k in keys.reversed) {
+        await tester.sendKeyUpEvent(k);
+      }
+      await tester.pump();
+    }
+
+    await press([LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.equal);
+    expect(c.runs.single.format.superscript, isTrue, reason: 'Ctrl+=');
+    await press([LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.minus);
+    expect(c.runs.single.format.subscript, isTrue, reason: 'Ctrl+-');
+    expect(c.runs.single.format.superscript, isFalse);
+    await press([LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.minus);
+    expect(c.runs, isEmpty, reason: 'pressing again turns it off');
+    // Ctrl+Shift+= types a plus, whose key the test keyboard cannot press, so
+    // check it is bound (with and without Shift, for Ctrl and for Cmd).
+    for (final shift in [true, false]) {
+      for (final meta in [true, false]) {
+        final bound = indentShortcuts.entries.any((e) {
+          final a = e.key;
+          return a is SingleActivator &&
+              a.trigger == LogicalKeyboardKey.add &&
+              a.shift == shift &&
+              (meta ? a.meta : a.control) &&
+              e.value == const ToggleStyleIntent(TextToggle.superscript);
+        });
+        expect(bound, isTrue, reason: 'plus, shift: $shift, meta: $meta');
+      }
+    }
+    await press([
+      LogicalKeyboardKey.controlLeft,
+    ], LogicalKeyboardKey.numpadSubtract);
+    expect(c.runs.single.format.subscript, isTrue, reason: 'numpad minus');
+    await press([LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.numpadAdd);
+    expect(c.runs.single.format.superscript, isTrue, reason: 'numpad plus');
+    // The shortcut is what handles the key, so the browser is told to leave it.
+    expect(c.text, 'H2O and x2');
+  });
+
+  testWidgets('the buttons name the new shortcuts', (tester) async {
+    await mount(tester);
+    expect(find.byTooltip('Subscript (Ctrl+-)'), findsOneWidget);
+    expect(find.byTooltip('Superscript (Ctrl++)'), findsOneWidget);
   });
 
   testWidgets('typing after the caret is set to superscript is raised', (
@@ -107,11 +169,9 @@ void padTextTests() {
     tester,
   ) async {
     const base = TextStyle(fontSize: 16, color: Colors.black);
-    final span = richSpan(
-      '    ${'word ' * 30}x2',
-      [StyleRun(4 + 150 + 1, 4 + 150 + 2, const TextFormat(superscript: true))],
-      base,
-    );
+    final span = richSpan('    ${'word ' * 30}x2', [
+      StyleRun(4 + 150 + 1, 4 + 150 + 2, const TextFormat(superscript: true)),
+    ], base);
     await tester.pumpWidget(
       MaterialApp(
         home: Align(

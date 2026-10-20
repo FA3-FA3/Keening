@@ -177,7 +177,7 @@ void main() {
         await gesture.moveBy(const Offset(30, 0));
         await tester.pump();
         // Far to the right of the last letter on the line: the end of the text.
-        await gesture.moveTo(start + const Offset(700, 0));
+        await gesture.moveTo(start + const Offset(450, 0));
         await tester.pump();
         // The caret has followed the pointer to where the picture will land.
         expect(c.selection.baseOffset, c.text.length);

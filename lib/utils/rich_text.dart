@@ -534,7 +534,40 @@ const indentShortcuts = <ShortcutActivator, Intent>{
   SingleActivator(LogicalKeyboardKey.keyU, meta: true): ToggleStyleIntent(
     TextToggle.underline,
   ),
-  // Ctrl+, lowers and Ctrl+. raises the text (as in Google Docs).
+  // Ctrl+- lowers and Ctrl++ (Ctrl+=, the same key) raises the text. These keys
+  // are the browser's zoom shortcuts; handling them here stops the page zooming
+  // while the text has focus. Ctrl+, and Ctrl+. do the same, as in Google Docs.
+  SingleActivator(LogicalKeyboardKey.equal, control: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.add, control: true, shift: true):
+      ToggleStyleIntent(TextToggle.superscript),
+  SingleActivator(LogicalKeyboardKey.add, control: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.numpadAdd, control: true):
+      ToggleStyleIntent(TextToggle.superscript),
+  SingleActivator(LogicalKeyboardKey.minus, control: true): ToggleStyleIntent(
+    TextToggle.subscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.numpadSubtract, control: true):
+      ToggleStyleIntent(TextToggle.subscript),
+  SingleActivator(LogicalKeyboardKey.equal, meta: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.add, meta: true, shift: true):
+      ToggleStyleIntent(TextToggle.superscript),
+  SingleActivator(LogicalKeyboardKey.add, meta: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.numpadAdd, meta: true): ToggleStyleIntent(
+    TextToggle.superscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.minus, meta: true): ToggleStyleIntent(
+    TextToggle.subscript,
+  ),
+  SingleActivator(LogicalKeyboardKey.numpadSubtract, meta: true):
+      ToggleStyleIntent(TextToggle.subscript),
   SingleActivator(LogicalKeyboardKey.comma, control: true): ToggleStyleIntent(
     TextToggle.subscript,
   ),
@@ -632,8 +665,19 @@ class _RenderBaselineAt extends RenderProxyBox {
 /// Spaces added or removed by one step of the indent buttons.
 const indentWidth = 4;
 
-/// What starts a bullet point.
+/// What starts a bullet point: a round bullet, or a square one. Both are two
+/// characters (the mark and a space), and each acts as one piece in the text.
 const bulletMark = '• ';
+const squareBulletMark = '▪ ';
+const bulletMarks = [bulletMark, squareBulletMark];
+
+/// The bullet marker that starts at [index] in [t], or null if none does.
+String? bulletMarkAt(String t, int index) {
+  for (final mark in bulletMarks) {
+    if (t.startsWith(mark, index)) return mark;
+  }
+  return null;
+}
 
 class _Snapshot {
   const _Snapshot(this.text, this.runs, this.selection);
@@ -835,8 +879,7 @@ class RichTextController extends TextEditingController {
       final line = _lineStart(t, caret);
       final after = _afterIndent(line);
       final inBullet =
-          t.startsWith(bulletMark, after) &&
-          caret <= after + bulletMark.length;
+          bulletMarkAt(t, after) != null && caret <= after + bulletMark.length;
       if (caret > after && !inBullet) {
         _applyEdits([(at: caret, remove: 0, insert: String.fromCharCode(9))]);
         return;
@@ -861,24 +904,41 @@ class RichTextController extends TextEditingController {
 
   /// Whether the line starting at [lineStart] is a bullet point.
   bool _isBullet(int lineStart) =>
-      text.startsWith(bulletMark, _afterIndent(lineStart));
+      bulletMarkAt(text, _afterIndent(lineStart)) != null;
 
   /// True when every line touched by the selection (or the caret's line) is a
-  /// bullet point; the bullet button shows as on then.
+  /// bullet point (of either kind); the bullet button shows as on then.
   bool get bulleted => _selectedLineStarts().every(_isBullet);
 
+  /// The marker all the touched lines share ([bulletMark] or
+  /// [squareBulletMark]), or null if they are not all bullets of one kind.
+  String? get bulletStyle {
+    String? shared;
+    for (final line in _selectedLineStarts()) {
+      final mark = bulletMarkAt(text, _afterIndent(line));
+      if (mark == null || (shared != null && shared != mark)) return null;
+      shared = mark;
+    }
+    return shared;
+  }
+
   /// Turns the lines touched by the selection (or the caret's line) into
-  /// bullet points, or back into plain lines if they all are bullets already.
-  void toggleBullets() {
+  /// bullet points of the kind [mark], or back into plain lines if they all
+  /// are bullets of that kind already. Lines with the other kind of bullet
+  /// change to this one.
+  void toggleBullets([String mark = bulletMark]) {
     final starts = _selectedLineStarts();
-    final off = starts.every(_isBullet);
+    final off = bulletStyle == mark;
     final edits = <({int at, int remove, String insert})>[];
     for (final line in starts) {
       final at = _afterIndent(line);
+      final has = bulletMarkAt(text, at);
       if (off) {
         edits.add((at: at, remove: bulletMark.length, insert: ''));
-      } else if (!_isBullet(line)) {
-        edits.add((at: at, remove: 0, insert: bulletMark));
+      } else if (has == null) {
+        edits.add((at: at, remove: 0, insert: mark));
+      } else if (has != mark) {
+        edits.add((at: at, remove: bulletMark.length, insert: mark));
       }
     }
     _applyEdits(edits);
@@ -888,6 +948,18 @@ class RichTextController extends TextEditingController {
   TextFormat? pending;
 
   List<StyleRun> get runs => compactRuns(_formats);
+
+  /// Replaces all the text and formatting as one undo step (an import).
+  void replaceAll(String text, List<StyleRun> runs) {
+    _checkpoint(typing: false);
+    pending = null;
+    _formats = expandRuns(runs, text.length);
+    super.value = TextEditingValue(
+      text: text,
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    onFormatEdited?.call();
+  }
 
   /// Replaces the text and formatting without treating it as an edit.
   void load(String text, List<StyleRun> runs) {
@@ -951,7 +1023,7 @@ class RichTextController extends TextEditingController {
     while (q < t.length && t.codeUnitAt(q) == 32) {
       q++;
     }
-    if (t.startsWith(bulletMark, q) &&
+    if (bulletMarkAt(t, q) != null &&
         index >= q &&
         index < q + bulletMark.length) {
       return (q, q + bulletMark.length);
@@ -1023,7 +1095,8 @@ class RichTextController extends TextEditingController {
       q++;
     }
     final markerEnd = q + bulletMark.length;
-    if (!old.startsWith(bulletMark, q) || p < markerEnd) return null;
+    final mark = bulletMarkAt(old, q);
+    if (mark == null || p < markerEnd) return null;
     var lineEnd = old.indexOf('\n', line);
     if (lineEnd < 0) lineEnd = old.length;
     if (lineEnd == markerEnd) {
@@ -1033,7 +1106,7 @@ class RichTextController extends TextEditingController {
         selection: TextSelection.collapsed(offset: q),
       );
     }
-    final prefix = old.substring(line, q) + bulletMark;
+    final prefix = old.substring(line, q) + mark;
     return TextEditingValue(
       text: old.replaceRange(p, p, '\n$prefix'),
       selection: TextSelection.collapsed(offset: p + 1 + prefix.length),

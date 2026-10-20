@@ -10,11 +10,13 @@ import '../utils/clipboard_image.dart';
 import '../utils/clipboard_text.dart';
 import '../utils/pad_clipboard.dart';
 import '../utils/pad_image.dart';
+import '../utils/export_handle.dart';
 import '../utils/pad_model.dart';
 import '../utils/rich_text.dart';
 import 'equation_editor.dart';
 import 'image_cropper.dart';
 import 'insert_tool.dart';
+import 'pad_page_dialog.dart';
 import 'text_format_bar.dart';
 
 enum PadTool { select, text, line, pen }
@@ -28,7 +30,6 @@ typedef AttachFileDrop =
       required FileDropHandler onDrop,
     });
 
-const _paper = Color(0xFFFAFAF7);
 const _doubleTap = Duration(milliseconds: 400);
 
 /// The drawing surface of one pad: text boxes, pictures, straight lines and
@@ -46,9 +47,21 @@ class PadEditor extends StatefulWidget {
     this.readPicture,
     this.writePicture,
     this.attachDrop = attachFileDrop,
+    this.handle,
+    this.initialPage = PadPage.standard,
+    this.onPageChanged,
   });
 
   final List<PadElement> initialElements;
+
+  /// Filled in so the screen around the editor can export what is on the pad.
+  final PadHandle? handle;
+
+  /// The page's size, background colour and grid, and what to do when the user
+  /// changes them (the caller keeps the latest to save with the layout; the
+  /// editor then autosaves).
+  final PadPage initialPage;
+  final ValueChanged<PadPage>? onPageChanged;
 
   /// Saves the whole layout. Throw to report a failure.
   final Future<void> Function(List<PadElement> elements) onSave;
@@ -76,6 +89,7 @@ class PadEditor extends StatefulWidget {
 
 class _PadEditorState extends State<PadEditor> {
   late List<PadElement> _elements = List.of(widget.initialElements);
+  late PadPage _page = widget.initialPage;
   final _undo = <List<PadElement>>[], _redo = <List<PadElement>>[];
   String? _selected, _editing;
   PadTool _tool = PadTool.select;
@@ -124,6 +138,11 @@ class _PadEditorState extends State<PadEditor> {
   void initState() {
     super.initState();
     TextTool.shared.addListener(_textToolChanged);
+    widget.handle
+      ?..elements = (() => List.of(_elements))
+      ..page = (() => _page)
+      ..openSettings = _pageSetup
+      ..loadImage = widget.onLoadImage;
     _loadImages();
     _detachDrop = widget.attachDrop(
       enabled: () => mounted && widget.active,
@@ -166,8 +185,8 @@ class _PadEditorState extends State<PadEditor> {
 
   PadElement? get _selectedEl => _find(_selected);
   Offset _clampPoint(Offset p) => Offset(
-    p.dx.clamp(0.0, padCanvasWidth).toDouble(),
-    p.dy.clamp(0.0, padCanvasHeight).toDouble(),
+    p.dx.clamp(0.0, _page.width).toDouble(),
+    p.dy.clamp(0.0, _page.height).toDouble(),
   );
   String _message(Object e) => e is StateError
       ? e.message.toString()
@@ -186,6 +205,46 @@ class _PadEditorState extends State<PadEditor> {
       if (!identical(a[i], b[i])) return false;
     }
     return true;
+  }
+
+  /// Makes every line of the selected text box a bullet point of the kind
+  /// [mark] (or plain again if they all already are).
+  void _toggleBoxBullets(String id, String mark) {
+    final current = _find(id);
+    if (current is! TextEl || current.text.isEmpty) return;
+    final next = current.withBulletsToggled(mark);
+    if (identical(next, current)) return;
+    _push();
+    setState(() => _replace(next));
+    _changed();
+  }
+
+  // ------------------------------------------------------------ page setup
+
+  /// How far the items reach, which the page cannot be made smaller than.
+  Size get _contentExtent {
+    var w = 0.0, h = 0.0;
+    for (final e in _elements) {
+      final b = e.bounds;
+      if (b.right > w) w = b.right;
+      if (b.bottom > h) h = b.bottom;
+    }
+    return Size(w, h);
+  }
+
+  Future<void> _pageSetup() async {
+    _finishEditing();
+    final extent = _contentExtent;
+    final next = await showPadPageDialog(
+      context,
+      page: _page,
+      minWidth: extent.width,
+      minHeight: extent.height,
+    );
+    if (next == null || !mounted || next == _page) return;
+    setState(() => _page = next);
+    widget.onPageChanged?.call(next);
+    _changed();
   }
 
   // -------------------------------------------------------- history & saving
@@ -389,8 +448,8 @@ class _PadEditorState extends State<PadEditor> {
         var delta = p - _lastPoint;
         final b = el.bounds;
         delta = Offset(
-          delta.dx.clamp(-b.left, padCanvasWidth - b.right).toDouble(),
-          delta.dy.clamp(-b.top, padCanvasHeight - b.bottom).toDouble(),
+          delta.dx.clamp(-b.left, _page.width - b.right).toDouble(),
+          delta.dy.clamp(-b.top, _page.height - b.bottom).toDouble(),
         );
         setState(() => _replace(el.translated(delta)));
         _lastPoint = _lastPoint + delta;
@@ -426,22 +485,22 @@ class _PadEditorState extends State<PadEditor> {
     setState(() {
       switch (el) {
         case TextEl():
-          final w = (p.dx - el.x).clamp(40.0, padCanvasWidth - el.x).toDouble();
+          final w = (p.dx - el.x).clamp(40.0, _page.width - el.x).toDouble();
           _replace(el.copyWith(w: w));
         case ImageEl():
           final aspect = el.h / el.w;
           var w = math.max(24.0, p.dx - el.x);
-          w = math.min(w, padCanvasWidth - el.x);
-          if (el.y + w * aspect > padCanvasHeight) {
-            w = (padCanvasHeight - el.y) / aspect;
+          w = math.min(w, _page.width - el.x);
+          if (el.y + w * aspect > _page.height) {
+            w = (_page.height - el.y) / aspect;
           }
           _replace(el.copyWith(w: w, h: w * aspect));
         case EquationEl():
           final aspect = el.h / el.w;
           var w = math.max(24.0, p.dx - el.x);
-          w = math.min(w, padCanvasWidth - el.x);
-          if (el.y + w * aspect > padCanvasHeight) {
-            w = (padCanvasHeight - el.y) / aspect;
+          w = math.min(w, _page.width - el.x);
+          if (el.y + w * aspect > _page.height) {
+            w = (_page.height - el.y) / aspect;
           }
           _replace(el.copyWith(w: w, h: w * aspect));
         case LineEl():
@@ -472,8 +531,8 @@ class _PadEditorState extends State<PadEditor> {
     final p = _clampPoint(at);
     final el = TextEl(
       id: _newId(),
-      x: math.min(p.dx, padCanvasWidth - 240),
-      y: math.min(p.dy, padCanvasHeight - 60),
+      x: math.min(p.dx, _page.width - 240),
+      y: math.min(p.dy, _page.height - 60),
       w: 240,
       text: '',
       fontSize: padDefaultTextSize,
@@ -556,6 +615,8 @@ class _PadEditorState extends State<PadEditor> {
         onIndent: controller.indent,
         onBullets: controller.toggleBullets,
         bulleted: controller.bulleted,
+        onSquareBullets: () => controller.toggleBullets(squareBulletMark),
+        squareBulleted: controller.bulletStyle == squareBulletMark,
         onPickerOpen: () {
           _holdEditing = true;
           _heldSelection = controller.selection;
@@ -582,15 +643,9 @@ class _PadEditorState extends State<PadEditor> {
         onUndo: _undo.isEmpty ? null : _undoStep,
         onRedo: _redo.isEmpty ? null : _redoStep,
         bulleted: selected.bulleted,
-        onBullets: () {
-          final current = _find(selected.id);
-          if (current is! TextEl || current.text.isEmpty) return;
-          final next = current.withBulletsToggled();
-          if (identical(next, current)) return;
-          _push();
-          setState(() => _replace(next));
-          _changed();
-        },
+        squareBulleted: selected.squareBulleted,
+        onBullets: () => _toggleBoxBullets(selected.id, bulletMark),
+        onSquareBullets: () => _toggleBoxBullets(selected.id, squareBulletMark),
         onIndent: (direction) {
           final current = _find(selected.id);
           if (current is! TextEl || current.text.isEmpty) return;
@@ -841,24 +896,10 @@ class _PadEditorState extends State<PadEditor> {
     final pad = PadClipboard.current, rich = RichClipboard.current;
     final newestIsRich =
         rich != null && (pad == null || rich.copiedAt.isAfter(pad.copiedAt));
-    if (read.failed) {
-      // The browser would not let us read the clipboard: use our own last copy.
-      if (pad == null && rich == null) {
-        _snack(
-          'The browser would not let Keening read the clipboard. Allow '
-          'clipboard access for this site (the icon next to the address), or '
-          'paste inside the page after copying here.',
-        );
-      } else if (newestIsRich) {
-        await _pasteFromNote(rich);
-      } else {
-        await _pasteClip(pad!);
-      }
-      return;
-    }
     final text = read.text;
     if (text.trim().isEmpty) {
-      // No text: perhaps a picture, such as a screenshot.
+      // No text (or the browser refused to read it, as some do when the
+      // clipboard holds only a picture): perhaps a screenshot.
       final image = await (widget.readPicture ?? readClipboardImage)();
       if (!mounted) return;
       if (image != null) {
@@ -877,11 +918,24 @@ class _PadEditorState extends State<PadEditor> {
       }
       if (rich == null && pad == null) {
         _snack(
-          'There is nothing to paste, or the browser would not let Keening read '
-          'the clipboard (allow clipboard access for this site).',
+          read.failed
+              ? 'The browser would not let Keening read the clipboard. Allow '
+                    'clipboard access for this site (the icon next to the address), or '
+                    'paste inside the page after copying here.'
+              : 'There is nothing to paste, or the browser would not let Keening read '
+                    'the clipboard (allow clipboard access for this site).',
         );
         return;
       }
+    }
+    if (read.failed) {
+      // The browser would not let us read the clipboard: use our own last copy.
+      if (newestIsRich) {
+        await _pasteFromNote(rich);
+      } else {
+        await _pasteClip(pad!);
+      }
+      return;
     }
     final padMatches = pad != null && (text.isEmpty || pad.matches(text));
     final richMatches = rich != null && rich.matches(text);
@@ -967,8 +1021,8 @@ class _PadEditorState extends State<PadEditor> {
       // Keep it on the pad: slide back whatever hangs over an edge.
       final b = copy.bounds;
       final back = Offset(
-        b.right > padCanvasWidth ? padCanvasWidth - b.right : 0,
-        b.bottom > padCanvasHeight ? padCanvasHeight - b.bottom : 0,
+        b.right > _page.width ? _page.width - b.right : 0,
+        b.bottom > _page.height ? _page.height - b.bottom : 0,
       );
       pasted.add(back == Offset.zero ? copy : copy.translated(back));
     }
@@ -1029,8 +1083,8 @@ class _PadEditorState extends State<PadEditor> {
     final origin = _clampPoint(_insertOrigin);
     final el = TextEl(
       id: _newId(),
-      x: math.min(origin.dx, padCanvasWidth - 240),
-      y: math.min(origin.dy, padCanvasHeight - 60),
+      x: math.min(origin.dx, _page.width - 240),
+      y: math.min(origin.dy, _page.height - 60),
       w: 240,
       text: symbol,
       fontSize: padDefaultTextSize,
@@ -1051,8 +1105,8 @@ class _PadEditorState extends State<PadEditor> {
     final origin = _insertOrigin;
     final el = EquationEl(
       id: _newId(),
-      x: origin.dx.clamp(0.0, padCanvasWidth - size.width).toDouble(),
-      y: origin.dy.clamp(0.0, padCanvasHeight - size.height).toDouble(),
+      x: origin.dx.clamp(0.0, _page.width - size.width).toDouble(),
+      y: origin.dy.clamp(0.0, _page.height - size.height).toDouble(),
       w: size.width,
       h: size.height,
       latex: equation.latex,
@@ -1071,7 +1125,7 @@ class _PadEditorState extends State<PadEditor> {
   Size _fitEquation(Size size) {
     final scale = math.min(
       1.0,
-      math.min(padCanvasWidth / size.width, padCanvasHeight / size.height),
+      math.min(_page.width / size.width, _page.height / size.height),
     );
     return Size(size.width * scale, size.height * scale);
   }
@@ -1115,8 +1169,8 @@ class _PadEditorState extends State<PadEditor> {
             imageId: id,
             w: w,
             h: h,
-            x: math.min(current.x, padCanvasWidth - w),
-            y: math.min(current.y, padCanvasHeight - h),
+            x: math.min(current.x, _page.width - w),
+            y: math.min(current.y, _page.height - h),
           ),
         );
       });
@@ -1153,12 +1207,7 @@ class _PadEditorState extends State<PadEditor> {
     Offset? at;
     if (box != null && box.hasSize) {
       final local = box.globalToLocal(position);
-      if (Rect.fromLTWH(
-        0,
-        0,
-        padCanvasWidth,
-        padCanvasHeight,
-      ).contains(local)) {
+      if (Rect.fromLTWH(0, 0, _page.width, _page.height).contains(local)) {
         at = local;
       }
     }
@@ -1184,8 +1233,8 @@ class _PadEditorState extends State<PadEditor> {
           );
       final el = ImageEl(
         id: _newId(),
-        x: origin.dx.clamp(0.0, padCanvasWidth - w).toDouble(),
-        y: origin.dy.clamp(0.0, padCanvasHeight - h).toDouble(),
+        x: origin.dx.clamp(0.0, _page.width - w).toDouble(),
+        y: origin.dy.clamp(0.0, _page.height - h).toDouble(),
         w: w,
         h: h,
         imageId: imageId,
@@ -1449,6 +1498,12 @@ class _PadEditorState extends State<PadEditor> {
                 icon: const Icon(Icons.content_paste_outlined),
               ),
               IconButton(
+                key: const ValueKey('pad-page'),
+                tooltip: 'Page setup: size, background and grid',
+                onPressed: _pageSetup,
+                icon: const Icon(Icons.aspect_ratio_outlined),
+              ),
+              IconButton(
                 key: const ValueKey('pad-zoom-out'),
                 tooltip: 'Zoom out',
                 onPressed: _zoom <= 0.25 ? null : () => _setZoom(_zoom - 0.25),
@@ -1541,9 +1596,21 @@ class _PadEditorState extends State<PadEditor> {
     final stack = Stack(
       clipBehavior: Clip.hardEdge,
       children: [
-        const Positioned.fill(
-          child: ColoredBox(key: ValueKey('pad-paper'), color: _paper),
+        Positioned.fill(
+          child: ColoredBox(
+            key: const ValueKey('pad-paper'),
+            color: _page.backgroundColour,
+          ),
         ),
+        if (_page.grid)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                key: const ValueKey('pad-grid'),
+                painter: PadGridPainter(_page),
+              ),
+            ),
+          ),
         for (final e in _elements.whereType<ImageEl>())
           Positioned(
             key: ValueKey('pad-image-${e.id}'),
@@ -1680,8 +1747,8 @@ class _PadEditorState extends State<PadEditor> {
     );
     return SizedBox(
       key: _surfaceKey,
-      width: padCanvasWidth,
-      height: padCanvasHeight,
+      width: _page.width,
+      height: _page.height,
       child: switch (_tool) {
         PadTool.select => GestureDetector(
           key: const ValueKey('pad-surface'),
@@ -1722,8 +1789,8 @@ class _PadEditorState extends State<PadEditor> {
   Widget _viewport() {
     final drawing = _tool == PadTool.line || _tool == PadTool.pen;
     final canvas = SizedBox(
-      width: padCanvasWidth * _zoom,
-      height: padCanvasHeight * _zoom,
+      width: _page.width * _zoom,
+      height: _page.height * _zoom,
       child: Align(
         alignment: Alignment.topLeft,
         child: Transform.scale(
@@ -1840,6 +1907,30 @@ class _PadEditorState extends State<PadEditor> {
 }
 
 enum _Drag { none, move, resize, pan }
+
+/// The page's grid lines, one every [PadPage.gridSize] pixels.
+class PadGridPainter extends CustomPainter {
+  PadGridPainter(this.page);
+  final PadPage page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = page.gridColor
+      ..strokeWidth = 1;
+    final step = page.gridSize;
+    if (step < padGridMin) return;
+    for (var x = step; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (var y = step; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(PadGridPainter old) => old.page != page;
+}
 
 class _StrokePainter extends CustomPainter {
   _StrokePainter(this.elements);

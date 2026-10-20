@@ -7,7 +7,8 @@ import 'package:keening/utils/boards_service.dart';
 class FakeBoards extends BoardsService {
   final workplaces = <Map<String, dynamic>>[];
   final boards = <String, Map<String, dynamic>>{};
-  bool fail = false, failSave = false;
+  bool fail = false, failSave = false, failReorder = false;
+  final reorders = <List<dynamic>>[];
   int next = 0;
   @override
   Future<Map<String, dynamic>> call(
@@ -18,6 +19,15 @@ class FakeBoards extends BoardsService {
       throw StateError('Boards unavailable.');
     }
     if (action == 'listWorkplaces') return {'workplaces': workplaces};
+    if (action == 'reorderWorkplaces') {
+      if (failReorder) throw StateError('Could not save the order.');
+      final ids = List<dynamic>.from(data['ids'] as List);
+      reorders.add(ids);
+      workplaces.sort(
+        (a, b) => ids.indexOf(a['id']).compareTo(ids.indexOf(b['id'])),
+      );
+      return {'saved': true};
+    }
     if (action == 'createWorkplace') {
       final w = {'id': 'w${next++}', 'name': data['name']};
       workplaces.add(w);
@@ -135,6 +145,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Archives panel [id] the way it is done now: open the panel, then Edit
+  /// panel details, then Archive panel.
+  Future<void> archiveFromEditMenu(WidgetTester tester, Object? id) async {
+    await tester.tap(find.byKey(ValueKey('task-panel-$id')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit panel details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('panels can be archived from the board or the panel and restored', (
     tester,
   ) async {
@@ -146,13 +168,17 @@ void main() {
     final columns = api.boards.values.first['columns'] as List;
     final first = columns.first['id'], second = columns.last['id'];
 
-    // The panel also listens for double-taps, so its buttons act once that wait is over.
-    await tester.tap(find.byKey(ValueKey('panel-archive-$first')));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+    // Archiving is in the panel's edit menu: open the panel, then Edit panel
+    // details. (The panel also listens for double-taps, so it opens once that
+    // wait is over.) The board's panel headers have no archive button any more.
+    expect(find.byKey(ValueKey('panel-archive-$first')), findsNothing);
+    expect(find.byTooltip('Archive panel'), findsNothing);
+    await archiveFromEditMenu(tester, first);
     expect(columns.first['archived'], true);
     expect(find.byKey(ValueKey('task-panel-$first')), findsNothing);
     expect(find.byKey(ValueKey('task-panel-$second')), findsOneWidget);
+    // The panel's expanded view closed itself with the panel.
+    expect(find.text('Edit panel details'), findsNothing);
 
     // Archived panels are listed under Archive and can be restored.
     await tester.tap(find.text('Archive'));
@@ -167,15 +193,81 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(ValueKey('task-panel-$first')), findsOneWidget);
 
-    // The expanded panel can archive itself too.
+    // The expanded view no longer has an archive button of its own.
     await tester.tap(find.byKey(ValueKey('task-panel-$second')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('panel-dialog-archive')));
+    expect(find.byKey(const ValueKey('panel-dialog-archive')), findsNothing);
+    expect(find.text('Archive panel'), findsNothing);
+    await tester.tap(find.text('Edit panel details'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit panel'), findsOneWidget);
+    expect(find.text('Archive panel'), findsOneWidget);
+    // Cancelling leaves the panel where it is.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(columns.last['archived'], isNot(true));
+    await tester.tap(find.text('Edit panel details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
     await tester.pumpAndSettle();
     expect(columns.last['archived'], true);
-    expect(find.byKey(const ValueKey('panel-dialog-archive')), findsNothing);
     expect(find.byKey(ValueKey('task-panel-$second')), findsNothing);
+    expect(find.text('Edit panel details'), findsNothing);
+  });
+
+  testWidgets('an archived panel is restored from its edit menu too', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create board', 'Work');
+    await create(tester, 'New panel', 'First');
+    final columns = api.boards.values.first['columns'] as List;
+    final first = columns.first['id'];
+    await archiveFromEditMenu(tester, first);
+    expect(columns.first['archived'], true);
+    expect(find.textContaining('All panels are archived'), findsOneWidget);
+    // Archive view: open the archived panel and restore it from Edit panel.
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('archived-panel-$first')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit panel details'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('panel-edit-archive')),
+        matching: find.text('Restore panel'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.pumpAndSettle();
+    expect(columns.first['archived'], false);
+  });
+
+  testWidgets('an archive that fails is reported in the edit menu', (
+    tester,
+  ) async {
+    final api = FakeBoards();
+    await mount(tester, api);
+    await create(tester, 'Create board', 'Work');
+    await create(tester, 'New panel', 'First');
+    final columns = api.boards.values.first['columns'] as List;
+    final first = columns.first['id'];
+    await tester.tap(find.byKey(ValueKey('task-panel-$first')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit panel details'));
+    await tester.pumpAndSettle();
+    api.fail = true;
+    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.pumpAndSettle();
+    expect(find.text('Boards unavailable.'), findsWidgets);
+    expect(find.byKey(const ValueKey('panel-edit-archive')), findsOneWidget);
+    expect(columns.first['archived'], isNot(true));
   });
 
   testWidgets('panels reorder horizontally and persist after reload', (

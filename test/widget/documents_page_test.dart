@@ -12,7 +12,7 @@ class FakeDocs extends PadsService {
   final folders = <String, Map<String, dynamic>>{};
   final calls = <String>[];
   final saved = <Map<String, dynamic>>[];
-  bool fail = false, failGetPad = false;
+  bool fail = false, failGetPad = false, failSaves = false, failUploads = false;
   int _next = 1;
 
   String _id() =>
@@ -42,6 +42,8 @@ class FakeDocs extends PadsService {
           doc ??
           (kind == 'notepad'
               ? {'version': 1, 'text': ''}
+              : kind == 'sheet'
+              ? {'version': 1, 'rows': 50, 'cols': 12, 'cells': {}}
               : {'version': 1, 'elements': []}),
     };
   }
@@ -133,10 +135,14 @@ class FakeDocs extends PadsService {
         documents.remove(data['padId']);
         return {'deleted': true};
       case 'savePad':
+        if (failSaves) throw StateError('Unable to save.');
         saved.add(Map<String, dynamic>.from(data));
         documents[data['padId']]!['doc'] = data['doc'];
         return {'saved': true};
       case 'uploadImage':
+        if (failUploads) {
+          throw StateError('A document can hold up to 50 pictures.');
+        }
         return {'imageId': '11111111-1111-4111-8111-111111111111'};
       case 'getImage':
         return {'mime': 'image/png', 'image': _png};
@@ -200,7 +206,8 @@ void main() {
     await tester.pumpAndSettle();
     await enterRich(tester, find.byKey(const ValueKey('doc-name-field')), name);
     if (description != null) {
-      await enterRich(tester, 
+      await enterRich(
+        tester,
         find.byKey(const ValueKey('doc-description-field')),
         description,
       );
@@ -212,7 +219,8 @@ void main() {
   Future<void> createFolder(WidgetTester tester, String name) async {
     await tester.tap(find.byKey(const ValueKey('folder-create')));
     await tester.pumpAndSettle();
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('folder-name-field')),
       name,
     );
@@ -274,11 +282,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('doc-type-notepad')));
     await tester.pumpAndSettle();
     expect(find.text('New Notepad'), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('doc-name-field')),
       'Shopping',
     );
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('doc-description-field')),
       'Weekly list',
     );
@@ -364,7 +374,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('folder-rename-${work['id']}')));
     await tester.pumpAndSettle();
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('folder-name-field')),
       'Projects',
     );
@@ -448,11 +459,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Edit Notepad'), findsOneWidget);
     expect(find.text('Old text'), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('doc-name-field')),
       'Plan v2',
     );
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('doc-description-field')),
       'New text',
     );
@@ -576,7 +589,8 @@ void main() {
       findsNothing,
       reason: 'covered',
     );
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Milk\neggs\nbread',
     );
@@ -651,7 +665,8 @@ void main() {
     await openDetails(tester, api, 'Note');
     await tester.tap(find.byKey(const ValueKey('doc-details-open')));
     await tester.pumpAndSettle();
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Quick thought',
     );
@@ -709,7 +724,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
     expect(find.text('Enter a folder name.'), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('folder-name-field')),
       'Taken',
     );

@@ -80,6 +80,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Document folders migration failed.' }
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\17-attachments.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
     if ($LASTEXITCODE -ne 0) { throw 'Attachments migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\18-sheets.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Spreadsheets migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\19-projects.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Projects migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\20-board-order.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Board order migration failed.' }
     Start-ServiceProcess 'auth'
     Wait-Url 'http://127.0.0.1:9099/'
   }

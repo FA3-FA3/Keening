@@ -34,13 +34,20 @@ export function boardsHandler(pool) {
       await db.query('BEGIN');
       let result;
       if (b.action === 'listWorkplaces') {
-        result = { workplaces: (await db.query('SELECT id,name FROM public.board_workplaces WHERE owner_id=$1 ORDER BY created_at,id',[owner])).rows };
+        result = { workplaces: (await db.query('SELECT id,name FROM public.board_workplaces WHERE owner_id=$1 ORDER BY position,created_at,id',[owner])).rows };
+      } else if (b.action === 'reorderWorkplaces') {
+        // The caller's boards in their new order: exactly the boards they own, each once.
+        await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE',[owner]);
+        const owned = (await db.query('SELECT id FROM public.board_workplaces WHERE owner_id=$1',[owner])).rows.map(r => r.id);
+        if (!Array.isArray(b.ids) || b.ids.length !== owned.length || new Set(b.ids).size !== b.ids.length || b.ids.some(id => !owned.includes(id))) fail('Boards must be listed once each.');
+        await db.query('UPDATE public.board_workplaces w SET position=o.position::int FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id,position) WHERE w.id=o.id AND w.owner_id=$2',[b.ids,owner]);
+        result = { saved: true };
       } else if (b.action === 'createWorkplace') {
         const name = label(b.name);
         await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE',[owner]);
         const count = await db.query('SELECT count(*)::int AS count FROM public.board_workplaces WHERE owner_id=$1',[owner]);
         if (count.rows[0].count >= 100) fail('You can create up to 100 boards.');
-        result = { workplace: (await db.query('INSERT INTO public.board_workplaces(owner_id,name) VALUES($1,$2) RETURNING id,name',[owner,name])).rows[0] };
+        result = { workplace: (await db.query('INSERT INTO public.board_workplaces(owner_id,name,position) SELECT $1,$2,COALESCE(MAX(position),0)+1 FROM public.board_workplaces WHERE owner_id=$1 RETURNING id,name',[owner,name])).rows[0] };
       } else {
         if (!idValid(b.workplaceId)) fail('Invalid workplace.');
         // Serialize changes to the board so concurrent independent edits are retained.

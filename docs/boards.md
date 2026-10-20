@@ -14,7 +14,7 @@ Tags save atomically with task edits. Resource IDs must belong to the current
 workplace. Deleting a panel removes active and archived tasks; deleting a tag
 removes its task links; deleting a workplace removes all its board data.
 
-Whole panels can be archived: the archive button on a panel's header (or **Archive panel** in its expanded view) takes it off the board with its tasks kept intact. Archived panels are listed under **Archive → Archived panels**, where **Restore panel** puts them back (at the end of the board). Panels carry an `archived` flag set with `updateTaskColumn`; `reorderTaskColumns` only orders the visible panels and keeps archived ones after them. Archived panels still count towards the 50-panel limit and can still be opened from search and linked to items.
+Whole panels can be archived from the panel's **edit menu**: open the panel, choose **Edit panel details**, then **Archive panel** (the board's panel headers have no archive button of their own). It takes the panel off the board with its tasks kept intact, and closes the expanded view. Archived panels are listed under **Archive → Archived panels**, where **Restore panel** puts them back (at the end of the board); an archived panel's edit menu also shows **Restore panel**. Panels carry an `archived` flag set with `updateTaskColumn`; `reorderTaskColumns` only orders the visible panels and keeps archived ones after them. Archived panels still count towards the 50-panel limit and can still be opened from search and linked to items.
 
 Limits: 100 workplaces per user; 50 panels, 100 tags, and 500 tasks (including
 archived) per workplace. Names: 100 characters, tags: 50, titles: 200,
@@ -25,3 +25,7 @@ movement, tags, completion, archive/restore, deletion, failed-form retry and
 workplace switching.
 
 Verified on 2026-09-29: all 21 backend tests and 11 Flutter tests passed, with clean static analysis. The hosted Chrome test passed workplace/panel/task creation, completion, archive/restore, persistence after reload, and creation of a second isolated workplace. Temporary test user and board data were removed. API revision: keening-api-00004-4m2. The frontend includes separate accessible actions for opening task details and completion.
+
+## Reordering boards
+
+The buttons along the top of the Boards page (one per board, such as Keening, Longyuan or Sorbit) can be put in any order. Each button has a **drag handle** (the six-dot icon) on its left: drag the handle onto another board's button to move that board to that place (a line shows where it will land). Pressing and dragging the button itself does not move it; clicking it opens the board as before. With only one board there is nothing to reorder, so no handle is shown. The order is saved as soon as you drop (if saving fails the buttons spring back and a message says so) and is kept for next time. Boards are stored in `board_workplaces` with a `position` column (migration `20-board-order.sql`, which numbers existing boards in the order they were created; new boards go last), and the server's `reorderWorkplaces` action takes every board id once, in the new order.

@@ -157,12 +157,21 @@ class TextEl extends PadElement {
     return result;
   }
 
-  /// The box with every line made a bullet point, or plain again if they all
-  /// were; the same box if nothing changed.
-  TextEl withBulletsToggled() {
+  /// True when every line of the box is a square bullet point.
+  bool get squareBulleted {
+    final c = RichTextController(text: text, runs: runs);
+    c.selection = TextSelection(baseOffset: 0, extentOffset: text.length);
+    final result = text.isNotEmpty && c.bulletStyle == squareBulletMark;
+    c.dispose();
+    return result;
+  }
+
+  /// The box with every line made a bullet point of the kind [mark], or plain
+  /// again if they all were that kind; the same box if nothing changed.
+  TextEl withBulletsToggled([String mark = bulletMark]) {
     final c = RichTextController(text: text, runs: runs, maxLength: 10000);
     c.selection = TextSelection(baseOffset: 0, extentOffset: text.length);
-    c.toggleBullets();
+    c.toggleBullets(mark);
     final next = c.text == text ? this : copyWith(text: c.text, runs: c.runs);
     c.dispose();
     return next;
@@ -450,10 +459,194 @@ List<PadElement> padElementsFromDoc(Map<String, dynamic>? doc) => [
     PadElement.fromJson(Map<String, dynamic>.from(e as Map)),
 ];
 
-Map<String, dynamic> padDocFromElements(List<PadElement> elements) => {
+/// The pad's saved document. The page settings are only written when they
+/// differ from the standard page, so an untouched pad's document is unchanged.
+Map<String, dynamic> padDocFromElements(
+  List<PadElement> elements, {
+  PadPage page = PadPage.standard,
+}) => {
   'version': 1,
   'elements': [for (final e in elements) e.toJson()],
+  if (page != PadPage.standard) 'page': page.toJson(),
 };
+
+/// The page settings stored in a pad's document (the standard page when none).
+PadPage padPageFromDoc(Map<String, dynamic>? doc) =>
+    PadPage.fromJson(doc?['page']);
+
+/// Pixels per inch: pad sizes are in pixels, which are 1/96 inch (as in CSS).
+const padPixelsPerInch = 96.0;
+
+/// The smallest and largest page, in pixels.
+const padPageMin = 100.0;
+const padPageMax = 10000.0;
+const padGridMin = 5.0;
+const padGridMax = 500.0;
+
+/// The paper a new pad starts on.
+const padPaperColour = '#FAFAF7';
+
+/// The look of the pad's page: its size in pixels, the background colour and
+/// optional grid lines. Pages are immutable.
+class PadPage {
+  const PadPage({
+    this.width = padCanvasWidth,
+    this.height = padCanvasHeight,
+    this.background = padPaperColour,
+    this.grid = false,
+    this.gridSize = 50,
+    this.gridColour = '#D1D5DB',
+  });
+
+  /// A new pad's page: 3000 × 2000 px of off-white paper, no grid.
+  static const standard = PadPage();
+
+  final double width, height, gridSize;
+  final String background, gridColour;
+  final bool grid;
+
+  Color get backgroundColour => padColor(background);
+  Color get gridColor => padColor(gridColour);
+
+  PadPage copyWith({
+    double? width,
+    double? height,
+    String? background,
+    bool? grid,
+    double? gridSize,
+    String? gridColour,
+  }) => PadPage(
+    width: width ?? this.width,
+    height: height ?? this.height,
+    background: background ?? this.background,
+    grid: grid ?? this.grid,
+    gridSize: gridSize ?? this.gridSize,
+    gridColour: gridColour ?? this.gridColour,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'width': _round(width),
+    'height': _round(height),
+    'background': background.toUpperCase(),
+    'grid': {
+      'show': grid,
+      'size': _round(gridSize),
+      'color': gridColour.toUpperCase(),
+    },
+  };
+
+  /// Reads stored settings; anything missing or out of range falls back to the
+  /// standard value.
+  static PadPage fromJson(Object? json) {
+    if (json is! Map) return standard;
+    double size(Object? v, double fallback, double min, double max) =>
+        v is num && v.isFinite ? v.toDouble().clamp(min, max) : fallback;
+    String colour(Object? v, String fallback) =>
+        v is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(v)
+        ? v.toUpperCase()
+        : fallback;
+    final grid = json['grid'] is Map ? json['grid'] as Map : const {};
+    return PadPage(
+      width: size(json['width'], standard.width, padPageMin, padPageMax),
+      height: size(json['height'], standard.height, padPageMin, padPageMax),
+      background: colour(json['background'], standard.background),
+      grid: grid['show'] == true,
+      gridSize: size(grid['size'], standard.gridSize, padGridMin, padGridMax),
+      gridColour: colour(grid['color'], standard.gridColour),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is PadPage &&
+      other.width == width &&
+      other.height == height &&
+      other.background.toUpperCase() == background.toUpperCase() &&
+      other.grid == grid &&
+      other.gridSize == gridSize &&
+      other.gridColour.toUpperCase() == gridColour.toUpperCase();
+
+  @override
+  int get hashCode => Object.hash(
+    width,
+    height,
+    background.toUpperCase(),
+    grid,
+    gridSize,
+    gridColour.toUpperCase(),
+  );
+}
+
+/// How a page size is measured in the page settings.
+enum PadUnit {
+  px('px', 1),
+  inch('in', padPixelsPerInch),
+  mm('mm', padPixelsPerInch / 25.4),
+  cm('cm', padPixelsPerInch / 2.54);
+
+  const PadUnit(this.label, this.pixels);
+
+  /// What it is called in the menu, and how many pixels one of it is.
+  final String label;
+  final double pixels;
+
+  double toPixels(double value) => value * pixels;
+  double fromPixels(double px) => px / pixels;
+
+  /// A value for a field: pixels as whole numbers, other units to 2 places
+  /// with trailing zeros dropped (210, 8.5, 29.7).
+  String format(double px) {
+    final v = fromPixels(px);
+    if (this == PadUnit.px) return v.round().toString();
+    return v
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
+}
+
+/// A named paper size, in millimetres, as printed in portrait.
+class PadPaper {
+  const PadPaper(this.name, this.widthMm, this.heightMm);
+  final String name;
+  final double widthMm, heightMm;
+
+  /// The size in pixels in portrait (or landscape), whole pixels.
+  ({double width, double height}) pixels({bool landscape = false}) {
+    final w = (widthMm / 25.4 * padPixelsPerInch).roundToDouble();
+    final h = (heightMm / 25.4 * padPixelsPerInch).roundToDouble();
+    return landscape ? (width: h, height: w) : (width: w, height: h);
+  }
+}
+
+const padPapers = [
+  PadPaper('A0', 841, 1189),
+  PadPaper('A1', 594, 841),
+  PadPaper('A2', 420, 594),
+  PadPaper('A3', 297, 420),
+  PadPaper('A4', 210, 297),
+  PadPaper('A5', 148, 210),
+  PadPaper('A6', 105, 148),
+  PadPaper('Letter', 215.9, 279.4),
+  PadPaper('Legal', 215.9, 355.6),
+  PadPaper('Tabloid', 279.4, 431.8),
+];
+
+/// The paper that [page] is the size of (either way up), if any.
+({PadPaper paper, bool landscape})? padPaperOf(PadPage page) {
+  for (final paper in padPapers) {
+    final p = paper.pixels();
+    if ((page.width - p.width).abs() < 1 &&
+        (page.height - p.height).abs() < 1) {
+      return (paper: paper, landscape: false);
+    }
+    if ((page.width - p.height).abs() < 1 &&
+        (page.height - p.width).abs() < 1) {
+      return (paper: paper, landscape: true);
+    }
+  }
+  return null;
+}
 
 double distanceToSegment(Offset p, Offset a, Offset b) {
   final ab = b - a;

@@ -36,10 +36,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -51,6 +48,17 @@ class DefaultFirebaseOptions {
         );
     }
   }
+
+  /// The Windows desktop app signs in to the same Firebase project as the web
+  /// app and shares its keys (register a Windows app in the Firebase console and
+  /// rerun `flutterfire configure` to give it keys of its own).
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyABY04zRgIvfnDesERvJ4Sojc4Z9_oLWkc',
+    appId: '1:321783087335:web:734407223241b57b30e242',
+    messagingSenderId: '321783087335',
+    projectId: 'keening-ece74',
+    authDomain: 'keening-ece74.firebaseapp.com',
+  );
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyABY04zRgIvfnDesERvJ4Sojc4Z9_oLWkc',

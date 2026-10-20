@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 /// with a scrollbar along the bottom that shows only when there is something
 /// to scroll. It scrolls by dragging (with a mouse too, not only touch), with
 /// the scrollbar, or with a sideways wheel or trackpad swipe.
+/// How thick the scrollbar is, and the room kept beneath the content for it.
+/// (Half of what they were: a slimmer bar that takes less height.)
+const horizontalScrollThickness = 4.0;
+const horizontalScrollRoom = 7.0;
+
 class HorizontalScroll extends StatefulWidget {
   const HorizontalScroll({super.key, required this.child});
   final Widget child;
@@ -34,12 +39,13 @@ class _HorizontalScrollState extends State<HorizontalScroll> {
         thumbVisibility: true,
         trackVisibility: true,
         interactive: true,
+        thickness: horizontalScrollThickness,
         child: SingleChildScrollView(
           controller: _controller,
           scrollDirection: Axis.horizontal,
           // Room beneath for the scrollbar.
           child: Padding(
-            padding: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.only(bottom: horizontalScrollRoom),
             child: widget.child,
           ),
         ),

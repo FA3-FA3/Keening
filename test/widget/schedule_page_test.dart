@@ -366,12 +366,23 @@ void main() {
               find.byKey(const ValueKey('schedule-days')),
             )
             .value,
-        1,
+        7,
+        reason: 'the schedule opens on a week',
       );
+      expect(
+        find.byKey(const ValueKey('schedule-add-2026-10-01-9')),
+        findsOneWidget,
+      );
+      // The other resolutions are still there: down to one day...
+      await tester.tap(find.byKey(const ValueKey('schedule-days')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1 day').last);
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('schedule-add-2026-10-01-9')),
         findsNothing,
       );
+      // ...and back up to seven.
       await tester.tap(find.byKey(const ValueKey('schedule-days')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('7 days').last);
@@ -430,4 +441,49 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('every resolution from one to seven days can still be chosen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1500, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeSchedule();
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SchedulePage(date: DateTime(2026, 9, 30), service: api),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    int daysShown() {
+      var n = 0;
+      for (var d = 0; d < 10; d++) {
+        final date = DateTime(2026, 9, 30 + d);
+        final key =
+            'schedule-add-${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}-9';
+        if (find.byKey(ValueKey(key)).evaluate().isNotEmpty) n++;
+      }
+      return n;
+    }
+
+    int chosen() => tester
+        .widget<DropdownButton<int>>(
+          find.byKey(const ValueKey('schedule-days')),
+        )
+        .value!;
+    expect(chosen(), 7);
+    expect(daysShown(), 7);
+    for (final n in [1, 2, 3, 4, 5, 6, 7]) {
+      await tester.tap(find.byKey(const ValueKey('schedule-days')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(n == 1 ? '1 day' : '$n days').last);
+      await tester.pumpAndSettle();
+      expect(chosen(), n);
+      expect(daysShown(), n, reason: '$n days');
+    }
+    expect(tester.takeException(), isNull);
+  });
 }

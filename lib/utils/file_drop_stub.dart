@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'dart:ui';
+import 'package:flutter/widgets.dart';
 
 /// Called with the file's name, its bytes and the drop position in window
 /// (client) coordinates.
@@ -13,3 +13,13 @@ VoidCallback attachFileDrop({
   required void Function(bool hovering) onHover,
   required FileDropHandler onDrop,
 }) => () {};
+
+/// Receives files dropped on the app window (the desktop app); here it just
+/// shows its child.
+class FileDropHost extends StatelessWidget {
+  const FileDropHost({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}

@@ -193,6 +193,109 @@ class _BoardsPageState extends State<BoardsPage> {
     ];
   }
 
+  String? _draggingBoard;
+
+  /// Moves board [id] to where board [target] is, and saves the new order.
+  Future<void> _moveBoard(String id, String target) async {
+    final from = _workplaces.indexWhere((w) => w['id'] == id);
+    final to = _workplaces.indexWhere((w) => w['id'] == target);
+    if (from < 0 || to < 0 || from == to) return;
+    final before = List.of(_workplaces);
+    setState(() => _workplaces.insert(to, _workplaces.removeAt(from)));
+    try {
+      await _service.call('reorderWorkplaces', {
+        'ids': [for (final w in _workplaces) w['id']],
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _workplaces = before);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(_message(e))));
+    }
+  }
+
+  /// The button that opens a board. Only its drag handle moves it; pressing
+  /// and dragging the name itself does nothing but select it.
+  Widget _boardButton(Map<String, dynamic> w, bool disabled) {
+    final id = w['id'] as String;
+    final scheme = Theme.of(context).colorScheme;
+    return DragTarget<String>(
+      key: ValueKey('board-slot-$id'),
+      onWillAcceptWithDetails: (d) => !disabled && d.data != id,
+      onAcceptWithDetails: (d) => _moveBoard(d.data, id),
+      builder: (context, candidates, _) => Opacity(
+        opacity: _draggingBoard == id ? .35 : 1,
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            border: candidates.isEmpty
+                ? null
+                : Border(left: BorderSide(color: scheme.primary, width: 3)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_workplaces.length > 1)
+                  Draggable<String>(
+                    key: ValueKey('board-drag-$id'),
+                    data: id,
+                    axis: Axis.horizontal,
+                    maxSimultaneousDrags: disabled ? 0 : 1,
+                    onDragStarted: () => setState(() => _draggingBoard = id),
+                    onDragEnd: (_) {
+                      if (mounted) setState(() => _draggingBoard = null);
+                    },
+                    feedback: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        child: Text(w['name'] as String),
+                      ),
+                    ),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Tooltip(
+                        message: 'Drag to reorder ${w['name']}',
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 2),
+                          child: Icon(
+                            Icons.drag_indicator,
+                            size: 18,
+                            color: scheme.onSurface.withValues(alpha: .6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ChoiceChip(
+                  key: ValueKey('board-button-$id'),
+                  label: Text(w['name'] as String),
+                  selected: id == _selected,
+                  onSelected: disabled
+                      ? null
+                      : (_) {
+                          if (id != _selected) {
+                            _selected = id;
+                            _archived = false;
+                            _loadBoard();
+                          }
+                        },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadWorkplaces({String? preferred}) async {
     setState(() {
       _loading = true;
@@ -284,7 +387,7 @@ class _BoardsPageState extends State<BoardsPage> {
       ) ??
       false;
 
-  Future<void> _nameDialog(
+  Future<String?> _nameDialog(
     String kind, {
     Map<String, dynamic>? existing,
   }) async {
@@ -304,7 +407,7 @@ class _BoardsPageState extends State<BoardsPage> {
             title: Text(
               existing == null
                   ? (kind == 'workplace' ? 'Create board' : 'New $kind')
-                  : 'Rename $noun',
+                  : (kind == 'panel' ? 'Edit panel' : 'Rename $noun'),
             ),
             content: SizedBox(
               width: 360,
@@ -333,6 +436,53 @@ class _BoardsPageState extends State<BoardsPage> {
                         child: _colorSwatchRow(
                           selected: color,
                           onSelect: (v) => update(() => color = v),
+                        ),
+                      ),
+                    ],
+                    // Archiving (or restoring) a panel lives here, in its edit
+                    // menu: it takes the panel off the board with its tasks kept.
+                    if (kind == 'panel' && existing != null) ...[
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        key: const ValueKey('panel-edit-archive'),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final archive = existing['archived'] != true;
+                                update(() {
+                                  saving = true;
+                                  error = null;
+                                });
+                                try {
+                                  await _service.call('updateTaskColumn', {
+                                    'workplaceId': workplace,
+                                    'columnId': existing['id'],
+                                    'archived': archive,
+                                  });
+                                  if (ctx.mounted) {
+                                    Navigator.pop(
+                                      ctx,
+                                      archive ? 'archived' : 'restored',
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (ctx.mounted) {
+                                    update(() {
+                                      saving = false;
+                                      error = _message(e);
+                                    });
+                                  }
+                                }
+                              },
+                        icon: Icon(
+                          existing['archived'] == true
+                              ? Icons.unarchive_outlined
+                              : Icons.archive_outlined,
+                        ),
+                        label: Text(
+                          existing['archived'] == true
+                              ? 'Restore panel'
+                              : 'Archive panel',
                         ),
                       ),
                     ],
@@ -410,6 +560,7 @@ class _BoardsPageState extends State<BoardsPage> {
         await _loadBoard();
       }
     }
+    return result;
   }
 
   Future<void> _taskDialog(
@@ -705,37 +856,21 @@ class _BoardsPageState extends State<BoardsPage> {
                           child: const Text('Close panel'),
                         ),
                         OutlinedButton(
-                          onPressed: () =>
-                              _nameDialog('panel', existing: current),
+                          onPressed: () async {
+                            final result = await _nameDialog(
+                              'panel',
+                              existing: current,
+                            );
+                            // An archived panel is off the board, so close it.
+                            if (result == 'archived' && ctx.mounted) {
+                              Navigator.pop(ctx);
+                            }
+                          },
                           child: const Text('Edit panel details'),
                         ),
                         FilledButton(
                           onPressed: () => _taskDialog(id),
                           child: const Text('Add task'),
-                        ),
-                        OutlinedButton.icon(
-                          key: const ValueKey('panel-dialog-archive'),
-                          onPressed: () async {
-                            final archive = current['archived'] != true;
-                            if (await _run('updateTaskColumn', {
-                                  'columnId': id,
-                                  'archived': archive,
-                                }) &&
-                                archive &&
-                                ctx.mounted) {
-                              Navigator.pop(ctx);
-                            }
-                          },
-                          icon: Icon(
-                            current['archived'] == true
-                                ? Icons.unarchive_outlined
-                                : Icons.archive_outlined,
-                          ),
-                          label: Text(
-                            current['archived'] == true
-                                ? 'Restore panel'
-                                : 'Archive panel',
-                          ),
                         ),
                         IconButton(
                           tooltip: 'Delete panel',
@@ -835,23 +970,7 @@ class _BoardsPageState extends State<BoardsPage> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    for (final w in _workplaces)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(w['name'] as String),
-                          selected: w['id'] == _selected,
-                          onSelected: disabled
-                              ? null
-                              : (_) {
-                                  if (w['id'] != _selected) {
-                                    _selected = w['id'] as String;
-                                    _archived = false;
-                                    _loadBoard();
-                                  }
-                                },
-                        ),
-                      ),
+                    for (final w in _workplaces) _boardButton(w, disabled),
                   ],
                 ),
               ),
@@ -1069,10 +1188,6 @@ class _BoardsPageState extends State<BoardsPage> {
                             {'taskId': task['id'], 'completed': value},
                           ),
                           onOpenPanelDetails: () => _openPanel(column),
-                          onArchive: () => _run('updateTaskColumn', {
-                            'columnId': column['id'],
-                            'archived': true,
-                          }),
                         ),
                       ),
                     ),
@@ -1093,7 +1208,6 @@ class _KanbanColumn extends StatefulWidget {
   final void Function(Map<String, dynamic> task) onEditTask;
   final void Function(Map<String, dynamic>, bool) onTaskCompleted;
   final VoidCallback onOpenPanelDetails;
-  final VoidCallback onArchive;
 
   const _KanbanColumn({
     required this.index,
@@ -1105,7 +1219,6 @@ class _KanbanColumn extends StatefulWidget {
     required this.onEditTask,
     required this.onTaskCompleted,
     required this.onOpenPanelDetails,
-    required this.onArchive,
   });
 
   @override
@@ -1207,14 +1320,6 @@ class _KanbanColumnState extends State<_KanbanColumn> {
                           fontSize: 12,
                           color: AppColors.grey500,
                         ),
-                      ),
-                      IconButton(
-                        key: ValueKey('panel-archive-${widget.column['id']}'),
-                        tooltip: 'Archive panel',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
-                        onPressed: widget.canManage ? widget.onArchive : null,
-                        icon: const Icon(Icons.archive_outlined),
                       ),
                     ],
                   ),
