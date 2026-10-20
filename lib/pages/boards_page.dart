@@ -439,53 +439,6 @@ class _BoardsPageState extends State<BoardsPage> {
                         ),
                       ),
                     ],
-                    // Archiving (or restoring) a panel lives here, in its edit
-                    // menu: it takes the panel off the board with its tasks kept.
-                    if (kind == 'panel' && existing != null) ...[
-                      const SizedBox(height: 16),
-                      OutlinedButton.icon(
-                        key: const ValueKey('panel-edit-archive'),
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                final archive = existing['archived'] != true;
-                                update(() {
-                                  saving = true;
-                                  error = null;
-                                });
-                                try {
-                                  await _service.call('updateTaskColumn', {
-                                    'workplaceId': workplace,
-                                    'columnId': existing['id'],
-                                    'archived': archive,
-                                  });
-                                  if (ctx.mounted) {
-                                    Navigator.pop(
-                                      ctx,
-                                      archive ? 'archived' : 'restored',
-                                    );
-                                  }
-                                } catch (e) {
-                                  if (ctx.mounted) {
-                                    update(() {
-                                      saving = false;
-                                      error = _message(e);
-                                    });
-                                  }
-                                }
-                              },
-                        icon: Icon(
-                          existing['archived'] == true
-                              ? Icons.unarchive_outlined
-                              : Icons.archive_outlined,
-                        ),
-                        label: Text(
-                          existing['archived'] == true
-                              ? 'Restore panel'
-                              : 'Archive panel',
-                        ),
-                      ),
-                    ],
                     if (error != null) Text(error!),
                   ],
                 ),
@@ -867,6 +820,24 @@ class _BoardsPageState extends State<BoardsPage> {
                             }
                           },
                           child: const Text('Edit panel details'),
+                        ),
+                        OutlinedButton(
+                          key: const ValueKey('panel-archive-button'),
+                          onPressed: () async {
+                            final archive = current['archived'] != true;
+                            if (await _run('updateTaskColumn', {
+                                  'columnId': id,
+                                  'archived': archive,
+                                }) &&
+                                ctx.mounted) {
+                              Navigator.pop(ctx);
+                            }
+                          },
+                          child: Text(
+                            current['archived'] == true
+                                ? 'Restore panel'
+                                : 'Archive panel',
+                          ),
                         ),
                         FilledButton(
                           onPressed: () => _taskDialog(id),

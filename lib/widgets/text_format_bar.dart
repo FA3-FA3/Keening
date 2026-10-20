@@ -246,35 +246,13 @@ class TextFormatBar extends StatelessWidget {
               highlight: true,
             ),
             const SizedBox(width: 4),
-            IconButton(
-              key: const ValueKey('text-bullets'),
-              tooltip: 'Bullet points (Ctrl+Shift+8)',
-              isSelected: bulleted && !squareBulleted,
-              onPressed: onBullets,
-              style: IconButton.styleFrom(
-                backgroundColor: bulleted && !squareBulleted
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : null,
-                foregroundColor: bulleted && !squareBulleted
-                    ? Theme.of(context).colorScheme.onPrimaryContainer
-                    : null,
-              ),
-              icon: const Icon(Icons.format_list_bulleted),
-            ),
-            IconButton(
-              key: const ValueKey('text-bullets-square'),
-              tooltip: 'Square bullet points',
-              isSelected: squareBulleted,
-              onPressed: onSquareBullets,
-              style: IconButton.styleFrom(
-                backgroundColor: squareBulleted
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : null,
-                foregroundColor: squareBulleted
-                    ? Theme.of(context).colorScheme.onPrimaryContainer
-                    : null,
-              ),
-              icon: const _SquareBulletsIcon(),
+            _BulletsButton(
+              bulleted: bulleted,
+              squareBulleted: squareBulleted,
+              onRound: onBullets,
+              onSquare: onSquareBullets,
+              onMenuOpen: onPickerOpen,
+              onMenuClose: onPickerClose,
             ),
             IconButton(
               key: const ValueKey('text-outdent'),
@@ -290,6 +268,103 @@ class TextFormatBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One bullet-point button for both kinds of bullet. Clicking it applies the
+/// kind last chosen (round at first), or takes the bullets off if the lines
+/// already have them; right-clicking (or long-pressing) it opens a menu to pick
+/// the kind, which is then applied and remembered.
+class _BulletsButton extends StatefulWidget {
+  const _BulletsButton({
+    required this.bulleted,
+    required this.squareBulleted,
+    required this.onRound,
+    required this.onSquare,
+    this.onMenuOpen,
+    this.onMenuClose,
+  });
+  final bool bulleted, squareBulleted;
+  final VoidCallback? onRound, onSquare, onMenuOpen, onMenuClose;
+
+  @override
+  State<_BulletsButton> createState() => _BulletsButtonState();
+}
+
+class _BulletsButtonState extends State<_BulletsButton> {
+  var _square = false;
+
+  bool get _showSquare =>
+      widget.squareBulleted || (!widget.bulleted && _square);
+
+  void _apply(bool square) =>
+      (square ? widget.onSquare : widget.onRound)?.call();
+
+  void _click() {
+    // Lines that are all one kind of bullet: clicking takes them off.
+    if (widget.squareBulleted) return _apply(true);
+    if (widget.bulleted && !_square) return _apply(false);
+    _apply(_square);
+  }
+
+  Future<void> _menu(Offset position) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    widget.onMenuOpen?.call();
+    bool? square;
+    try {
+      square = await showMenu<bool>(
+        context: context,
+        position: RelativeRect.fromRect(
+          position & const Size(1, 1),
+          Offset.zero & overlay.size,
+        ),
+        items: [
+          CheckedPopupMenuItem<bool>(
+            key: const ValueKey('bullets-menu-round'),
+            value: false,
+            checked: !_showSquare,
+            child: const Text('Round bullets'),
+          ),
+          CheckedPopupMenuItem<bool>(
+            key: const ValueKey('bullets-menu-square'),
+            value: true,
+            checked: _showSquare,
+            child: const Text('Square bullets'),
+          ),
+        ],
+      );
+    } finally {
+      widget.onMenuClose?.call();
+    }
+    if (square == null || !mounted) return;
+    setState(() => _square = square!);
+    _apply(square);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final on = widget.bulleted;
+    return GestureDetector(
+      onSecondaryTapUp: (d) => _menu(d.globalPosition),
+      onLongPressStart: (d) => _menu(d.globalPosition),
+      child: IconButton(
+        key: const ValueKey('text-bullets'),
+        tooltip:
+            'Bullet points (Ctrl+Shift+8). Right-click to choose round or square',
+        isSelected: on,
+        onPressed: widget.onRound == null && widget.onSquare == null
+            ? null
+            : _click,
+        style: IconButton.styleFrom(
+          backgroundColor: on ? scheme.primaryContainer : null,
+          foregroundColor: on ? scheme.onPrimaryContainer : null,
+        ),
+        icon: _showSquare
+            ? const _SquareBulletsIcon()
+            : const Icon(Icons.format_list_bulleted),
       ),
     );
   }

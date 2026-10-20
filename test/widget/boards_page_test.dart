@@ -145,15 +145,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Archives panel [id] the way it is done now: open the panel, then Edit
-  /// panel details, then Archive panel.
+  /// Archives panel [id]: open the panel, then its Archive panel button (next
+  /// to Edit panel details).
   Future<void> archiveFromEditMenu(WidgetTester tester, Object? id) async {
     await tester.tap(find.byKey(ValueKey('task-panel-$id')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Edit panel details'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.tap(find.byKey(const ValueKey('panel-archive-button')));
     await tester.pumpAndSettle();
   }
 
@@ -168,9 +166,9 @@ void main() {
     final columns = api.boards.values.first['columns'] as List;
     final first = columns.first['id'], second = columns.last['id'];
 
-    // Archiving is in the panel's edit menu: open the panel, then Edit panel
-    // details. (The panel also listens for double-taps, so it opens once that
-    // wait is over.) The board's panel headers have no archive button any more.
+    // Archiving is a button beside Edit panel details in the opened panel. (The
+    // panel also listens for double-taps, so it opens once that wait is over.)
+    // The board's panel headers have no archive button.
     expect(find.byKey(ValueKey('panel-archive-$first')), findsNothing);
     expect(find.byTooltip('Archive panel'), findsNothing);
     await archiveFromEditMenu(tester, first);
@@ -198,25 +196,23 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('panel-dialog-archive')), findsNothing);
-    expect(find.text('Archive panel'), findsNothing);
+    expect(find.text('Archive panel'), findsOneWidget);
+    // The edit form no longer carries an archive button.
     await tester.tap(find.text('Edit panel details'));
     await tester.pumpAndSettle();
     expect(find.text('Edit panel'), findsOneWidget);
     expect(find.text('Archive panel'), findsOneWidget);
-    // Cancelling leaves the panel where it is.
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(columns.last['archived'], isNot(true));
-    await tester.tap(find.text('Edit panel details'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.tap(find.byKey(const ValueKey('panel-archive-button')));
     await tester.pumpAndSettle();
     expect(columns.last['archived'], true);
     expect(find.byKey(ValueKey('task-panel-$second')), findsNothing);
     expect(find.text('Edit panel details'), findsNothing);
   });
 
-  testWidgets('an archived panel is restored from its edit menu too', (
+  testWidgets('an archived panel is restored from its panel too', (
     tester,
   ) async {
     final api = FakeBoards();
@@ -234,21 +230,19 @@ void main() {
     await tester.tap(find.byKey(ValueKey('archived-panel-$first')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Edit panel details'));
-    await tester.pumpAndSettle();
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('panel-edit-archive')),
+        of: find.byKey(const ValueKey('panel-archive-button')),
         matching: find.text('Restore panel'),
       ),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.tap(find.byKey(const ValueKey('panel-archive-button')));
     await tester.pumpAndSettle();
     expect(columns.first['archived'], false);
   });
 
-  testWidgets('an archive that fails is reported in the edit menu', (
+  testWidgets('an archive that fails is reported and the panel stays open', (
     tester,
   ) async {
     final api = FakeBoards();
@@ -260,13 +254,11 @@ void main() {
     await tester.tap(find.byKey(ValueKey('task-panel-$first')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Edit panel details'));
-    await tester.pumpAndSettle();
     api.fail = true;
-    await tester.tap(find.byKey(const ValueKey('panel-edit-archive')));
+    await tester.tap(find.byKey(const ValueKey('panel-archive-button')));
     await tester.pumpAndSettle();
     expect(find.text('Boards unavailable.'), findsWidgets);
-    expect(find.byKey(const ValueKey('panel-edit-archive')), findsOneWidget);
+    expect(find.byKey(const ValueKey('panel-archive-button')), findsOneWidget);
     expect(columns.first['archived'], isNot(true));
   });
 

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/forked/hang_text_painter.dart';
@@ -49,6 +50,17 @@ Future<RichTextController> mount(WidgetTester tester, String text) async {
       as RichTextController;
 }
 
+/// Right-clicks the bullets button and picks [kind] ('round' or 'square').
+Future<void> pickBullets(WidgetTester tester, String kind) async {
+  await tester.tap(
+    find.byKey(const ValueKey('text-bullets')),
+    buttons: kSecondaryMouseButton,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(ValueKey('bullets-menu-$kind')));
+  await tester.pumpAndSettle();
+}
+
 bool on(WidgetTester tester, String key) =>
     tester.widget<IconButton>(find.byKey(ValueKey(key))).isSelected ?? false;
 
@@ -59,58 +71,77 @@ void main() {
   });
 
   group('the Notepad text tool', () {
-    testWidgets('has a square bullets button beside the round one', (
-      tester,
-    ) async {
-      await mount(tester, 'one');
-      expect(find.byKey(const ValueKey('text-bullets')), findsOneWidget);
-      expect(find.byKey(const ValueKey('text-bullets-square')), findsOneWidget);
-      expect(find.byTooltip('Square bullet points'), findsOneWidget);
-      final round = tester.getCenter(
-        find.byKey(const ValueKey('text-bullets')),
-      );
-      final square = tester.getCenter(
-        find.byKey(const ValueKey('text-bullets-square')),
-      );
-      expect((round.dy - square.dy).abs(), lessThan(1));
-      expect(square.dx - round.dx, inInclusiveRange(30, 60));
-    });
+    testWidgets(
+      'has one bullets button, with a right-click menu of both kinds',
+      (tester) async {
+        await mount(tester, 'one');
+        expect(find.byKey(const ValueKey('text-bullets')), findsOneWidget);
+        expect(find.byKey(const ValueKey('text-bullets-square')), findsNothing);
+        expect(find.byTooltip('Square bullet points'), findsNothing);
+        expect(find.byKey(const ValueKey('bullets-menu-round')), findsNothing);
+        await tester.tap(
+          find.byKey(const ValueKey('text-bullets')),
+          buttons: kSecondaryMouseButton,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Round bullets'), findsOneWidget);
+        expect(find.text('Square bullets'), findsOneWidget);
+      },
+    );
 
-    testWidgets('the square button makes square bullets, and lights up', (
-      tester,
-    ) async {
-      final c = await mount(tester, 'one\ntwo');
+    testWidgets('a plain click makes round bullets', (tester) async {
+      final c = await mount(tester, 'one');
       await tester.tap(find.byKey(const ValueKey('notepad-field')));
       await tester.pump(const Duration(milliseconds: 400));
-      c.selection = const TextSelection(baseOffset: 0, extentOffset: 7);
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
       await tester.pump();
-      expect(on(tester, 'text-bullets-square'), isFalse);
-      await tester.tap(find.byKey(const ValueKey('text-bullets-square')));
-      await tester.pump();
-      expect(c.text, '▪ one\n▪ two');
-      expect(on(tester, 'text-bullets-square'), isTrue);
-      expect(
-        on(tester, 'text-bullets'),
-        isFalse,
-        reason: 'only the square one',
-      );
+      expect(c.text, '• one');
     });
 
-    testWidgets('the round button turns square bullets round', (tester) async {
+    testWidgets(
+      'choosing square from the menu applies it and lights the button',
+      (tester) async {
+        final c = await mount(tester, 'one\ntwo');
+        await tester.tap(find.byKey(const ValueKey('notepad-field')));
+        await tester.pump(const Duration(milliseconds: 400));
+        c.selection = const TextSelection(baseOffset: 0, extentOffset: 7);
+        await tester.pump();
+        expect(on(tester, 'text-bullets'), isFalse);
+        await pickBullets(tester, 'square');
+        expect(c.text, '▪ one\n▪ two');
+        expect(on(tester, 'text-bullets'), isTrue);
+      },
+    );
+
+    testWidgets('the chosen kind is remembered for the next click', (
+      tester,
+    ) async {
+      final c = await mount(tester, 'one');
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await pickBullets(tester, 'square');
+      expect(c.text, '▪ one');
+      // Clicking now takes them off; clicking again brings square ones back.
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await tester.pump();
+      expect(c.text, 'one');
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
+      await tester.pump();
+      expect(c.text, '▪ one');
+    });
+
+    testWidgets('choosing round turns square bullets round', (tester) async {
       final c = await mount(tester, '▪ one\n▪ two');
       await tester.tap(find.byKey(const ValueKey('notepad-field')));
       await tester.pump(const Duration(milliseconds: 400));
       c.selection = const TextSelection(baseOffset: 0, extentOffset: 11);
       await tester.pump();
-      expect(on(tester, 'text-bullets-square'), isTrue);
-      await tester.tap(find.byKey(const ValueKey('text-bullets')));
-      await tester.pump();
-      expect(c.text, '• one\n• two');
       expect(on(tester, 'text-bullets'), isTrue);
-      expect(on(tester, 'text-bullets-square'), isFalse);
+      await pickBullets(tester, 'round');
+      expect(c.text, '• one\n• two');
     });
 
-    testWidgets('pressing the lit square button takes the bullets away', (
+    testWidgets('clicking the lit button takes square bullets away', (
       tester,
     ) async {
       final c = await mount(tester, '▪ one');
@@ -118,7 +149,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       c.selection = const TextSelection(baseOffset: 0, extentOffset: 5);
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('text-bullets-square')));
+      await tester.tap(find.byKey(const ValueKey('text-bullets')));
       await tester.pump();
       expect(c.text, 'one');
     });
@@ -186,14 +217,11 @@ void main() {
       final origin = tester.getTopLeft(find.byKey(const ValueKey('pad-paper')));
       await tester.tapAt(origin + const Offset(60, 40));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('text-bullets-square')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('text-bullets-square')));
-      await tester.pumpAndSettle();
+      await pickBullets(tester, 'square');
       await tester.pump(const Duration(milliseconds: 100));
       expect((saves.last.single as TextEl).text, '▪ one\n▪ two');
-      expect(on(tester, 'text-bullets-square'), isTrue);
-      await tester.tap(find.byKey(const ValueKey('text-bullets')));
-      await tester.pumpAndSettle();
+      expect(on(tester, 'text-bullets'), isTrue);
+      await pickBullets(tester, 'round');
       await tester.pump(const Duration(milliseconds: 100));
       expect((saves.last.single as TextEl).text, '• one\n• two');
     });

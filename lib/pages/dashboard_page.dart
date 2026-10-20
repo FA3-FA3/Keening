@@ -19,6 +19,7 @@ import '../utils/pads_service.dart';
 import 'documents_page.dart';
 import 'projects_page.dart';
 import '../utils/window_chrome.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/quick_add_panel.dart';
 import 'calendar_page.dart';
 import 'schedule_page.dart';
@@ -843,10 +844,17 @@ class _TopBar extends StatelessWidget {
       height: 64,
       width: double.infinity,
       color: AppColors.navBackground,
-      padding: EdgeInsets.only(left: 24, right: hasCustomTitleBar ? 0 : 24),
+      padding: EdgeInsets.only(
+        left: hasCustomTitleBar ? 16 : 24,
+        right: hasCustomTitleBar ? 0 : 24,
+      ),
       child: WindowDragArea(
         child: Row(
           children: [
+            if (hasCustomTitleBar) ...[
+              const AppLogo(height: 22.5),
+              const SizedBox(width: 10),
+            ],
             Text(
               'Keening',
               style: TextStyle(

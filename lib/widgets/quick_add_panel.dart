@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/boards_service.dart';
 import '../utils/calendar_service.dart';
+import '../utils/document_defaults.dart';
 import '../utils/gantt_service.dart';
 import '../utils/pads_service.dart';
 import '../utils/projects_service.dart';
@@ -255,12 +256,16 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     final date = _date.text.trim();
     switch (_kind) {
       case QuickAddKind.document:
-        await _pads.call('createPad', {
+        final created = await _pads.call('createPad', {
           'name': title,
           'description': '',
           'kind': _documentKind,
           'folderId': null,
         });
+        final id = (created['pad'] as Map?)?['id'];
+        if (id is String) {
+          await applyDocumentDefaults(_pads, id, _documentKind);
+        }
       case QuickAddKind.folder:
         await _pads.call('createFolder', {'name': title, 'parentId': null});
       case QuickAddKind.project:
@@ -356,7 +361,7 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     onSubmitted: onSubmit == null ? null : (_) => onSubmit(),
     decoration: InputDecoration(
       labelText: label,
-      isDense: true,
+      isDense: false,
       counterText: '',
     ),
   );
@@ -503,11 +508,11 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
       color: AppColors.surface(context),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 360,
+          maxWidth: 480,
           maxHeight: MediaQuery.sizeOf(context).height - 96,
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -518,7 +523,7 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
                     Expanded(
                       child: Text(
                         'Quick add',
-                        style: Theme.of(context).textTheme.titleMedium,
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
                     IconButton(
@@ -530,8 +535,8 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
                   ],
                 ),
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     for (final k in QuickAddKind.values)
                       ChoiceChip(
@@ -543,9 +548,9 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 if (_loadingChoices) const LinearProgressIndicator(),
-                for (final f in fields) ...[f, const SizedBox(height: 8)],
+                for (final f in fields) ...[f, const SizedBox(height: 12)],
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -560,6 +565,9 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
                     ),
                   ),
                 FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                   key: const ValueKey('quick-add-submit'),
                   onPressed: _saving || _loadingChoices ? null : _add,
                   child: Text(

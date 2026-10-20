@@ -33,6 +33,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/
+    - assets/images/
   fonts:
     # The same Roboto on the web and the desktop app (otherwise the desktop app
     # would use Windows' own Segoe UI).

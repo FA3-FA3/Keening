@@ -9,6 +9,7 @@ import 'utils/app_colors.dart';
 import 'utils/clipboard_image.dart';
 import 'utils/file_drop.dart';
 import 'utils/window_chrome.dart';
+import 'widgets/app_logo.dart';
 
 const useAuthEmulator =
     kDebugMode && bool.fromEnvironment('USE_EMULATOR', defaultValue: true);
@@ -65,6 +66,8 @@ class _WithTitleBar extends StatelessWidget {
               child: Row(
                 children: [
                   const SizedBox(width: 12),
+                  const AppLogo(height: 13.5),
+                  const SizedBox(width: 8),
                   Text(
                     'Keening',
                     style: TextStyle(color: AppColors.navBrand, fontSize: 13),

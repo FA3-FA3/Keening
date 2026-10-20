@@ -15,6 +15,8 @@ import '../utils/pad_model.dart';
 import '../utils/pads_service.dart';
 import '../utils/rich_text.dart';
 import '../utils/sheet_model.dart';
+import '../utils/document_defaults.dart';
+import '../widgets/document_defaults_dialog.dart';
 import '../widgets/document_settings_dialogs.dart';
 import '../widgets/export_dialog.dart';
 import '../widgets/notepad_editor.dart';
@@ -526,11 +528,17 @@ class _DocumentsPageState extends State<DocumentsPage> {
                                     'name': name.trim(),
                                     'description': description.trim(),
                                   });
-                            if (ctx.mounted) {
-                              Navigator.pop(
-                                ctx,
-                                (result['pad'] as Map)['id'] as String,
+                            final newId =
+                                (result['pad'] as Map)['id'] as String;
+                            if (existing == null) {
+                              await applyDocumentDefaults(
+                                _service,
+                                newId,
+                                type.kind,
                               );
+                            }
+                            if (ctx.mounted) {
+                              Navigator.pop(ctx, newId);
                             }
                           } catch (e) {
                             if (ctx.mounted) {
@@ -861,6 +869,12 @@ class _DocumentsPageState extends State<DocumentsPage> {
                 onPressed: _loading ? null : _newFolder,
                 icon: const Icon(Icons.create_new_folder_outlined),
                 label: const Text('New folder'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('document-defaults'),
+                onPressed: () => showDocumentDefaultsDialog(context),
+                icon: const Icon(Icons.tune),
+                label: const Text('Default settings'),
               ),
               IconButton(
                 tooltip: 'Refresh documents',
