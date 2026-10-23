@@ -87,6 +87,23 @@ void main() {
       );
     });
 
+    testWidgets('the scroll bar is at the window edge, not against the page', (
+      tester,
+    ) async {
+      await mount(tester, text: lines(200));
+      final desk = tester.getRect(find.byKey(const ValueKey('notepad-desk')));
+      final page = tester.getRect(find.byKey(const ValueKey('notepad-page')));
+      final bar = find.byKey(const ValueKey('notepad-scrollbar'));
+      expect(tester.getRect(bar).right, closeTo(desk.right, 0.5));
+      expect(page.right, lessThan(desk.right - 100));
+      // Only one scroll bar: the field's own (which would hug the page) is off.
+      expect(find.byWidgetPredicate((w) => w is RawScrollbar), findsOneWidget);
+      // It still follows the scrolling.
+      final scrollbar = tester.widget<Scrollbar>(bar);
+      expect(scrollbar.controller!.hasClients, isTrue);
+      expect(scrollbar.controller!.position.maxScrollExtent, greaterThan(0));
+    });
+
     testWidgets('text is dark on the white page, with one-inch margins', (
       tester,
     ) async {

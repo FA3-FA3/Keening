@@ -23,9 +23,15 @@ Future<void> settle(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Opens the insert tool's menu and picks [what]: image, symbol or equation.
+/// Opens the insert tool and picks [what]: image, symbol or equation. (The
+/// Notepad's insert tool is a tool with buttons along the top; the Dynamic
+/// Pad's is a menu.)
 Future<void> insert(WidgetTester tester, String what) async {
-  await tester.tap(find.byKey(const ValueKey('insert-menu')));
+  if (find.byKey(const ValueKey('note-tool-insert')).evaluate().isNotEmpty) {
+    await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
+  } else {
+    await tester.tap(find.byKey(const ValueKey('insert-menu')));
+  }
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(ValueKey('insert-$what')));
   await tester.pump();
@@ -246,22 +252,32 @@ void main() {
           as RichTextController;
     }
 
-    testWidgets('the insert menu offers a picture, a symbol and an equation', (
-      tester,
-    ) async {
+    testWidgets('the insert tool has buttons, not a menu', (tester) async {
       await mount(tester);
-      await tester.tap(find.byKey(const ValueKey('insert-menu')));
+      expect(find.byKey(const ValueKey('insert-menu')), findsNothing);
+      expect(find.byKey(const ValueKey('insert-image')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('insert-menu')), findsNothing);
       expect(find.byKey(const ValueKey('insert-image')), findsOneWidget);
       expect(find.byKey(const ValueKey('insert-symbol')), findsOneWidget);
       expect(find.byKey(const ValueKey('insert-equation')), findsOneWidget);
+      expect(find.byKey(const ValueKey('insert-page-break')), findsOneWidget);
+      // They run along the top, like the text tool's settings.
+      final rail = tester.getTopLeft(
+        find.byKey(const ValueKey('note-tool-insert')),
+      );
+      final button = tester.getTopLeft(
+        find.byKey(const ValueKey('insert-image')),
+      );
+      expect(button.dy, lessThan(rail.dy));
     });
 
     testWidgets('pictures are not offered where they cannot be stored', (
       tester,
     ) async {
       await mount(tester, pictures: false);
-      await tester.tap(find.byKey(const ValueKey('insert-menu')));
+      await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('insert-image')), findsNothing);
       expect(find.byKey(const ValueKey('insert-symbol')), findsOneWidget);
@@ -316,7 +332,8 @@ void main() {
       );
       expect(find.byType(Math), findsOneWidget);
       // Typing after it is ordinary text, not another equation.
-      await enterRich(tester, 
+      await enterRich(
+        tester,
         find.byKey(const ValueKey('notepad-field')),
         'Area $embedChar!',
       );
@@ -426,7 +443,11 @@ void main() {
         runs: const [StyleRun(1, 2, TextFormat(embed: Embed.equation('x')))],
       );
       expect(find.byType(Math), findsOneWidget);
-      await enterRich(tester, find.byKey(const ValueKey('notepad-field')), 'ab');
+      await enterRich(
+        tester,
+        find.byKey(const ValueKey('notepad-field')),
+        'ab',
+      );
       await settle(tester);
       expect(saves.last.$2, isEmpty);
       expect(find.byType(Math), findsNothing);

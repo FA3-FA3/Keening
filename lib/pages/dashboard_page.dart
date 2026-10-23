@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import '../widgets/global_search_dialog.dart';
@@ -12,30 +13,48 @@ import '../widgets/profile_avatar.dart';
 import '../utils/api_client.dart';
 import '../utils/account_service.dart';
 import 'settings_page.dart';
-import 'gantt_page.dart';
+
 import 'boards_page.dart';
 import '../utils/local_store.dart';
 import '../utils/pads_service.dart';
 import 'documents_page.dart';
 import 'projects_page.dart';
 import '../utils/window_chrome.dart';
+import '../utils/gantt_service.dart';
+import '../utils/remembered_login.dart';
+import '../utils/messages_service.dart';
+import '../utils/people_service.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/quick_add_panel.dart';
 import 'calendar_page.dart';
+import 'messages_page.dart';
+import 'people_page.dart';
 import 'schedule_page.dart';
 import 'overview_page.dart';
 
 const _dashboardTabs = [
   'Dashboard',
   'Projects',
-  'Gantt',
   'Calendar',
   'Boards',
   'Schedule',
   'Documents',
+  'People',
 ];
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
 const _navigationHeight = 36.0;
+
+/// True in the mobile layout: the app is taller than it is wide.
+bool _portrait(BuildContext context) =>
+    MediaQuery.orientationOf(context) == Orientation.portrait;
+
+/// The mobile layout is more compact: the top bar is 25% shorter and the strip
+/// of open tabs 10% shorter.
+double _topBarHeight(BuildContext context) => _portrait(context) ? 48 : 64;
+double _tabHeight(BuildContext context) =>
+    _portrait(context) ? _navigationHeight * 0.9 : _navigationHeight;
+double _tabStripPadding(BuildContext context) =>
+    _portrait(context) ? 6 * 0.9 : 6;
 const _navigationWidth = 144.0;
 
 /// Authenticated dashboard shell: sidebar nav + a workspace area. Tabs and
@@ -46,8 +65,14 @@ class DashboardPage extends StatefulWidget {
     super.key,
     this.loadProfile,
     this.padsService,
+    this.peopleService,
+    this.messagesService,
+    this.ganttService,
     this.viewKey,
   });
+
+  /// Replaces the Gantt service of Gantt calendar documents (tests give a fake).
+  final GanttService? ganttService;
 
   /// Where the open tabs are remembered, so a reload of the page comes back to
   /// the same view. By default it is per signed-in user; without one (or in
@@ -57,6 +82,12 @@ class DashboardPage extends StatefulWidget {
 
   /// Replaces the documents service (tests give a fake one).
   final PadsService? padsService;
+
+  /// Replace the people and messages services (tests give fake ones). The
+  /// unread message count in the top bar is only looked up when one of them is
+  /// given or the app is signed in.
+  final PeopleService? peopleService;
+  final MessagesService? messagesService;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -77,12 +108,48 @@ class _DashboardPageState extends State<DashboardPage> {
     );
     if (!mounted || result == null) return;
     final page = result['page'] as String;
+    if (page == 'Gantt') {
+      _openGanttCalendar(result);
+      return;
+    }
     _searchTargets[page] = {...result};
     _openTab(page);
   }
 
   String? _selectedTab = 'Dashboard';
   bool _quickAddOpen = false;
+
+  /// How many messages are waiting, shown on the top bar's messages button.
+  int _unreadMessages = 0;
+  Timer? _unreadTimer;
+  MessagesService? _unreadService;
+
+  /// The friend a conversation is to be opened with (from the People page).
+  String? _messagesWith;
+
+  void _startUnreadPolling() {
+    final injected = widget.messagesService;
+    if (injected == null && Firebase.apps.isEmpty) return;
+    _unreadService = injected ?? MessagesService();
+    Future<void> check() async {
+      try {
+        final r = await _unreadService!.call('unreadCount');
+        if (mounted) {
+          setState(() => _unreadMessages = (r['unread'] as int?) ?? 0);
+        }
+      } catch (_) {
+        // The count is only a nicety; the next check tries again.
+      }
+    }
+
+    check();
+    _unreadTimer = Timer.periodic(const Duration(seconds: 30), (_) => check());
+  }
+
+  void _openMessages([String? username]) {
+    setState(() => _messagesWith = username);
+    _openTab('Messages');
+  }
 
   /// Bumped for a page when quick add creates something for it, so the page
   /// loads afresh and shows the new item.
@@ -94,9 +161,37 @@ class _DashboardPageState extends State<DashboardPage> {
         : 'workspace-page-$tab-${_pageRevision[tab]}',
   );
 
+  /// A Gantt calendar is a document: this opens it in a tab (a phase, if the
+  /// target names one, is brought up in it).
+  void _openGanttCalendar(Map<String, dynamic> target) {
+    final id = target['parentId'];
+    if (id is! String) return;
+    final name =
+        target['parent'] ?? target['name'] ?? target['title'] ?? 'Gantt';
+    final tab = 'doc:$id';
+    _docTabs[tab] = {'id': id, 'name': '$name', 'kind': 'gantt'};
+    if (target['type'] == 'Phase') {
+      _docTargets[tab] = {...target};
+    } else {
+      _docTargets.remove(tab);
+    }
+    _openTab(tab);
+  }
+
+  /// What to bring up inside a document tab (a phase of a Gantt calendar).
+  final Map<String, Map<String, dynamic>> _docTargets = {};
+
   void _quickAdded(String tab) => setState(() {
     for (final t in {tab, 'Dashboard'}) {
       _pageRevision[t] = (_pageRevision[t] ?? 0) + 1;
+    }
+    // A new phase belongs to a calendar document that may be open.
+    if (tab == 'Gantt') {
+      for (final entry in _docTabs.entries) {
+        if (entry.value['kind'] == 'gantt') {
+          _pageRevision[entry.key] = (_pageRevision[entry.key] ?? 0) + 1;
+        }
+      }
     }
     if (tab == 'Schedule' || tab == 'Calendar') _scheduleRefresh++;
   });
@@ -114,6 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => topBarHasWindowControls.value = true,
     );
+    _startUnreadPolling();
     _restoreView();
     _loadProfile();
   }
@@ -164,7 +260,7 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final data = jsonDecode(raw);
       if (data is! Map) return;
-      final known = {..._dashboardTabs, 'Settings'};
+      final known = {..._dashboardTabs, 'Settings', 'Messages'};
       final docs = <String, Map<String, dynamic>>{};
       if (data['docs'] is Map) {
         (data['docs'] as Map).forEach((tab, doc) {
@@ -212,6 +308,8 @@ class _DashboardPageState extends State<DashboardPage> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => topBarHasWindowControls.value = false,
     );
+    _unreadTimer?.cancel();
+    if (widget.messagesService == null) _unreadService?.close();
     _api.close();
     super.dispose();
   }
@@ -388,7 +486,7 @@ class _DashboardPageState extends State<DashboardPage> {
       shape: const RoundedRectangleBorder(borderRadius: _navigationRadius),
       child: SizedBox(
         width: _navigationWidth,
-        height: _navigationHeight,
+        height: _tabHeight(context),
         child: Center(child: Text(_tabTitle(tab))),
       ),
     ),
@@ -440,6 +538,12 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _logOut() async {
     if (Firebase.apps.isEmpty) return;
     try {
+      // Signing out forgets the login kept on this device.
+      try {
+        await loginStore?.clear();
+      } catch (_) {
+        // Nothing more can be done about storage that will not clear.
+      }
       await FirebaseAuth.instance.signOut();
       if (mounted) context.go('/');
     } catch (_) {
@@ -476,11 +580,12 @@ class _DashboardPageState extends State<DashboardPage> {
                       username: (_profile?['username'] as String?) ?? 'Account',
                       picture: _profile?['profilePicture'] as String?,
                       onSettings: () => _openTab('Settings'),
+                      unreadMessages: _unreadMessages,
+                      onMessages: _openMessages,
                       onQuickAdd: () =>
                           setState(() => _quickAddOpen = !_quickAddOpen),
                       quickAddOpen: _quickAddOpen,
                       onSearch: _search,
-                      onLogOut: _logOut,
                     ),
                   ),
                   Expanded(
@@ -524,11 +629,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                               for (final tab in _openTabs)
                                                 Padding(
                                                   key: _tabKeys[tab],
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 4,
-                                                        vertical: 6,
-                                                      ),
+                                                  padding: EdgeInsets.symmetric(
+                                                    horizontal: 4,
+                                                    vertical: _tabStripPadding(
+                                                      context,
+                                                    ),
+                                                  ),
                                                   child: _draggableTab(
                                                     tab,
                                                     MouseRegion(
@@ -570,8 +676,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                         clipBehavior:
                                                             Clip.antiAlias,
                                                         child: SizedBox(
-                                                          height:
-                                                              _navigationHeight,
+                                                          height: _tabHeight(
+                                                            context,
+                                                          ),
                                                           width: _tabWidth(tab),
                                                           child: Row(
                                                             mainAxisSize:
@@ -706,9 +813,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                             tab.startsWith('doc:')
                                                 ? DocumentTab(
                                                     service: widget.padsService,
-                                                    key: ValueKey(
-                                                      'workspace-page-$tab',
-                                                    ),
+                                                    key: _pageKey(tab),
+                                                    ganttService:
+                                                        widget.ganttService,
+                                                    searchTarget:
+                                                        _docTargets[tab],
                                                     closeIfMissing:
                                                         _restoredDocTabs
                                                             .contains(tab),
@@ -723,12 +832,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                                         _selectedTab ==
                                                         'Dashboard',
                                                   )
-                                                : tab == 'Gantt'
-                                                ? GanttPage(
-                                                    searchTarget:
-                                                        _searchTargets['Gantt'],
-                                                    key: _pageKey('Gantt'),
-                                                  )
                                                 : tab == 'Boards'
                                                 ? BoardsPage(
                                                     searchTarget:
@@ -739,6 +842,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 ? ProjectsPage(
                                                     key: _pageKey('Projects'),
                                                     onOpenItem: (page, target) {
+                                                      if (page == 'Gantt') {
+                                                        _openGanttCalendar(
+                                                          target,
+                                                        );
+                                                        return;
+                                                      }
                                                       _searchTargets[page] =
                                                           target;
                                                       _openTab(page);
@@ -747,6 +856,8 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 : tab == 'Documents'
                                                 ? DocumentsPage(
                                                     service: widget.padsService,
+                                                    ganttService:
+                                                        widget.ganttService,
                                                     onOpenDocument:
                                                         _openDocumentTab,
                                                     onDocumentsChanged:
@@ -767,6 +878,41 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     onSavePicture: _savePicture,
                                                     onChangeAccount:
                                                         _changeAccount,
+                                                    onLogOut: _logOut,
+                                                  )
+                                                : tab == 'People'
+                                                ? PeoplePage(
+                                                    key: _pageKey('People'),
+                                                    service:
+                                                        widget.peopleService,
+                                                    onMessage: _openMessages,
+                                                  )
+                                                : tab == 'Messages'
+                                                ? MessagesPage(
+                                                    key: _pageKey('Messages'),
+                                                    service:
+                                                        widget.messagesService,
+                                                    peopleService:
+                                                        widget.peopleService,
+                                                    initialUsername:
+                                                        _messagesWith,
+                                                    onUnreadChanged: (n) {
+                                                      if (n !=
+                                                          _unreadMessages) {
+                                                        WidgetsBinding.instance
+                                                            .addPostFrameCallback((
+                                                              _,
+                                                            ) {
+                                                              if (mounted) {
+                                                                setState(
+                                                                  () =>
+                                                                      _unreadMessages =
+                                                                          n,
+                                                                );
+                                                              }
+                                                            });
+                                                      }
+                                                    },
                                                   )
                                                 : tab == 'Schedule'
                                                 ? SchedulePage(
@@ -824,24 +970,27 @@ class _TopBar extends StatelessWidget {
     required this.username,
     this.picture,
     required this.onSettings,
+    required this.unreadMessages,
+    required this.onMessages,
     required this.onQuickAdd,
     required this.quickAddOpen,
     required this.onSearch,
-    required this.onLogOut,
   });
 
   final String username;
   final String? picture;
   final VoidCallback onSettings;
+  final int unreadMessages;
+  final VoidCallback onMessages;
   final VoidCallback onQuickAdd;
   final bool quickAddOpen;
   final VoidCallback onSearch;
-  final VoidCallback onLogOut;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 64,
+      key: const ValueKey('workspace-top-bar'),
+      height: _topBarHeight(context),
       width: double.infinity,
       color: AppColors.navBackground,
       padding: EdgeInsets.only(
@@ -867,7 +1016,7 @@ class _TopBar extends StatelessWidget {
             const Spacer(),
             if (MediaQuery.sizeOf(context).width >= 700)
               SizedBox(
-                width: 260,
+                width: MediaQuery.sizeOf(context).width < 900 ? 220 : 260,
                 child: OutlinedButton.icon(
                   onPressed: onSearch,
                   icon: const Icon(Icons.search),
@@ -887,6 +1036,7 @@ class _TopBar extends StatelessWidget {
             const Spacer(),
             IconButton(
               key: const ValueKey('quick-add'),
+              visualDensity: VisualDensity.compact,
               tooltip: 'Quick add',
               onPressed: onQuickAdd,
               isSelected: quickAddOpen,
@@ -894,41 +1044,55 @@ class _TopBar extends StatelessWidget {
               selectedIcon: const Icon(Icons.add_circle),
               color: AppColors.navText,
             ),
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width < 600 ? 150 : 280,
+            IconButton(
+              key: const ValueKey('messages-button'),
+              visualDensity: VisualDensity.compact,
+              tooltip: unreadMessages > 0
+                  ? 'Messages ($unreadMessages unread)'
+                  : 'Messages',
+              onPressed: onMessages,
+              color: AppColors.navText,
+              icon: Badge(
+                key: const ValueKey('messages-badge'),
+                isLabelVisible: unreadMessages > 0,
+                label: Text(unreadMessages > 99 ? '99+' : '$unreadMessages'),
+                child: const Icon(Icons.chat_bubble_outline),
               ),
-              child: TextButton.icon(
+            ),
+            if (MediaQuery.sizeOf(context).width < 560) ...[
+              // A narrow screen has room for the picture and an icon only.
+              IconButton(
                 key: const ValueKey('account-settings'),
+                tooltip: username,
+                visualDensity: VisualDensity.compact,
                 onPressed: onSettings,
                 icon: ProfileAvatar(picture: picture, radius: 15),
-                label: Text(
-                  username,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.navText,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w300,
+              ),
+            ] else ...[
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width < 700 ? 150 : 280,
+                ),
+                child: TextButton.icon(
+                  key: const ValueKey('account-settings'),
+                  onPressed: onSettings,
+                  icon: ProfileAvatar(picture: picture, radius: 15),
+                  label: Text(
+                    username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.navText,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w300,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            TextButton(
-              onPressed: onLogOut,
-              child: Text(
-                'Log Out',
-                style: TextStyle(
-                  color: AppColors.navTextActive,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+            ],
             if (hasCustomTitleBar) ...[
               const SizedBox(width: 16),
-              const WindowControls(height: 64),
+              WindowControls(height: _topBarHeight(context)),
             ],
           ],
         ),

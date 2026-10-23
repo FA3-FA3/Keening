@@ -13,6 +13,8 @@ import { projectsHandler } from './projects.js';
 import { attachmentsHandler } from './attachments.js';
 import { profilePictureHandler } from './profile-picture.js';
 import { usernameHandler } from './account.js';
+import { peopleHandler } from './people.js';
+import { messagesHandler } from './messages.js';
 
 export async function buildApp({ pool, verifyIdToken, origins, auth, registrationCode, logger = true }) {
   const app = Fastify({
@@ -97,6 +99,9 @@ export async function buildApp({ pool, verifyIdToken, origins, auth, registratio
     bodyLimit: 6 * 1024 * 1024,
     config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
   }, padsHandler(pool));
+  app.post('/people', { preHandler: authenticate, config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, peopleHandler(pool));
+  // Messages are polled while a conversation is open, so the limit is generous.
+  app.post('/messages', { preHandler: authenticate, config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, messagesHandler(pool));
   app.post('/projects', { preHandler: authenticate, config: { rateLimit: { max: 300, timeWindow: '1 minute' } } }, projectsHandler(pool));
   // Attachments are files up to 5 MB, base64-encoded.
   app.post('/attachments', {

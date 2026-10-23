@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../utils/gantt_service.dart';
 import '../widgets/calendar_dependency_arrows.dart';
+import '../widgets/collapsible_toolbar.dart';
 import '../widgets/item_links.dart';
 
 String _iso(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
@@ -156,11 +157,20 @@ class _DateRangePickerPopupState extends State<_DateRangePickerPopup> {
   }
 }
 
-/// Sorbit's Gantt timeline adapted for user-owned Keening calendars.
+/// Sorbit's Gantt timeline adapted for user-owned Keening calendars. A Gantt
+/// calendar is a document: with [calendarId] the page shows that one calendar
+/// (its name, colour and removal belong to the Documents page); without it the
+/// page lets calendars be chosen, created, renamed and deleted.
 class GanttPage extends StatefulWidget {
-  const GanttPage({super.key, this.service, this.searchTarget});
+  const GanttPage({
+    super.key,
+    this.service,
+    this.searchTarget,
+    this.calendarId,
+  });
   final GanttService? service;
   final Map<String, dynamic>? searchTarget;
+  final String? calendarId;
   @override
   State<GanttPage> createState() => _GanttPageState();
 }
@@ -228,7 +238,17 @@ class _GanttPageState extends State<GanttPage> {
       final data = await _service.call('listCalendars');
       if (!mounted) return;
       _calendars = (data['calendars'] as List).cast<Map<String, dynamic>>();
-      final choice = preferred ?? _selected;
+      final fixed = widget.calendarId;
+      if (fixed != null && !_calendars.any((c) => c['id'] == fixed)) {
+        setState(() {
+          _selected = null;
+          _items = [];
+          _error = 'This Gantt calendar could not be found.';
+          _loading = false;
+        });
+        return;
+      }
+      final choice = fixed ?? preferred ?? _selected;
       _selected = _calendars.any((c) => c['id'] == choice)
           ? choice
           : _calendars.firstOrNull?['id'] as String?;
@@ -689,6 +709,7 @@ class _GanttPageState extends State<GanttPage> {
         )
         .toList();
     final busy = _loading || _savingOrder;
+    final single = widget.calendarId != null;
     return ScrollableWorkspace(
       header: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -700,26 +721,29 @@ class _GanttPageState extends State<GanttPage> {
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
-                  'Gantt',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                FilledButton.icon(
-                  onPressed: busy || _error != null
-                      ? null
-                      : () => _calendarDialog(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create calendar'),
-                ),
+                if (!single) ...[
+                  Text(
+                    'Gantt',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  FilledButton.icon(
+                    onPressed: busy || _error != null
+                        ? null
+                        : () => _calendarDialog(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create calendar'),
+                  ),
+                ],
                 IconButton(
-                  tooltip: 'Refresh calendars',
+                  key: const ValueKey('gantt-refresh'),
+                  tooltip: single ? 'Refresh' : 'Refresh calendars',
                   onPressed: busy ? null : _loadCalendars,
                   icon: const Icon(Icons.refresh),
                 ),
               ],
             ),
           ),
-          if (_calendars.isNotEmpty)
+          if (!single && _calendars.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SingleChildScrollView(
@@ -751,70 +775,74 @@ class _GanttPageState extends State<GanttPage> {
               ),
             ),
           if (_selected != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Previous period',
-                        onPressed: () =>
-                            setState(() => _start = _addDays(_start, -_days)),
-                        icon: const Icon(Icons.chevron_left),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(
-                          () => _start = DateUtils.dateOnly(DateTime.now()),
+            CollapsibleToolbar(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous period',
+                          onPressed: () =>
+                              setState(() => _start = _addDays(_start, -_days)),
+                          icon: const Icon(Icons.chevron_left),
                         ),
-                        child: const Text('Today'),
+                        TextButton(
+                          onPressed: () => setState(
+                            () => _start = DateUtils.dateOnly(DateTime.now()),
+                          ),
+                          child: const Text('Today'),
+                        ),
+                        IconButton(
+                          tooltip: 'Next period',
+                          onPressed: () =>
+                              setState(() => _start = _addDays(_start, _days)),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      '${DateFormat.MMMd().format(_start)} – ${DateFormat.yMMMd().format(end)}',
+                    ),
+                    AppDropdownButton<int>(
+                      value: _days,
+                      items: const [
+                        DropdownMenuItem(value: 14, child: Text('2 weeks')),
+                        DropdownMenuItem(value: 28, child: Text('4 weeks')),
+                        DropdownMenuItem(value: 84, child: Text('12 weeks')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _days = v);
+                      },
+                    ),
+                    FilledButton.icon(
+                      onPressed: busy || _error != null
+                          ? null
+                          : () => _editItem(),
+                      icon: const Icon(Icons.add),
+                      label: const Text('New phase'),
+                    ),
+                    if (!single) ...[
+                      IconButton(
+                        tooltip: 'Rename calendar',
+                        onPressed: busy
+                            ? null
+                            : () => _calendarDialog(rename: true),
+                        icon: const Icon(Icons.edit_outlined),
                       ),
                       IconButton(
-                        tooltip: 'Next period',
-                        onPressed: () =>
-                            setState(() => _start = _addDays(_start, _days)),
-                        icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Delete calendar',
+                        onPressed: busy ? null : _deleteCalendar,
+                        icon: const Icon(Icons.delete_outline),
                       ),
                     ],
-                  ),
-                  Text(
-                    '${DateFormat.MMMd().format(_start)} – ${DateFormat.yMMMd().format(end)}',
-                  ),
-                  AppDropdownButton<int>(
-                    value: _days,
-                    items: const [
-                      DropdownMenuItem(value: 14, child: Text('2 weeks')),
-                      DropdownMenuItem(value: 28, child: Text('4 weeks')),
-                      DropdownMenuItem(value: 84, child: Text('12 weeks')),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _days = v);
-                    },
-                  ),
-                  FilledButton.icon(
-                    onPressed: busy || _error != null
-                        ? null
-                        : () => _editItem(),
-                    icon: const Icon(Icons.add),
-                    label: const Text('New phase'),
-                  ),
-                  IconButton(
-                    tooltip: 'Rename calendar',
-                    onPressed: busy
-                        ? null
-                        : () => _calendarDialog(rename: true),
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                  IconButton(
-                    tooltip: 'Delete calendar',
-                    onPressed: busy ? null : _deleteCalendar,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
         ],

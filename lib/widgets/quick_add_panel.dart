@@ -30,6 +30,7 @@ const _documentKinds = {
   'pad': 'Dynamic Pad',
   'notepad': 'Notepad',
   'sheet': 'Spreadsheet',
+  'gantt': 'Gantt calendar',
 };
 const _defaultColor = '#2563EB';
 
@@ -203,7 +204,8 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
       }
       if (_ganttCalendar == null) {
         setState(
-          () => _error = 'Create a Gantt calendar on the Gantt page first.',
+          () => _error =
+              'Create a Gantt calendar first (New document, then Gantt calendar).',
         );
         return;
       }

@@ -232,7 +232,8 @@ void main() {
     await tester.tapAt(o + const Offset(150, 120));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('pad-text-field')),
       'Meeting notes',
     );
@@ -393,12 +394,14 @@ void main() {
     await tester.tapAt(o + const Offset(150, 115));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pad-text-field')), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('pad-text-field')),
       'Changed',
     );
     await tester.pump();
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('pad-text-field')),
       'Changed again',
     );

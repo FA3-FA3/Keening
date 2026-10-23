@@ -8,6 +8,7 @@ import 'widgets/app_dropdown.dart';
 import 'utils/app_colors.dart';
 import 'utils/clipboard_image.dart';
 import 'utils/file_drop.dart';
+import 'utils/remembered_login.dart';
 import 'utils/window_chrome.dart';
 import 'widgets/app_logo.dart';
 
@@ -32,6 +33,15 @@ Future<void> main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
     }
+    // The desktop app signs in again by itself with the login remembered on
+    // this device, so it does not ask every time it starts.
+    await restoreRememberedLogin(
+      signedIn: FirebaseAuth.instance.currentUser != null,
+      store: loginStore,
+      signIn: (email, password) => FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password),
+      codeOf: (e) => e is FirebaseAuthException ? e.code : '',
+    );
     runApp(const KeeningApp());
   } catch (error) {
     debugPrint('Keening authentication startup failed: $error');

@@ -190,6 +190,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
     'type': 'Gantt calendar',
     'id': c['id'],
     'parentId': c['id'],
+    'name': c['name'],
   });
 
   void _openPhase(Map<String, dynamic> calendar, Map<String, dynamic> item) =>
@@ -197,6 +198,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         'type': 'Phase',
         'id': item['id'],
         'parentId': calendar['id'],
+        'parent': calendar['name'],
         'date': item['start_date'],
       });
 

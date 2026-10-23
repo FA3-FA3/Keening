@@ -17,6 +17,7 @@ class SettingsPage extends StatefulWidget {
     this.onSavePicture,
     this.pickImage,
     this.onChangeAccount,
+    this.onLogOut,
   });
   final Map<String, dynamic>? profile;
   final bool loading;
@@ -25,6 +26,9 @@ class SettingsPage extends StatefulWidget {
   final Future<void> Function(String?)? onSavePicture;
   final Future<XFile?> Function()? pickImage;
   final Future<String> Function(String, Map<String, String>)? onChangeAccount;
+
+  /// Signs out (the dashboard forgets this device's saved login too).
+  final VoidCallback? onLogOut;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -213,6 +217,20 @@ class _SettingsPageState extends State<SettingsPage> {
                             child: Text(_accountMessage!),
                           ),
                         ),
+                    ],
+                    if (widget.onLogOut != null) ...[
+                      const SizedBox(height: 24),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('settings-log-out'),
+                          onPressed: widget.onLogOut,
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Log Out'),
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 16),
                     Align(

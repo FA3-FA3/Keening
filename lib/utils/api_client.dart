@@ -53,6 +53,14 @@ class ApiClient {
     String token,
     Map<String, dynamic> data,
   ) => _workspace('/projects', token, data);
+  Future<Map<String, dynamic>> people(
+    String token,
+    Map<String, dynamic> data,
+  ) => _workspace('/people', token, data);
+  Future<Map<String, dynamic>> messages(
+    String token,
+    Map<String, dynamic> data,
+  ) => _workspace('/messages', token, data);
   Future<Map<String, dynamic>> attachments(
     String token,
     Map<String, dynamic> data,

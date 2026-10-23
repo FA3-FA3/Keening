@@ -1,10 +1,12 @@
-// Documents: folders, and documents of three types: Dynamic Pads ("pad": text boxes,
-// images, lines and pen strokes), Notepads ("notepad": formatted text) and spreadsheets
-// ("sheet": a grid of cells holding text, numbers and formulas).
+// Documents: folders, and documents of four types: Dynamic Pads ("pad": text boxes,
+// images, lines and pen strokes), Notepads ("notepad": formatted text), spreadsheets
+// ("sheet": a grid of cells holding text, numbers and formulas) and Gantt calendars
+// ("gantt": the document only names it and places it in a folder; its phases live in
+// the Gantt tables under the same id, and a trigger keeps the two in step).
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const fail = (message, statusCode = 400) => { throw Object.assign(new Error(message), { publicMessage: message, statusCode }); };
 
-export const KINDS = ['pad', 'notepad', 'sheet'];
+export const KINDS = ['pad', 'notepad', 'sheet', 'gantt'];
 export const LIMITS = {
   documents: 500,
   folders: 200,
@@ -28,6 +30,8 @@ export const LIMITS = {
   sheetCells: 20000,
   sheetCellChars: 1000,
   sheetColWidth: [40, 600],
+  sheetRules: 50,
+  ruleValueChars: 200,
 };
 
 function name(value) {
@@ -104,6 +108,43 @@ function cleanSheetSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) fail('Invalid spreadsheet settings.');
   if (typeof settings.gridlines !== 'boolean' || typeof settings.headers !== 'boolean') fail('Invalid spreadsheet settings.');
   return { gridlines: settings.gridlines, headers: settings.headers, colWidth: num(settings.colWidth, LIMITS.sheetColWidth[0], LIMITS.sheetColWidth[1], 'column width') };
+}
+
+// A spreadsheet's conditional formatting rules: a range, a condition on the cell's value and
+// the look to give the cells that meet it. Rebuilt from whitelisted fields.
+const RULE_CONDITIONS = {
+  gt: 1, ge: 1, lt: 1, le: 1, eq: 1, ne: 1, between: 2,
+  contains: 1, notContains: 1, beginsWith: 1, endsWith: 1, empty: 0, notEmpty: 0,
+};
+function cleanSheetRules(rules, rows, cols) {
+  if (!Array.isArray(rules) || rules.length > LIMITS.sheetRules) fail(`A spreadsheet can have up to ${LIMITS.sheetRules} formatting rules.`);
+  const cell = /^([A-Z]{1,2})([1-9][0-9]{0,3})$/;
+  return rules.map(rule => {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) fail('Invalid formatting rule.');
+    if (typeof rule.r !== 'string') fail('Invalid formatting rule.');
+    const ends = rule.r.split(':');
+    if (ends.length > 2) fail('Invalid formatting rule.');
+    for (const end of ends) {
+      const m = cell.exec(end);
+      if (!m || columnIndex(m[1]) >= cols || Number(m[2]) > rows) fail('Invalid formatting rule.');
+    }
+    if (!Object.hasOwn(RULE_CONDITIONS, rule.c)) fail('Invalid formatting rule.');
+    const clean = { r: rule.r, c: rule.c };
+    const wanted = RULE_CONDITIONS[rule.c];
+    for (const [key, needed] of [['v', wanted >= 1], ['v2', wanted >= 2]]) {
+      if (!needed) continue;
+      if (typeof rule[key] !== 'string' || rule[key].length > LIMITS.ruleValueChars) fail('Invalid formatting rule.');
+      clean[key] = rule[key];
+    }
+    if (rule.bg !== undefined) clean.bg = colour(rule.bg);
+    if (rule.fg !== undefined) clean.fg = colour(rule.fg);
+    if (rule.b !== undefined) {
+      if (rule.b !== true) fail('Invalid formatting rule.');
+      clean.b = true;
+    }
+    if (clean.bg === undefined && clean.fg === undefined && !clean.b) fail('A formatting rule needs a colour or bold.');
+    return clean;
+  });
 }
 
 // Rebuild a Notepad's content from whitelisted fields.
@@ -223,7 +264,8 @@ export function cleanSheet(doc) {
     if (!/^[A-Z]{1,2}$/.test(letters) || columnIndex(letters) >= cols) fail('Invalid column width.');
     widths[letters] = num(width, LIMITS.sheetColWidth[0], LIMITS.sheetColWidth[1], 'column width');
   }
-  const clean = { version: 1, rows, cols, cells, ...(Object.keys(widths).length ? { widths } : {}), ...(doc.settings === undefined ? {} : { settings: cleanSheetSettings(doc.settings) }) };
+  const rules = doc.rules === undefined ? [] : cleanSheetRules(doc.rules, rows, cols);
+  const clean = { version: 1, rows, cols, cells, ...(Object.keys(widths).length ? { widths } : {}), ...(doc.settings === undefined ? {} : { settings: cleanSheetSettings(doc.settings) }), ...(rules.length ? { rules } : {}) };
   if (Buffer.byteLength(JSON.stringify(clean)) > LIMITS.docBytes) fail('This spreadsheet is too large to save.');
   return clean;
 }
@@ -312,7 +354,7 @@ export function padsHandler(pool) {
         const folder = await ownedFolder(b.folderId);
         const count = await db.query('SELECT count(*)::int AS count FROM public.pads WHERE owner_id=$1', [owner]);
         if (count.rows[0].count >= LIMITS.documents) fail(`You can create up to ${LIMITS.documents} documents.`);
-        const doc = kind === 'notepad' ? { version: 1, text: '' } : kind === 'sheet' ? { version: 1, rows: 50, cols: 12, cells: {} } : { version: 1, elements: [] };
+        const doc = kind === 'gantt' ? { version: 1 } : kind === 'notepad' ? { version: 1, text: '' } : kind === 'sheet' ? { version: 1, rows: 50, cols: 12, cells: {} } : { version: 1, elements: [] };
         result = { pad: (await db.query(`INSERT INTO public.pads(owner_id,name,description,kind,folder_id,doc) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING ${DOCUMENT_COLUMNS},doc`, [owner, padName, padDescription, kind, folder?.id ?? null, JSON.stringify(doc)])).rows[0] };
       } else {
         if (!uuid(b.padId)) fail('Invalid document.');
@@ -335,6 +377,7 @@ export function padsHandler(pool) {
           await db.query('DELETE FROM public.pads WHERE id=$1', [pad.id]);
           result = { deleted: true };
         } else if (b.action === 'savePad') {
+          if (pad.kind === 'gantt') fail('A Gantt calendar keeps its phases on its own.');
           if (pad.kind === 'sheet') {
             const sheet = cleanSheet(b.doc);
             const saved = (await db.query('UPDATE public.pads SET doc=$1::jsonb,updated_at=now() WHERE id=$2 RETURNING updated_at', [JSON.stringify(sheet), pad.id])).rows[0];
@@ -363,6 +406,7 @@ export function padsHandler(pool) {
           }
         } else {
           if (pad.kind === 'sheet') fail('Spreadsheets cannot hold pictures.');
+          if (pad.kind === 'gantt') fail('Gantt calendars cannot hold pictures.');
           if (b.action === 'uploadImage') {
             const { data, mime } = imageBytes(b.image);
             const count = await db.query('SELECT count(*)::int AS count FROM public.pad_images WHERE pad_id=$1', [pad.id]);

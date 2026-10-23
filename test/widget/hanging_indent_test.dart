@@ -54,7 +54,6 @@ Future<RichTextController> mount(WidgetTester tester, String text) async {
   return c.controller! as RichTextController;
 }
 
-
 /// Left edge and top of the caret at [offset].
 Rect caret(WidgetTester tester, int offset) =>
     editable(tester).getLocalRectForCaret(TextPosition(offset: offset));
@@ -189,7 +188,9 @@ void spaceTests() {
 }
 
 void tabStopTests() {
-  testWidgets('indents after text line up on the same tab stop', (tester) async {
+  testWidgets('indents after text line up on the same tab stop', (
+    tester,
+  ) async {
     final c = await mount(tester, 'a\tX\nabc\tY\nabcd\tW\nabcdef\tZ');
     final lines = c.text.split('\n');
     var at = 0;
@@ -218,7 +219,9 @@ void tabStopTests() {
     expect(c.text, 'onetwo');
   });
 
-  testWidgets('Tab after text in the editor inserts a tab stop', (tester) async {
+  testWidgets('Tab after text in the editor inserts a tab stop', (
+    tester,
+  ) async {
     final c = await mount(tester, 'word more');
     await tester.tap(find.byKey(const ValueKey('notepad-field')));
     await tester.pump(const Duration(milliseconds: 400));

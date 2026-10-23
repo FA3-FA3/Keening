@@ -60,7 +60,7 @@ void main() {
     (tester) async {
       await load(tester, docs(), 'reload-none');
       expect(tab('Dashboard'), findsOneWidget);
-      expect(tab('Gantt'), findsNothing);
+      expect(tab('Projects'), findsNothing);
       expect(selected(tester, 'Dashboard'), isTrue);
     },
   );
@@ -70,7 +70,7 @@ void main() {
   ) async {
     final api = docs();
     await load(tester, api, 'reload-tabs');
-    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('nav-Projects')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-Boards')));
     await tester.pumpAndSettle();
@@ -82,7 +82,7 @@ void main() {
 
     await load(tester, api, 'reload-tabs'); // the reload
 
-    for (final t in ['Dashboard', 'Gantt', 'Boards', 'Calendar']) {
+    for (final t in ['Dashboard', 'Projects', 'Boards', 'Calendar']) {
       expect(tab(t), findsOneWidget, reason: t);
     }
     expect(tab('Schedule'), findsNothing);
@@ -96,7 +96,7 @@ void main() {
   ) async {
     final api = docs();
     await load(tester, api, 'reload-order');
-    for (final n in ['Gantt', 'Boards', 'Calendar']) {
+    for (final n in ['Projects', 'Boards', 'Calendar']) {
       await tester.tap(find.byKey(ValueKey('nav-$n')));
       await tester.pumpAndSettle();
     }
@@ -105,7 +105,7 @@ void main() {
     await load(tester, api, 'reload-order');
     expect(tab('Boards'), findsNothing);
     expect(
-      tester.getTopLeft(tab('Gantt')).dx,
+      tester.getTopLeft(tab('Projects')).dx,
       lessThan(tester.getTopLeft(tab('Calendar')).dx),
     );
   });
@@ -195,12 +195,12 @@ void main() {
   testWidgets('different users do not share a remembered view', (tester) async {
     final api = docs();
     await load(tester, api, 'reload-user-a');
-    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('nav-Projects')));
     await tester.pumpAndSettle();
     await load(tester, api, 'reload-user-b');
-    expect(tab('Gantt'), findsNothing);
+    expect(tab('Projects'), findsNothing);
     await load(tester, api, 'reload-user-a');
-    expect(tab('Gantt'), findsOneWidget);
+    expect(tab('Projects'), findsOneWidget);
   });
 
   testWidgets('a damaged or old record is ignored', (tester) async {
@@ -210,7 +210,7 @@ void main() {
       '{"tabs": "x"}',
       '{"tabs": ["Nonsense", 5, null], "selected": "Nonsense"}',
       '{"tabs": ["doc:abc"], "docs": {"doc:abc": {"id": 5}}}',
-      '{"tabs": ["Gantt", "Gantt"], "selected": "Boards"}',
+      '{"tabs": ["Projects", "Projects"], "selected": "Boards"}',
     ]) {
       localWrite('reload-bad', bad);
       await load(tester, docs(), 'reload-bad');
@@ -220,11 +220,11 @@ void main() {
     // A record with some good and some bad tabs keeps the good ones.
     localWrite(
       'reload-bad',
-      '{"tabs": ["Nonsense", "Gantt", 5], "selected": "Gantt"}',
+      '{"tabs": ["Nonsense", "Projects", 5], "selected": "Projects"}',
     );
     await load(tester, docs(), 'reload-bad');
-    expect(tab('Gantt'), findsOneWidget);
-    expect(selected(tester, 'Gantt'), isTrue);
+    expect(tab('Projects'), findsOneWidget);
+    expect(selected(tester, 'Projects'), isTrue);
     expect(tab('Nonsense'), findsNothing);
   });
 
@@ -237,11 +237,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MaterialApp(home: DashboardPage(key: UniqueKey())));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('nav-Projects')));
     await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(MaterialApp(home: DashboardPage(key: UniqueKey())));
     await tester.pumpAndSettle();
-    expect(tab('Gantt'), findsNothing);
+    expect(tab('Projects'), findsNothing);
   });
 }

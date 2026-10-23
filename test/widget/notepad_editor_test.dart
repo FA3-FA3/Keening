@@ -78,7 +78,8 @@ void main() {
   testWidgets('typing autosaves after a short pause', (tester) async {
     final notes = await mount(tester);
     expect(find.text('Start typing…'), findsOneWidget);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'First line',
     );
@@ -89,12 +90,14 @@ void main() {
     expect(status(tester), 'Saved');
     expect(notes.saves, ['First line']);
     // Several quick edits are saved together.
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'First line!',
     );
     await tester.pump(const Duration(milliseconds: 10));
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'First line!!',
     );
@@ -106,7 +109,8 @@ void main() {
   testWidgets('failed saves can be retried', (tester) async {
     final notes = await mount(tester);
     notes.fail = true;
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Important',
     );
@@ -125,7 +129,8 @@ void main() {
     tester,
   ) async {
     final notes = await mount(tester);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Last words',
     );
@@ -138,7 +143,8 @@ void main() {
 
   testWidgets('a note is capped at its character limit', (tester) async {
     await mount(tester);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'x' * (notepadMaxCharacters + 50),
     );
@@ -208,20 +214,23 @@ void main() {
       runs: const [StyleRun(6, 11, TextFormat(bold: true))],
     );
     // Typing before a run moves it along; typing inside it stays formatted.
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello world',
     );
     await settle(tester);
     expect(notes.runs.last, [const StyleRun(9, 14, TextFormat(bold: true))]);
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello wXorld',
     );
     await settle(tester);
     expect(notes.runs.last, [const StyleRun(9, 15, TextFormat(bold: true))]);
     // Deleting all the formatted text removes the run.
-    await enterRich(tester, 
+    await enterRich(
+      tester,
       find.byKey(const ValueKey('notepad-field')),
       'Oh Hello ',
     );

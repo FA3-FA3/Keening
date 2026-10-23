@@ -72,4 +72,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Spreadsheets migration failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Projects migration failed.' }
 & $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\20-board-order.sql') $databaseUrl
 if ($LASTEXITCODE -ne 0) { throw 'Board order migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\21-people.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'People migration failed.' }
+& $psql.Source -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\22-gantt-documents.sql') $databaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Gantt documents migration failed.' }
 Write-Output 'Keening schema applied successfully.'

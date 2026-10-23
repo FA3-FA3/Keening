@@ -130,6 +130,265 @@ class SheetSettings {
   int get hashCode => Object.hash(gridlines, headers, columnWidth);
 }
 
+const _unset = Object();
+
+/// Conditional formatting: a rule colours the cells of a range whose value
+/// meets a condition. A sheet holds up to this many rules.
+const sheetMaxRules = 50;
+const sheetRuleValueChars = 200;
+
+/// What a conditional formatting rule tests a cell's value for.
+enum CfCondition {
+  gt('gt', 'is greater than', 1),
+  ge('ge', 'is greater than or equal to', 1),
+  lt('lt', 'is less than', 1),
+  le('le', 'is less than or equal to', 1),
+  eq('eq', 'is equal to', 1),
+  ne('ne', 'is not equal to', 1),
+  between('between', 'is between', 2),
+  contains('contains', 'contains', 1),
+  notContains('notContains', 'does not contain', 1),
+  beginsWith('beginsWith', 'begins with', 1),
+  endsWith('endsWith', 'ends with', 1),
+  empty('empty', 'is empty', 0),
+  notEmpty('notEmpty', 'is not empty', 0);
+
+  const CfCondition(this.code, this.label, this.needs);
+  final String code, label;
+
+  /// How many values the condition needs: none, one or two.
+  final int needs;
+
+  static CfCondition? fromCode(Object? code) {
+    for (final c in CfCondition.values) {
+      if (c.code == code) return c;
+    }
+    return null;
+  }
+}
+
+/// The look a rule gives its cells.
+typedef CfStyle = ({String? bg, String? fg, bool bold});
+
+/// A block of cells given as "A1" or "A1:C10" (either corner first).
+typedef CellRange = ({int r1, int c1, int r2, int c2});
+
+/// Reads "B2", "a1:c10" and the like; null if it is not a range, or lies
+/// outside [rows] x [cols] when those are given.
+CellRange? parseCellRange(String text, {int? rows, int? cols}) {
+  final parts = text.trim().split(':');
+  if (parts.isEmpty || parts.length > 2) return null;
+  final a = parseCellName(parts.first.trim());
+  final b = parts.length == 2 ? parseCellName(parts.last.trim()) : a;
+  if (a == null || b == null) return null;
+  final range = (
+    r1: math.min(a.row, b.row),
+    c1: math.min(a.col, b.col),
+    r2: math.max(a.row, b.row),
+    c2: math.max(a.col, b.col),
+  );
+  if (rows != null && range.r2 >= rows) return null;
+  if (cols != null && range.c2 >= cols) return null;
+  return range;
+}
+
+String cellRangeText(CellRange r) => r.r1 == r.r2 && r.c1 == r.c2
+    ? cellName(r.r1, r.c1)
+    : '${cellName(r.r1, r.c1)}:${cellName(r.r2, r.c2)}';
+
+/// One conditional formatting rule. Rules are immutable.
+class CfRule {
+  const CfRule({
+    required this.range,
+    required this.condition,
+    this.value = '',
+    this.value2 = '',
+    this.bg,
+    this.fg,
+    this.bold = false,
+  });
+
+  final CellRange range;
+  final CfCondition condition;
+
+  /// What the value is compared with (and the upper end for "between").
+  final String value, value2;
+
+  /// The fill and text colours ("#RRGGBB") the rule gives, if any.
+  final String? bg, fg;
+  final bool bold;
+
+  bool covers(int row, int col) =>
+      row >= range.r1 && row <= range.r2 && col >= range.c1 && col <= range.c2;
+
+  CfStyle get style => (bg: bg, fg: fg, bold: bold);
+
+  CfRule copyWith({
+    CellRange? range,
+    CfCondition? condition,
+    String? value,
+    String? value2,
+    Object? bg = _unset,
+    Object? fg = _unset,
+    bool? bold,
+  }) => CfRule(
+    range: range ?? this.range,
+    condition: condition ?? this.condition,
+    value: value ?? this.value,
+    value2: value2 ?? this.value2,
+    bg: identical(bg, _unset) ? this.bg : bg as String?,
+    fg: identical(fg, _unset) ? this.fg : fg as String?,
+    bold: bold ?? this.bold,
+  );
+
+  /// A short description, such as "is greater than 10".
+  String get summary => switch (condition.needs) {
+    0 => condition.label,
+    1 => '${condition.label} $value',
+    _ => '${condition.label} $value and $value2',
+  };
+
+  /// Whether a cell holding [v] (see [SheetEvaluator.valueAt]) meets the
+  /// condition.
+  bool matches(Object? v) {
+    final text = formatValue(v);
+    final isEmpty = v == null || text.isEmpty;
+    switch (condition) {
+      case CfCondition.empty:
+        return isEmpty;
+      case CfCondition.notEmpty:
+        return !isEmpty;
+      case CfCondition.contains:
+      case CfCondition.notContains:
+      case CfCondition.beginsWith:
+      case CfCondition.endsWith:
+        if (value.isEmpty) return false;
+        final t = text.toLowerCase(), w = value.toLowerCase();
+        return switch (condition) {
+          CfCondition.contains => t.contains(w),
+          CfCondition.notContains => !t.contains(w),
+          CfCondition.beginsWith => t.startsWith(w),
+          _ => t.endsWith(w),
+        };
+      case CfCondition.eq:
+      case CfCondition.ne:
+        final wanted = parseTyped(value);
+        final same = v is num && wanted is num
+            ? v == wanted
+            : text.trim().toLowerCase() == value.trim().toLowerCase();
+        return condition == CfCondition.eq ? same : !same;
+      case CfCondition.between:
+        final a = parseTyped(value), b = parseTyped(value2);
+        if (v is! num || a is! num || b is! num) return false;
+        return v >= math.min(a, b) && v <= math.max(a, b);
+      case CfCondition.gt:
+      case CfCondition.ge:
+      case CfCondition.lt:
+      case CfCondition.le:
+        final w = parseTyped(value);
+        if (v is! num || w is! num) return false;
+        return switch (condition) {
+          CfCondition.gt => v > w,
+          CfCondition.ge => v >= w,
+          CfCondition.lt => v < w,
+          _ => v <= w,
+        };
+    }
+  }
+
+  Map<String, dynamic> toJson() => {
+    'r': cellRangeText(range),
+    'c': condition.code,
+    if (condition.needs >= 1) 'v': value,
+    if (condition.needs >= 2) 'v2': value2,
+    if (bg != null) 'bg': bg!.toUpperCase(),
+    if (fg != null) 'fg': fg!.toUpperCase(),
+    if (bold) 'b': true,
+  };
+
+  /// Reads a stored rule; null if it is invalid or outside the sheet.
+  static CfRule? fromJson(
+    Object? json, {
+    required int rows,
+    required int cols,
+  }) {
+    if (json is! Map) return null;
+    final range = json['r'] is String
+        ? parseCellRange(json['r'] as String, rows: rows, cols: cols)
+        : null;
+    final condition = CfCondition.fromCode(json['c']);
+    if (range == null || condition == null) return null;
+    String hex(Object? v) =>
+        v is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(v)
+        ? v.toUpperCase()
+        : '';
+    String text(Object? v) =>
+        v is String && v.length <= sheetRuleValueChars ? v : '';
+    final bg = hex(json['bg']), fg = hex(json['fg']);
+    final bold = json['b'] == true;
+    if (bg.isEmpty && fg.isEmpty && !bold) return null;
+    return CfRule(
+      range: range,
+      condition: condition,
+      value: text(json['v']),
+      value2: text(json['v2']),
+      bg: bg.isEmpty ? null : bg,
+      fg: fg.isEmpty ? null : fg,
+      bold: bold,
+    );
+  }
+
+  /// The rule after rows or columns were inserted (positive [rowBy] and
+  /// [colBy]) or deleted (negative); null when its whole range was deleted.
+  CfRule? shifted({
+    int rowAt = 0,
+    int rowBy = 0,
+    int colAt = 0,
+    int colBy = 0,
+  }) {
+    (int, int)? span(int start, int end, int at, int by) {
+      if (by == 0) return (start, end);
+      if (by > 0) {
+        return (start >= at ? start + by : start, end >= at ? end + by : end);
+      }
+      final n = -by;
+      final s = start >= at + n
+          ? start - n
+          : start >= at
+          ? at
+          : start;
+      final e = end >= at + n
+          ? end - n
+          : end >= at
+          ? at - 1
+          : end;
+      return e < s ? null : (s, e);
+    }
+
+    final rows = span(range.r1, range.r2, rowAt, rowBy);
+    final cols = span(range.c1, range.c2, colAt, colBy);
+    if (rows == null || cols == null) return null;
+    return copyWith(
+      range: (r1: rows.$1, c1: cols.$1, r2: rows.$2, c2: cols.$2),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CfRule &&
+      other.range == range &&
+      other.condition == condition &&
+      other.value == value &&
+      other.value2 == value2 &&
+      other.bg == bg &&
+      other.fg == fg &&
+      other.bold == bold;
+
+  @override
+  int get hashCode =>
+      Object.hash(range, condition, value, value2, bg, fg, bold);
+}
+
 /// One cell: what was typed ([raw], a formula when it starts with "=") and its
 /// look. Cells are immutable.
 class SheetCell {
@@ -189,8 +448,10 @@ class SheetData {
     Map<CellKey, SheetCell>? cells,
     Map<int, double>? colWidths,
     this.settings = SheetSettings.standard,
+    List<CfRule>? rules,
   }) : cells = cells ?? {},
-       colWidths = colWidths ?? {};
+       colWidths = colWidths ?? {},
+       rules = rules ?? [];
 
   int rows, cols;
 
@@ -198,6 +459,31 @@ class SheetData {
   SheetSettings settings;
   final Map<CellKey, SheetCell> cells;
   final Map<int, double> colWidths;
+
+  /// The conditional formatting rules, first (highest priority) to last.
+  List<CfRule> rules;
+
+  /// What the rules give the cell at [row], [col] (the first rule to set a
+  /// colour wins), or null if none applies.
+  CfStyle? styleAt(int row, int col, SheetEvaluator eval) {
+    String? bg, fg;
+    var bold = false, any = false;
+    Object? value;
+    var read = false;
+    for (final rule in rules) {
+      if (!rule.covers(row, col)) continue;
+      if (!read) {
+        value = eval.valueAt(row, col);
+        read = true;
+      }
+      if (!rule.matches(value)) continue;
+      any = true;
+      bg ??= rule.bg;
+      fg ??= rule.fg;
+      bold = bold || rule.bold;
+    }
+    return any ? (bg: bg, fg: fg, bold: bold) : null;
+  }
 
   SheetCell cellAt(int row, int col) =>
       cells[(row, col)] ?? const SheetCell('');
@@ -210,6 +496,7 @@ class SheetData {
     cells: Map.of(cells),
     colWidths: Map.of(colWidths),
     settings: settings,
+    rules: List.of(rules),
   );
 
   /// Sets a cell (removing it when it becomes empty and plain).
@@ -305,6 +592,10 @@ class SheetData {
     cells
       ..clear()
       ..addAll(next);
+    rules = [
+      for (final rule in rules)
+        ?rule.shifted(rowAt: rowAt, rowBy: rowBy, colAt: colAt, colBy: colBy),
+    ];
   }
 
   // ------------------------------------------------------------------- JSON
@@ -322,6 +613,7 @@ class SheetData {
     if (colWidths.isNotEmpty)
       'widths': {for (final e in colWidths.entries) columnName(e.key): e.value},
     if (settings != SheetSettings.standard) 'settings': settings.toJson(),
+    if (rules.isNotEmpty) 'rules': [for (final r in rules) r.toJson()],
   };
 
   static SheetData fromJson(Object? json) {
@@ -350,6 +642,13 @@ class SheetData {
           ),
         );
       });
+    }
+    final rules = json['rules'];
+    if (rules is List) {
+      for (final r in rules.take(sheetMaxRules)) {
+        final rule = CfRule.fromJson(r, rows: data.rows, cols: data.cols);
+        if (rule != null) data.rules.add(rule);
+      }
     }
     final widths = json['widths'];
     if (widths is Map) {

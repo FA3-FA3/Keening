@@ -18,7 +18,7 @@ void main() {
     await tester.pumpAndSettle();
     for (final tab in [
       'Dashboard',
-      'Gantt',
+      'Projects',
       'Calendar',
       'Boards',
       'Schedule',
@@ -69,7 +69,7 @@ void main() {
       await tester.tap(find.byTooltip('Collapse sidebar'));
       await tester.pumpAndSettle();
       expect(tester.getSize(sidebar).width, 48);
-      expect(find.byKey(const ValueKey('nav-Gantt')), findsNothing);
+      expect(find.byKey(const ValueKey('nav-Projects')), findsNothing);
       expect(
         find.byKey(const ValueKey('workspace-tab-Dashboard')),
         findsOneWidget,
@@ -77,7 +77,7 @@ void main() {
       await tester.tap(find.byTooltip('Expand sidebar'));
       await tester.pumpAndSettle();
       expect(tester.getSize(sidebar).width, originalWidth);
-      expect(find.byKey(const ValueKey('nav-Gantt')), findsOneWidget);
+      expect(find.byKey(const ValueKey('nav-Projects')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -182,9 +182,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Calendar')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('workspace-empty')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('nav-Projects')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('close-tab-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('close-tab-Projects')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('workspace-page-Calendar')),
@@ -205,9 +205,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-Calendar')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('nav-Gantt')));
+    await tester.tap(find.byKey(const ValueKey('nav-Projects')));
     await tester.pumpAndSettle();
-    for (final tab in ['Dashboard', 'Calendar', 'Gantt']) {
+    for (final tab in ['Dashboard', 'Calendar', 'Projects']) {
       final label = find.descendant(
         of: find.byKey(ValueKey('workspace-tab-$tab')),
         matching: find.text(tab),
@@ -217,13 +217,13 @@ void main() {
     double x(String tab) =>
         tester.getTopLeft(find.byKey(ValueKey('tab-surface-$tab'))).dx;
     expect(x('Dashboard'), lessThan(x('Calendar')));
-    expect(x('Calendar'), lessThan(x('Gantt')));
+    expect(x('Calendar'), lessThan(x('Projects')));
     final dashboard = tester.getCenter(
       find.byKey(const ValueKey('workspace-tab-Dashboard')),
     );
     // Dragging from the label (anywhere but the handle) does nothing.
     final label = await tester.startGesture(
-      tester.getCenter(find.byKey(const ValueKey('workspace-tab-Gantt'))),
+      tester.getCenter(find.byKey(const ValueKey('workspace-tab-Projects'))),
     );
     await tester.pump(const Duration(milliseconds: 300));
     await label.moveTo(dashboard);
@@ -231,18 +231,21 @@ void main() {
     await label.up();
     await tester.pumpAndSettle();
     expect(x('Dashboard'), lessThan(x('Calendar')));
-    expect(x('Calendar'), lessThan(x('Gantt')));
+    expect(x('Calendar'), lessThan(x('Projects')));
     final drag = await tester.startGesture(
-      tester.getCenter(find.byKey(const ValueKey('tab-drag-Gantt'))),
+      tester.getCenter(find.byKey(const ValueKey('tab-drag-Projects'))),
     );
     await tester.pump(const Duration(milliseconds: 50));
     await drag.moveTo(dashboard);
     await tester.pump();
     await drag.up();
     await tester.pumpAndSettle();
-    expect(x('Gantt'), lessThan(x('Dashboard')));
+    expect(x('Projects'), lessThan(x('Dashboard')));
     expect(x('Dashboard'), lessThan(x('Calendar')));
-    expect(find.byKey(const ValueKey('workspace-page-Gantt')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workspace-page-Projects')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
   testWidgets('Documents opens from the sidebar as its own tab', (

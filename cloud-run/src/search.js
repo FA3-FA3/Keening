@@ -25,7 +25,7 @@ export function searchHandler(pool) {
       };
       const [folders, documents] = await Promise.all([
         optional('SELECT id, name, parent_id FROM public.pad_folders WHERE owner_id=$1'),
-        optional('SELECT id, name, description, kind, folder_id, doc FROM public.pads WHERE owner_id=$1'),
+        optional("SELECT id, name, description, kind, folder_id, doc FROM public.pads WHERE owner_id=$1 AND kind<>'gantt'"),
       ]);
       const all = [];
       const add =(type, page, item, extra = {}) => all.push({type, page, id: item.id, title: item.title ?? item.name, description: item.description ?? item.note ?? '', location: item.location ?? '', date: item.date ?? '', completed: item.completed === true, archived: item.archived === true, ...extra});

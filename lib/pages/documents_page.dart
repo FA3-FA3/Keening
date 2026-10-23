@@ -16,8 +16,10 @@ import '../utils/pads_service.dart';
 import '../utils/rich_text.dart';
 import '../utils/sheet_model.dart';
 import '../utils/document_defaults.dart';
+import '../utils/gantt_service.dart';
 import '../widgets/document_defaults_dialog.dart';
 import '../widgets/document_settings_dialogs.dart';
+import 'gantt_page.dart';
 import '../widgets/export_dialog.dart';
 import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
@@ -48,6 +50,12 @@ const documentTypes = [
     'Spreadsheet',
     Icons.grid_on_outlined,
     'A grid of cells with formulas. Imports and exports CSV files.',
+  ),
+  DocumentType(
+    'gantt',
+    'Gantt calendar',
+    Icons.view_timeline_outlined,
+    'A timeline of dated phases, with prerequisites and linked boards.',
   ),
 ];
 
@@ -92,9 +100,13 @@ class DocumentsPage extends StatefulWidget {
     this.io = const DocumentIo(),
     this.onOpenDocument,
     this.onDocumentsChanged,
+    this.ganttService,
   });
   final PadsService? service;
   final DocumentIo io;
+
+  /// Replaces the Gantt service of an open Gantt calendar (tests give a fake).
+  final GanttService? ganttService;
 
   /// Called with the document when the user opens one. When given (the
   /// dashboard does), the document is shown by the caller, in a tab of its
@@ -125,6 +137,12 @@ class _PadContent {
   const _PadContent(this.elements, this.page);
   final List<PadElement> elements;
   final PadPage page;
+}
+
+/// What a Gantt calendar opens with: nothing, as its phases are loaded by the
+/// timeline itself.
+class _GanttContent {
+  const _GanttContent();
 }
 
 /// A Notepad's text with its formatting.
@@ -439,6 +457,10 @@ class _DocumentsPageState extends State<DocumentsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
+
+  /// True in the mobile layout: the app is taller than it is wide.
+  bool _portrait(BuildContext context) =>
+      MediaQuery.orientationOf(context) == Orientation.portrait;
 
   // -------------------------------------------------------------- documents
 
@@ -822,6 +844,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
         attachDrop: widget.attachDrop ?? defaultAttachDrop,
         io: widget.io,
         onClose: _closeDocument,
+        ganttService: widget.ganttService,
       );
     }
     final folders = _folders.where((f) => f['parent_id'] == _current).toList();
@@ -853,29 +876,53 @@ class _DocumentsPageState extends State<DocumentsPage> {
                       child: Text(type.label),
                     ),
                 ],
-                builder: (context, controller, _) => FilledButton.tonalIcon(
-                  key: const ValueKey('document-create'),
-                  onPressed: _loading
-                      ? null
-                      : () => controller.isOpen
-                            ? controller.close()
-                            : controller.open(),
-                  icon: const Icon(Icons.note_add_outlined),
-                  label: const Text('New document'),
-                ),
+                builder: (context, controller, _) {
+                  void toggle() => controller.isOpen
+                      ? controller.close()
+                      : controller.open();
+                  // In portrait (the mobile layout) the three buttons are just
+                  // their icons.
+                  return _portrait(context)
+                      ? IconButton.filledTonal(
+                          key: const ValueKey('document-create'),
+                          tooltip: 'New document',
+                          onPressed: _loading ? null : toggle,
+                          icon: const Icon(Icons.note_add_outlined),
+                        )
+                      : FilledButton.tonalIcon(
+                          key: const ValueKey('document-create'),
+                          onPressed: _loading ? null : toggle,
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: const Text('New document'),
+                        );
+                },
               ),
-              OutlinedButton.icon(
-                key: const ValueKey('folder-create'),
-                onPressed: _loading ? null : _newFolder,
-                icon: const Icon(Icons.create_new_folder_outlined),
-                label: const Text('New folder'),
-              ),
-              OutlinedButton.icon(
-                key: const ValueKey('document-defaults'),
-                onPressed: () => showDocumentDefaultsDialog(context),
-                icon: const Icon(Icons.tune),
-                label: const Text('Default settings'),
-              ),
+              _portrait(context)
+                  ? IconButton.outlined(
+                      key: const ValueKey('folder-create'),
+                      tooltip: 'New folder',
+                      onPressed: _loading ? null : _newFolder,
+                      icon: const Icon(Icons.create_new_folder_outlined),
+                    )
+                  : OutlinedButton.icon(
+                      key: const ValueKey('folder-create'),
+                      onPressed: _loading ? null : _newFolder,
+                      icon: const Icon(Icons.create_new_folder_outlined),
+                      label: const Text('New folder'),
+                    ),
+              _portrait(context)
+                  ? IconButton.outlined(
+                      key: const ValueKey('document-defaults'),
+                      tooltip: 'Default settings',
+                      onPressed: () => showDocumentDefaultsDialog(context),
+                      icon: const Icon(Icons.tune),
+                    )
+                  : OutlinedButton.icon(
+                      key: const ValueKey('document-defaults'),
+                      onPressed: () => showDocumentDefaultsDialog(context),
+                      icon: const Icon(Icons.tune),
+                      label: const Text('Default settings'),
+                    ),
               IconButton(
                 tooltip: 'Refresh documents',
                 onPressed: _loading ? null : _load,
@@ -945,7 +992,9 @@ Object _payloadOf(Map<String, dynamic> pad) {
   final doc = pad['doc'] == null
       ? null
       : Map<String, dynamic>.from(pad['doc'] as Map);
-  return pad['kind'] == 'sheet'
+  return pad['kind'] == 'gantt'
+      ? const _GanttContent()
+      : pad['kind'] == 'sheet'
       ? SheetData.fromJson(doc)
       : pad['kind'] == 'notepad'
       ? _Note(
@@ -1262,12 +1311,12 @@ class _FullScreenResult {
 
 /// The way back to the document grid, the document's name and the full screen
 /// button, shared by the editors.
-AppBar _documentBar(
+PreferredSizeWidget _documentBar(
   BuildContext context,
   Map<String, dynamic> document, {
   required _DocView view,
   required Object Function() snapshot,
-  required VoidCallback onSettings,
+  VoidCallback? onSettings,
   List<Widget> actions = const [],
 }) => AppBar(
   leading: IconButton(
@@ -1282,12 +1331,13 @@ AppBar _documentBar(
   ),
   actions: [
     ...actions,
-    IconButton(
-      key: const ValueKey('doc-settings'),
-      tooltip: 'Document settings',
-      icon: const Icon(Icons.tune),
-      onPressed: onSettings,
-    ),
+    if (onSettings != null)
+      IconButton(
+        key: const ValueKey('doc-settings'),
+        tooltip: 'Document settings',
+        icon: const Icon(Icons.tune),
+        onPressed: onSettings,
+      ),
     IconButton(
       key: const ValueKey('doc-fullscreen'),
       tooltip: view.fullScreen ? 'Exit full screen' : 'Full screen',
@@ -1295,6 +1345,27 @@ AppBar _documentBar(
       onPressed: () => view.onToggle(snapshot()),
     ),
   ],
+);
+
+/// The page of an open document: its bar and the editor.
+Widget _documentScaffold(
+  BuildContext context,
+  Map<String, dynamic> document, {
+  required _DocView view,
+  required Object Function() snapshot,
+  VoidCallback? onSettings,
+  List<Widget> actions = const [],
+  required Widget body,
+}) => Scaffold(
+  appBar: _documentBar(
+    context,
+    document,
+    view: view,
+    snapshot: snapshot,
+    onSettings: onSettings,
+    actions: actions,
+  ),
+  body: body,
 );
 
 Widget _exportAction(VoidCallback onPressed) => IconButton(
@@ -1383,15 +1454,13 @@ class _PadScreenState extends State<_PadScreen> {
   Widget build(BuildContext context) {
     final padId = widget.pad['id'] as String;
     final service = widget.service;
-    return Scaffold(
-      appBar: _documentBar(
-        context,
-        widget.pad,
-        view: widget.view,
-        snapshot: () => _PadContent(_handle.elements(), _page),
-        onSettings: () => _handle.openSettings(),
-        actions: [_exportAction(_export)],
-      ),
+    return _documentScaffold(
+      context,
+      widget.pad,
+      view: widget.view,
+      snapshot: () => _PadContent(_handle.elements(), _page),
+      onSettings: () => _handle.openSettings(),
+      actions: [_exportAction(_export)],
       body: PadEditor(
         key: ValueKey('pad-editor-$padId'),
         initialElements: widget.content.elements,
@@ -1610,23 +1679,21 @@ class _NoteScreenState extends State<_NoteScreen> {
   @override
   Widget build(BuildContext context) {
     final document = widget.document, service = widget.service;
-    return Scaffold(
-      appBar: _documentBar(
-        context,
-        document,
-        view: widget.view,
-        snapshot: () => _Note(_handle.text(), _handle.runs(), _settings),
-        onSettings: _openSettings,
-        actions: [
-          IconButton(
-            key: const ValueKey('note-import'),
-            tooltip: 'Import a Word, PDF or text file…',
-            icon: const Icon(Icons.file_upload_outlined),
-            onPressed: _import,
-          ),
-          _exportAction(_export),
-        ],
-      ),
+    return _documentScaffold(
+      context,
+      document,
+      view: widget.view,
+      snapshot: () => _Note(_handle.text(), _handle.runs(), _settings),
+      onSettings: _openSettings,
+      actions: [
+        IconButton(
+          key: const ValueKey('note-import'),
+          tooltip: 'Import a Word, PDF or text file…',
+          icon: const Icon(Icons.file_upload_outlined),
+          onPressed: _import,
+        ),
+        _exportAction(_export),
+      ],
       body: NotepadEditor(
         key: ValueKey('note-editor-${document['id']}'),
         initialText: widget.note.text,
@@ -1766,23 +1833,21 @@ class _SheetScreenState extends State<_SheetScreen> {
   @override
   Widget build(BuildContext context) {
     final document = widget.document;
-    return Scaffold(
-      appBar: _documentBar(
-        context,
-        document,
-        view: widget.view,
-        snapshot: () => _handle.data(),
-        onSettings: _openSettings,
-        actions: [
-          IconButton(
-            key: const ValueKey('sheet-import'),
-            tooltip: 'Import a CSV file…',
-            icon: const Icon(Icons.file_upload_outlined),
-            onPressed: _import,
-          ),
-          _exportAction(_export),
-        ],
-      ),
+    return _documentScaffold(
+      context,
+      document,
+      view: widget.view,
+      snapshot: () => _handle.data(),
+      onSettings: _openSettings,
+      actions: [
+        IconButton(
+          key: const ValueKey('sheet-import'),
+          tooltip: 'Import a CSV file…',
+          icon: const Icon(Icons.file_upload_outlined),
+          onPressed: _import,
+        ),
+        _exportAction(_export),
+      ],
       body: SheetEditor(
         key: ValueKey('sheet-editor-${document['id']}'),
         initialData: widget.sheet,
@@ -1799,6 +1864,35 @@ class _SheetScreenState extends State<_SheetScreen> {
   }
 }
 
+/// A Gantt calendar: its timeline, with a way back and the full screen button.
+/// Its name, colour... are changed (and it is deleted) from the document grid.
+class _GanttScreen extends StatelessWidget {
+  const _GanttScreen({
+    required this.document,
+    required this.view,
+    this.searchTarget,
+    this.service,
+  });
+  final Map<String, dynamic> document;
+  final _DocView view;
+  final Map<String, dynamic>? searchTarget;
+  final GanttService? service;
+
+  @override
+  Widget build(BuildContext context) => _documentScaffold(
+    context,
+    document,
+    view: view,
+    snapshot: () => const _GanttContent(),
+    body: GanttPage(
+      key: ValueKey('gantt-${document['id']}'),
+      calendarId: document['id'] as String,
+      service: service,
+      searchTarget: searchTarget,
+    ),
+  );
+}
+
 /// An open document: its editor, with the full screen button. It is shown in
 /// the Documents page, or by the dashboard in a tab of its own. [payload] is
 /// what the editor starts from (see [DocumentTab], which loads it).
@@ -1813,8 +1907,12 @@ class DocumentViewer extends StatefulWidget {
     required this.io,
     required this.onClose,
     this.closeTooltip = 'Back to documents',
+    this.searchTarget,
+    this.ganttService,
   });
   final Map<String, dynamic> document;
+  final Map<String, dynamic>? searchTarget;
+  final GanttService? ganttService;
   final Object? payload;
   final PadsService service;
   final Duration autosaveDelay;
@@ -1836,7 +1934,14 @@ class _DocumentViewerState extends State<DocumentViewer> {
 
   Widget _screen(_DocView view) {
     final doc = widget.document;
-    return doc['kind'] == 'sheet'
+    return doc['kind'] == 'gantt'
+        ? _GanttScreen(
+            document: doc,
+            view: view,
+            searchTarget: widget.searchTarget,
+            service: widget.ganttService,
+          )
+        : doc['kind'] == 'sheet'
         ? _SheetScreen(
             document: doc,
             sheet: _payload as SheetData? ?? SheetData(),
@@ -1934,7 +2039,16 @@ class DocumentTab extends StatefulWidget {
     this.attachDrop,
     this.io = const DocumentIo(),
     this.closeIfMissing = false,
+    this.searchTarget,
+    this.ganttService,
   });
+
+  /// Replaces the Gantt service of a Gantt calendar (tests give a fake).
+  final GanttService? ganttService;
+
+  /// A search result or project item to bring up in the document (a phase of
+  /// a Gantt calendar).
+  final Map<String, dynamic>? searchTarget;
 
   /// True for a tab remembered from last time: if its document has been
   /// deleted since, the tab just closes instead of showing an error.
@@ -2013,6 +2127,8 @@ class _DocumentTabState extends State<DocumentTab> {
         io: widget.io,
         onClose: widget.onClose,
         closeTooltip: 'Close tab',
+        searchTarget: widget.searchTarget,
+        ganttService: widget.ganttService,
       );
     }
     return Center(

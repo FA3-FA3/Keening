@@ -86,6 +86,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Projects migration failed.' }
     & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\20-board-order.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
     if ($LASTEXITCODE -ne 0) { throw 'Board order migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\21-people.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'People migration failed.' }
+    & (Join-Path $pgBin 'psql.exe') -X -v ON_ERROR_STOP=1 -f (Join-Path $projectRoot 'postgres\init\22-gantt-documents.sql') 'postgresql://keening_local@127.0.0.1:55440/postgres'
+    if ($LASTEXITCODE -ne 0) { throw 'Gantt documents migration failed.' }
     Start-ServiceProcess 'auth'
     Wait-Url 'http://127.0.0.1:9099/'
   }

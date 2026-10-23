@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'remembered_login.dart';
 
 class AccountService {
   AccountService({FirebaseAuth? auth}) : _auth = auth ?? FirebaseAuth.instance;
@@ -21,6 +22,17 @@ class AccountService {
       }
       if (action == 'password') {
         await user.updatePassword(values['password']!);
+        // A password remembered on this device is the new one from now on.
+        final store = loginStore;
+        if (store != null) {
+          try {
+            if (await store.read() != null) {
+              await store.write(user.email!, values['password']!);
+            }
+          } catch (_) {
+            // The next start asks for the password instead.
+          }
+        }
         return 'Password changed. Use your new password next time you sign in.';
       }
       throw StateError('Unknown account change.');

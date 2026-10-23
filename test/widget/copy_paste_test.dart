@@ -401,7 +401,8 @@ void main() {
       tester,
     ) async {
       final c = await mount(tester, text: 'ab');
-      await enterRich(tester, 
+      await enterRich(
+        tester,
         find.byKey(const ValueKey('notepad-field')),
         'a${embedChar}b',
       );

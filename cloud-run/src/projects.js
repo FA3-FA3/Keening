@@ -109,7 +109,7 @@ export function projectsHandler(pool) {
           db.query('SELECT id,name,color FROM public.gantt_calendars WHERE owner_id=$1 ORDER BY lower(name),id', [owner]),
           db.query('SELECT id,name FROM public.board_workplaces WHERE owner_id=$1 ORDER BY lower(name),id', [owner]),
           db.query('SELECT id,name,parent_id FROM public.pad_folders WHERE owner_id=$1 ORDER BY lower(name),id', [owner]),
-          db.query('SELECT id,name,kind,folder_id FROM public.pads WHERE owner_id=$1 ORDER BY lower(name),id', [owner]),
+          db.query("SELECT id,name,kind,folder_id FROM public.pads WHERE owner_id=$1 AND kind<>'gantt' ORDER BY lower(name),id", [owner]),
         ]);
         result = {
           gantt: gantt.rows,
@@ -171,7 +171,7 @@ export function projectsHandler(pool) {
           const directIds = ids('document');
           const documents = await db.query(`SELECT id,name,description,kind,folder_id,updated_at,
               CASE WHEN kind='notepad' THEN left(doc->>'text',240) END AS preview
-            FROM public.pads WHERE owner_id=$1 AND (id=ANY($2::uuid[]) OR folder_id=ANY($3::uuid[]))
+            FROM public.pads WHERE owner_id=$1 AND kind<>'gantt' AND (id=ANY($2::uuid[]) OR folder_id=ANY($3::uuid[]))
             ORDER BY updated_at DESC,id LIMIT ${LIMITS.documents}`, [owner, directIds, [...tree]]);
           result = {
             project,

@@ -4,11 +4,7 @@ import 'package:keening/widgets/hang_text.dart';
 
 /// Like [WidgetTester.enterText], but also for the document editors' field
 /// (the tester only knows Flutter's own editable text).
-Future<void> enterRich(
-  WidgetTester tester,
-  Finder finder,
-  String text,
-) async {
+Future<void> enterRich(WidgetTester tester, Finder finder, String text) async {
   final inner = find.descendant(
     of: finder,
     matching: find.byType(HangEditableText),

@@ -15,6 +15,7 @@ import '../utils/pad_model.dart';
 import '../utils/rich_text.dart';
 import 'equation_editor.dart';
 import 'image_cropper.dart';
+import 'collapsible_toolbar.dart';
 import 'insert_tool.dart';
 import 'pad_page_dialog.dart';
 import 'text_format_bar.dart';
@@ -1861,7 +1862,7 @@ class _PadEditorState extends State<PadEditor> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _toolbar(),
+      CollapsibleToolbar(child: _toolbar()),
       const Divider(height: 1),
       Expanded(
         child: Row(

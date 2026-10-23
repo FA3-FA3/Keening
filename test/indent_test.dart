@@ -105,13 +105,16 @@ void caretIndentTests() {
     typingGap: Duration.zero,
     fallback: () => TextFormat.plain,
   );
-  test('indenting after a character leaves the text before the caret alone', () {
-    final c = make('one\ntwo three');
-    c.selection = const TextSelection.collapsed(offset: 7); // after "two"
-    c.indent(1);
-    expect(c.text, 'one\ntwo\t three');
-    expect(c.selection, const TextSelection.collapsed(offset: 8));
-  });
+  test(
+    'indenting after a character leaves the text before the caret alone',
+    () {
+      final c = make('one\ntwo three');
+      c.selection = const TextSelection.collapsed(offset: 7); // after "two"
+      c.indent(1);
+      expect(c.text, 'one\ntwo\t three');
+      expect(c.selection, const TextSelection.collapsed(offset: 8));
+    },
+  );
 
   test('indenting at the end of a line adds the indent there', () {
     final c = make('abc');

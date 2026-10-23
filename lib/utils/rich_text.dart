@@ -50,6 +50,10 @@ const _keep = Object();
 /// Stands in the text for each picture or equation placed in a Notepad.
 const embedChar = '\uFFFC';
 
+/// A line holding only this character is a page break: what follows it starts
+/// on a new page.
+const pageBreakChar = '\f';
+
 /// A picture or an equation placed in the text. It occupies one character
 /// ([embedChar]) so it moves, copies and deletes with the text around it.
 @immutable
@@ -720,6 +724,11 @@ class RichTextController extends TextEditingController {
   )?
   embedBuilder;
 
+  /// Draws a page break (a [pageBreakChar] in the text); without one it is a
+  /// plain character. [index] is its current position.
+  Widget Function(BuildContext context, int index, TextStyle? style)?
+  pageBreakBuilder;
+
   /// Indenting stops rather than push the text past this many characters.
   final int? maxLength;
 
@@ -1352,6 +1361,22 @@ class RichTextController extends TextEditingController {
     return true;
   }
 
+  /// Starts a new page at the caret: puts a page break on a line of its own
+  /// and the caret on the line after it.
+  bool insertPageBreak() {
+    final r = _range;
+    final before = r.start == 0 || text[r.start - 1] == '\n' ? '' : '\n';
+    final needsNewline = r.end >= text.length || text[r.end] != '\n';
+    final after = needsNewline ? '\n' : '';
+    if (!insertText('$before$pageBreakChar$after')) return false;
+    if (!needsNewline) {
+      // The line break that was already there ends the page break's line; the
+      // caret goes past it, to the start of the next line.
+      selection = TextSelection.collapsed(offset: r.start + before.length + 2);
+    }
+    return true;
+  }
+
   /// Places a picture or equation at the caret, replacing any selection.
   bool insertEmbed(Embed embed) => insertText(embedChar, embed: embed);
 
@@ -1466,6 +1491,35 @@ class RichTextController extends TextEditingController {
         }
       } else if (_formats[i].scripted) {
         children.addAll(scriptSpans(text.substring(i, j), _formats[i], style));
+      } else if (pageBreakBuilder != null &&
+          text.substring(i, j).contains(pageBreakChar)) {
+        // Each page break is a widget as tall as the space to the next page.
+        ascent ??= _textAscent(style);
+        var from = i;
+        for (var k = i; k < j; k++) {
+          if (text[k] != pageBreakChar) continue;
+          if (k > from) {
+            children.add(
+              TextSpan(text: text.substring(from, k), style: _formats[i].style),
+            );
+          }
+          children.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.baseline,
+              baseline: TextBaseline.alphabetic,
+              child: BaselineAt(
+                distance: ascent,
+                child: pageBreakBuilder!(context, k, style),
+              ),
+            ),
+          );
+          from = k + 1;
+        }
+        if (from < j) {
+          children.add(
+            TextSpan(text: text.substring(from, j), style: _formats[i].style),
+          );
+        }
       } else {
         children.add(
           TextSpan(text: text.substring(i, j), style: _formats[i].style),

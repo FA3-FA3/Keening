@@ -1314,12 +1314,15 @@ class HangRenderEditable extends RenderBox
   /// the closest position to a given point.
   ///
   /// See [TextPainter.getBoxesForSelection] for more details.
-  List<TextBox> getBoxesForSelection(TextSelection selection) {
+  List<TextBox> getBoxesForSelection(
+    TextSelection selection, {
+    ui.BoxHeightStyle? boxHeightStyle,
+  }) {
     _computeTextMetricsIfNeeded();
     return _textPainter
         .getBoxesForSelection(
           selection,
-          boxHeightStyle: selectionHeightStyle,
+          boxHeightStyle: boxHeightStyle ?? selectionHeightStyle,
           boxWidthStyle: selectionWidthStyle,
         )
         .map(

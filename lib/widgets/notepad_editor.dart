@@ -1,6 +1,8 @@
+import 'dart:ui' as ui;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../forked/render_editable.dart' show HangRenderEditable;
+import 'collapsible_toolbar.dart';
 import '../forked/text_field.dart';
 import 'package:flutter/services.dart';
 
@@ -94,7 +96,7 @@ class PageBreakPainter extends CustomPainter {
 enum _SaveState { saved, dirty, saving, error }
 
 /// The tools down the left side (the insert tool sits below them).
-enum NoteTool { select, text }
+enum NoteTool { select, text, insert }
 
 /// A page of text that autosaves, like a regular notepad. Like the Dynamic Pad
 /// it has its tools down the left (select, text and insert) and the settings of
@@ -178,6 +180,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
   void initState() {
     super.initState();
     _controller.embedBuilder = _buildEmbed;
+    _controller.pageBreakBuilder = _buildPageBreak;
     widget.handle
       ?..text = (() => _controller.text)
       ..runs = (() => _controller.runs)
@@ -217,6 +220,43 @@ class _NotepadEditorState extends State<NotepadEditor> {
     );
   }
 
+  /// A page break: as tall as the space left on its page (see [_syncPictures]),
+  /// so the text after it starts on the next one. With pages off it is a small
+  /// divider.
+  Widget _buildPageBreak(BuildContext context, int index, TextStyle? style) {
+    final muted = widget.settings.mutedColour;
+    return KeyedSubtree(
+      key: _breakKeys.putIfAbsent(index, GlobalKey.new),
+      child: SizedBox(
+        key: const ValueKey('note-page-break'),
+        width: 140,
+        height: _breakHeights[index] ?? _breakMinHeight,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Text(
+            'Page break',
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.5,
+              color: muted,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _insertPageBreak() {
+    _releaseSelection();
+    if (!_controller.insertPageBreak()) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('This note is full.')));
+    }
+    _changed('');
+  }
+
   /// A picture or equation can be dragged to another place in the text.
   Widget _movable(int index, Widget content) {
     // An opaque backing, so the whole picture takes the press (a picture
@@ -241,6 +281,12 @@ class _NotepadEditorState extends State<NotepadEditor> {
   final _fieldArea = GlobalKey();
   final _scroll = ScrollController();
   final _pictureKeys = <int, GlobalKey>{};
+  final _breakKeys = <int, GlobalKey>{};
+
+  /// How tall each page break (by its place in the text) is, worked out from
+  /// where it falls on the page.
+  final _breakHeights = <int, double>{};
+  static const _breakMinHeight = 24.0;
 
   /// Where each picture is on the page, in the coordinates of [_fieldArea].
   /// The text field only passes presses to a strip of a picture as tall as a
@@ -286,7 +332,65 @@ class _NotepadEditorState extends State<NotepadEditor> {
           (next[i].rect.width - _pictures[i].rect.width).abs() < 0.5 &&
           (next[i].rect.height - _pictures[i].rect.height).abs() < 0.5;
     }
-    if (!same) setState(() => _pictures = next);
+    var breaksChanged = false;
+    if (area is RenderBox && area.hasSize) {
+      final text = _controller.text;
+      final pages = widget.settings.pages;
+      final editable = _renderEditable();
+      for (
+        var i = text.indexOf(pageBreakChar);
+        i >= 0;
+        i = text.indexOf(pageBreakChar, i + 1)
+      ) {
+        final box = _breakKeys[i]?.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+        // Where the break's line starts down the whole note (the framework
+        // reports it without the scrolling).
+        final top = area.globalToLocal(box.localToGlobal(Offset.zero)).dy;
+        var want = _breakMinHeight;
+        if (pages) {
+          // Where the line after the break (the one holding the next
+          // character) actually starts, when there is one.
+          double? next;
+          if (editable != null && i + 2 < text.length) {
+            final boxes = editable.getBoxesForSelection(
+              TextSelection(baseOffset: i + 2, extentOffset: i + 3),
+              boxHeightStyle: ui.BoxHeightStyle.max,
+            );
+            if (boxes.isNotEmpty) {
+              next = area
+                  .globalToLocal(
+                    editable.localToGlobal(
+                      // (The boxes are where the text is painted, so the
+                      // scrolling is added back.)
+                      Offset(0, boxes.first.top + editable.offset.pixels),
+                    ),
+                  )
+                  .dy;
+            }
+          }
+          // Make the next line start on a page boundary: the first one at
+          // least a line below the top of the break.
+          var boundary = notepadPageMargin + notepadPageContent;
+          double heightFor(double boundary) => next == null
+              ? boundary - top
+              : box.size.height + (boundary - next);
+          while (heightFor(boundary) < _breakMinHeight) {
+            boundary += notepadPageContent;
+          }
+          want = heightFor(boundary);
+        }
+        if (((_breakHeights[i] ?? _breakMinHeight) - want).abs() > 0.5) {
+          _breakHeights[i] = want;
+          breaksChanged = true;
+        }
+      }
+    }
+    if (!same || breaksChanged) {
+      setState(() {
+        if (!same) _pictures = next;
+      });
+    }
   }
 
   /// Handles over the pictures: a click puts the caret before or after the
@@ -727,16 +831,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
         children: [
           _toolButton(NoteTool.select, Icons.near_me_outlined, 'Select'),
           _toolButton(NoteTool.text, Icons.text_fields, 'Text'),
-          InsertTool(
-            imagesEnabled: widget.onUploadImage != null,
-            busy: _busyImages > 0,
-            pickImage: widget.pickImage,
-            onOpen: _holdSelection,
-            onClose: _releaseSelection,
-            onImage: _insertImage,
-            onSymbol: _insertSymbol,
-            onEquation: _insertEquation,
-          ),
+          _toolButton(NoteTool.insert, Icons.add_box_outlined, 'Insert'),
         ],
       ),
     ),
@@ -765,6 +860,21 @@ class _NotepadEditorState extends State<NotepadEditor> {
             // Choices made at the caret carry over to new text anywhere.
             if (!_controller.hasSelection) TextTool.shared.format = format;
           },
+        );
+      }
+      if (_tool == NoteTool.insert) {
+        return InsertBar(
+          imagesEnabled: widget.onUploadImage != null,
+          busy: _busyImages > 0,
+          pickImage: widget.pickImage,
+          onOpen: _holdSelection,
+          onClose: _releaseSelection,
+          onImage: _insertImage,
+          onSymbol: _insertSymbol,
+          onEquation: _insertEquation,
+          onPageBreak: _insertPageBreak,
+          onUndo: _controller.canUndo ? _controller.undo : null,
+          onRedo: _controller.canRedo ? _controller.redo : null,
         );
       }
       return Wrap(
@@ -798,7 +908,9 @@ class _NotepadEditorState extends State<NotepadEditor> {
     final settings = widget.settings;
     final pages = settings.pages;
     // Keep the handles over the pictures in step with the page.
-    if (_pictures.isNotEmpty || _controller.text.contains(embedChar)) {
+    if (_pictures.isNotEmpty ||
+        _controller.text.contains(embedChar) ||
+        _controller.text.contains(pageBreakChar)) {
       _queueSync();
     }
     final status = switch (_state) {
@@ -810,11 +922,13 @@ class _NotepadEditorState extends State<NotepadEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [Expanded(child: _settings())],
+        CollapsibleToolbar(
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [Expanded(child: _settings())],
+            ),
           ),
         ),
         const Divider(height: 1),
@@ -830,208 +944,231 @@ class _NotepadEditorState extends State<NotepadEditor> {
                   color: pages
                       ? Theme.of(context).colorScheme.surfaceContainerHighest
                       : settings.backgroundColour,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: pages ? notepadPageWidth : double.infinity,
-                      ),
-                      child: DecoratedBox(
-                        key: const ValueKey('notepad-page'),
-                        decoration: BoxDecoration(
-                          color: settings.backgroundColour,
-                          boxShadow: pages
-                              ? const [
-                                  BoxShadow(
-                                    color: Color(0x33000000),
-                                    blurRadius: 10,
-                                    offset: Offset(0, 1),
-                                  ),
-                                ]
-                              : null,
+                  // The scroll bar belongs to the window, not the page: it sits at the
+                  // edge of the desk, not against the side of the A4 sheet. (The
+                  // field's own bar, which would hug the page, is turned off below.)
+                  child: Scrollbar(
+                    key: const ValueKey('notepad-scrollbar'),
+                    controller: _scroll,
+                    notificationPredicate: (n) =>
+                        n.metrics.axis == Axis.vertical,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: pages ? notepadPageWidth : double.infinity,
                         ),
-                        child: DragTarget<int>(
-                          key: _fieldArea,
-                          onWillAcceptWithDetails: (_) => true,
-                          // The caret follows the dragged picture, showing where it
-                          // will land.
-                          onMove: (details) {
-                            final at = _textOffsetAt(details.offset);
-                            if (at != null) {
-                              _controller.selection = TextSelection.collapsed(
-                                offset: at,
-                              );
-                            }
-                          },
-                          onAcceptWithDetails: (details) {
-                            final at = _textOffsetAt(details.offset);
-                            if (at != null) {
-                              _controller.moveEmbed(details.data, at);
-                            }
-                          },
-                          builder: (context, _, _) => Stack(
-                            children: [
-                              Shortcuts(
-                                shortcuts: indentShortcuts,
-                                child: Actions(
-                                  // Undo covers formatting too, so it replaces the field's own.
-                                  actions: {
-                                    ToggleStyleIntent:
-                                        CallbackAction<ToggleStyleIntent>(
-                                          onInvoke: (intent) {
-                                            final format = _controller.toggle(
-                                              intent.style,
-                                            );
-                                            // Choices made at the caret carry over to new text.
-                                            if (!_controller.hasSelection) {
-                                              TextTool.shared.format = format;
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                    BulletEnterIntent: BulletEnterAction(
-                                      () => _controller,
+                        child: DecoratedBox(
+                          key: const ValueKey('notepad-page'),
+                          decoration: BoxDecoration(
+                            color: settings.backgroundColour,
+                            boxShadow: pages
+                                ? const [
+                                    BoxShadow(
+                                      color: Color(0x33000000),
+                                      blurRadius: 10,
+                                      offset: Offset(0, 1),
                                     ),
-                                    BulletsIntent:
-                                        CallbackAction<BulletsIntent>(
-                                          onInvoke: (_) {
-                                            _controller.toggleBullets();
-                                            return null;
-                                          },
-                                        ),
-                                    IndentIntent: CallbackAction<IndentIntent>(
-                                      onInvoke: (intent) {
-                                        _controller.indent(intent.direction);
-                                        return null;
-                                      },
-                                    ),
-                                    UndoTextIntent:
-                                        CallbackAction<UndoTextIntent>(
-                                          onInvoke: (_) => _controller.undo(),
-                                        ),
-                                    RedoTextIntent:
-                                        CallbackAction<RedoTextIntent>(
-                                          onInvoke: (_) => _controller.redo(),
-                                        ),
-                                    // Copy, cut and paste keep formatting, equations and
-                                    // pictures, which the field's own versions would lose.
-                                    // (Cut is a copy that also removes the selection.)
-                                    CopySelectionTextIntent:
-                                        CallbackAction<CopySelectionTextIntent>(
-                                          onInvoke: (intent) => _copy(
-                                            cut: intent.collapseSelection,
+                                  ]
+                                : null,
+                          ),
+                          child: DragTarget<int>(
+                            key: _fieldArea,
+                            onWillAcceptWithDetails: (_) => true,
+                            // The caret follows the dragged picture, showing where it
+                            // will land.
+                            onMove: (details) {
+                              final at = _textOffsetAt(details.offset);
+                              if (at != null) {
+                                _controller.selection = TextSelection.collapsed(
+                                  offset: at,
+                                );
+                              }
+                            },
+                            onAcceptWithDetails: (details) {
+                              final at = _textOffsetAt(details.offset);
+                              if (at != null) {
+                                _controller.moveEmbed(details.data, at);
+                              }
+                            },
+                            builder: (context, _, _) => Stack(
+                              children: [
+                                Shortcuts(
+                                  shortcuts: indentShortcuts,
+                                  child: Actions(
+                                    // Undo covers formatting too, so it replaces the field's own.
+                                    actions: {
+                                      ToggleStyleIntent:
+                                          CallbackAction<ToggleStyleIntent>(
+                                            onInvoke: (intent) {
+                                              final format = _controller.toggle(
+                                                intent.style,
+                                              );
+                                              // Choices made at the caret carry over to new text.
+                                              if (!_controller.hasSelection) {
+                                                TextTool.shared.format = format;
+                                              }
+                                              return null;
+                                            },
                                           ),
-                                        ),
-                                    PasteTextIntent:
-                                        CallbackAction<PasteTextIntent>(
-                                          onInvoke: (_) => _paste(),
-                                        ),
-                                  },
-                                  child: RichField(
-                                    key: const ValueKey('notepad-field'),
-                                    controller: _controller,
-                                    focusNode: _focus,
-                                    scrollController: _scroll,
-                                    // No fixed line height, so a line with a picture is as
-                                    // tall as the picture and the text below clears it.
-                                    strutStyle: StrutStyle.disabled,
-                                    autofocus: true,
-                                    expands: true,
-                                    maxLines: null,
-                                    minLines: null,
-                                    textAlignVertical: TextAlignVertical.top,
-                                    keyboardType: TextInputType.multiline,
-                                    inputFormatters: [
-                                      LengthLimitingTextInputFormatter(
-                                        notepadMaxCharacters,
+                                      BulletEnterIntent: BulletEnterAction(
+                                        () => _controller,
                                       ),
-                                    ],
-                                    // Dark text on a light background and light text on
-                                    // a dark one, in light and dark themes.
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      height: 1.5,
-                                      color: settings.textColour,
-                                    ),
-                                    cursorColor: settings.textColour,
-                                    decoration: InputDecoration(
-                                      border: InputBorder.none,
-                                      hintText: 'Start typing…',
-                                      hintStyle: TextStyle(
-                                        color: settings.mutedColour,
-                                      ),
-                                      // On pages: a one-inch margin all round, as on
-                                      // paper (smaller sides on a narrow window).
-                                      // Without pages: a small margin.
-                                      contentPadding: pages
-                                          ? EdgeInsets.symmetric(
-                                              horizontal:
-                                                  MediaQuery.sizeOf(
-                                                        context,
-                                                      ).width >=
-                                                      900
-                                                  ? notepadPageMargin
-                                                  : 32,
-                                              vertical: notepadPageMargin,
-                                            )
-                                          : const EdgeInsets.all(24),
-                                    ),
-                                    onChanged: _changed,
-                                    contextMenuBuilder: (context, state) =>
-                                        AdaptiveTextSelectionToolbar.buttonItems(
-                                          anchors: state.contextMenuAnchors,
-                                          buttonItems: [
-                                            for (final item
-                                                in state.contextMenuButtonItems)
-                                              switch (item.type) {
-                                                ContextMenuButtonType.copy =>
-                                                  ContextMenuButtonItem(
-                                                    type: item.type,
-                                                    onPressed: () {
-                                                      state.hideToolbar();
-                                                      _copy();
-                                                    },
-                                                  ),
-                                                ContextMenuButtonType.cut =>
-                                                  ContextMenuButtonItem(
-                                                    type: item.type,
-                                                    onPressed: () {
-                                                      state.hideToolbar();
-                                                      _copy(cut: true);
-                                                    },
-                                                  ),
-                                                ContextMenuButtonType.paste =>
-                                                  ContextMenuButtonItem(
-                                                    type: item.type,
-                                                    onPressed: () {
-                                                      state.hideToolbar();
-                                                      _paste();
-                                                    },
-                                                  ),
-                                                _ => item,
-                                              },
-                                          ],
+                                      BulletsIntent:
+                                          CallbackAction<BulletsIntent>(
+                                            onInvoke: (_) {
+                                              _controller.toggleBullets();
+                                              return null;
+                                            },
+                                          ),
+                                      IndentIntent:
+                                          CallbackAction<IndentIntent>(
+                                            onInvoke: (intent) {
+                                              _controller.indent(
+                                                intent.direction,
+                                              );
+                                              return null;
+                                            },
+                                          ),
+                                      UndoTextIntent:
+                                          CallbackAction<UndoTextIntent>(
+                                            onInvoke: (_) => _controller.undo(),
+                                          ),
+                                      RedoTextIntent:
+                                          CallbackAction<RedoTextIntent>(
+                                            onInvoke: (_) => _controller.redo(),
+                                          ),
+                                      // Copy, cut and paste keep formatting, equations and
+                                      // pictures, which the field's own versions would lose.
+                                      // (Cut is a copy that also removes the selection.)
+                                      CopySelectionTextIntent:
+                                          CallbackAction<
+                                            CopySelectionTextIntent
+                                          >(
+                                            onInvoke: (intent) => _copy(
+                                              cut: intent.collapseSelection,
+                                            ),
+                                          ),
+                                      PasteTextIntent:
+                                          CallbackAction<PasteTextIntent>(
+                                            onInvoke: (_) => _paste(),
+                                          ),
+                                    },
+                                    child: ScrollConfiguration(
+                                      behavior: ScrollConfiguration.of(
+                                        context,
+                                      ).copyWith(scrollbars: false),
+                                      child: RichField(
+                                        key: const ValueKey('notepad-field'),
+                                        controller: _controller,
+                                        focusNode: _focus,
+                                        scrollController: _scroll,
+                                        // No fixed line height, so a line with a picture is as
+                                        // tall as the picture and the text below clears it.
+                                        strutStyle: StrutStyle.disabled,
+                                        autofocus: true,
+                                        expands: true,
+                                        maxLines: null,
+                                        minLines: null,
+                                        textAlignVertical:
+                                            TextAlignVertical.top,
+                                        keyboardType: TextInputType.multiline,
+                                        inputFormatters: [
+                                          LengthLimitingTextInputFormatter(
+                                            notepadMaxCharacters,
+                                          ),
+                                        ],
+                                        // Dark text on a light background and light text on
+                                        // a dark one, in light and dark themes.
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          height: 1.5,
+                                          color: settings.textColour,
                                         ),
+                                        cursorColor: settings.textColour,
+                                        decoration: InputDecoration(
+                                          border: InputBorder.none,
+                                          hintText: 'Start typing…',
+                                          hintStyle: TextStyle(
+                                            color: settings.mutedColour,
+                                          ),
+                                          // On pages: a one-inch margin all round, as on
+                                          // paper (smaller sides on a narrow window).
+                                          // Without pages: a small margin.
+                                          contentPadding: pages
+                                              ? EdgeInsets.symmetric(
+                                                  horizontal:
+                                                      MediaQuery.sizeOf(
+                                                            context,
+                                                          ).width >=
+                                                          900
+                                                      ? notepadPageMargin
+                                                      : 32,
+                                                  vertical: notepadPageMargin,
+                                                )
+                                              : const EdgeInsets.all(24),
+                                        ),
+                                        onChanged: _changed,
+                                        contextMenuBuilder: (context, state) =>
+                                            AdaptiveTextSelectionToolbar.buttonItems(
+                                              anchors: state.contextMenuAnchors,
+                                              buttonItems: [
+                                                for (final item
+                                                    in state
+                                                        .contextMenuButtonItems)
+                                                  switch (item.type) {
+                                                    ContextMenuButtonType
+                                                        .copy =>
+                                                      ContextMenuButtonItem(
+                                                        type: item.type,
+                                                        onPressed: () {
+                                                          state.hideToolbar();
+                                                          _copy();
+                                                        },
+                                                      ),
+                                                    ContextMenuButtonType.cut =>
+                                                      ContextMenuButtonItem(
+                                                        type: item.type,
+                                                        onPressed: () {
+                                                          state.hideToolbar();
+                                                          _copy(cut: true);
+                                                        },
+                                                      ),
+                                                    ContextMenuButtonType
+                                                        .paste =>
+                                                      ContextMenuButtonItem(
+                                                        type: item.type,
+                                                        onPressed: () {
+                                                          state.hideToolbar();
+                                                          _paste();
+                                                        },
+                                                      ),
+                                                    _ => item,
+                                                  },
+                                              ],
+                                            ),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              if (pages)
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    child: CustomPaint(
-                                      key: const ValueKey(
-                                        'notepad-page-breaks',
-                                      ),
-                                      painter: PageBreakPainter(
-                                        scroll: _scroll,
-                                        text: _controller,
-                                        line: settings.mutedColour,
-                                        label: settings.mutedColour,
+                                if (pages)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: CustomPaint(
+                                        key: const ValueKey(
+                                          'notepad-page-breaks',
+                                        ),
+                                        painter: PageBreakPainter(
+                                          scroll: _scroll,
+                                          text: _controller,
+                                          line: settings.mutedColour,
+                                          label: settings.mutedColour,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ..._pictureHandles(),
-                            ],
+                                ..._pictureHandles(),
+                              ],
+                            ),
                           ),
                         ),
                       ),

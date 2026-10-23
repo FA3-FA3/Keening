@@ -154,10 +154,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    expect(find.text('Work'), findsOneWidget);
+    // Tags are only listed in the Tags menu: there is no legend on the page.
+    expect(find.text('Work'), findsNothing);
+    expect(find.byType(Chip), findsNothing);
     await tester.tap(find.byTooltip('Refresh schedule'));
     await tester.pumpAndSettle();
-    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('Work'), findsNothing);
+    expect(find.byType(Chip), findsNothing);
     await tester.tap(find.text('Add session'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(ChoiceChip, 'Work'), findsOneWidget);
@@ -165,6 +168,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('schedule-tags')));
     await tester.pumpAndSettle();
+    // They are listed here.
+    expect(find.text('Work'), findsOneWidget);
     expect(find.byTooltip('Delete tag'), findsNothing);
     await tester.tap(find.byTooltip('Edit Work'));
     await tester.pumpAndSettle();

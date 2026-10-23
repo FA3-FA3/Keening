@@ -30,6 +30,14 @@ class ExportLine {
   final List<ExportPiece> pieces;
 
   bool get isEmpty => pieces.isEmpty;
+
+  /// True for a page break: a line holding only [pageBreakChar].
+  bool get pageBreak =>
+      indent == 0 &&
+      !bullet &&
+      pieces.length == 1 &&
+      pieces.single.embed == null &&
+      pieces.single.text == pageBreakChar;
 }
 
 /// [text] and its formatting runs as lines of pieces.

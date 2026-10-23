@@ -50,7 +50,8 @@ class InsertTool extends StatelessWidget {
     return file?.readAsBytes();
   }
 
-  Future<void> _selected(BuildContext context, String choice) async {
+  /// Carries out one of 'image', 'symbol' or 'equation'.
+  Future<void> select(BuildContext context, String choice) async {
     try {
       switch (choice) {
         case 'image':
@@ -102,7 +103,7 @@ class InsertTool extends StatelessWidget {
           icon: const Icon(Icons.add_box_outlined),
           onOpened: onOpen,
           onCanceled: onClose,
-          onSelected: (choice) => _selected(context, choice),
+          onSelected: (choice) => select(context, choice),
           itemBuilder: (_) => [
             if (imagesEnabled)
               const PopupMenuItem(
@@ -132,6 +133,104 @@ class InsertTool extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The insert tool's settings along the top of an editor, like the text tool's:
+/// a button each for a picture, a symbol, an equation and (when
+/// [onPageBreak] is given) a page break.
+class InsertBar extends StatelessWidget {
+  const InsertBar({
+    super.key,
+    required this.onImage,
+    required this.onSymbol,
+    required this.onEquation,
+    this.onPageBreak,
+    this.onUndo,
+    this.onRedo,
+    this.onOpen,
+    this.onClose,
+    this.pickImage,
+    this.busy = false,
+    this.imagesEnabled = true,
+  });
+
+  final void Function(Uint8List bytes) onImage;
+  final void Function(String symbol) onSymbol;
+  final void Function(EquationResult equation) onEquation;
+  final VoidCallback? onPageBreak;
+
+  /// Null while there is nothing to undo or redo.
+  final VoidCallback? onUndo, onRedo;
+  final VoidCallback? onOpen, onClose;
+  final Future<Uint8List?> Function()? pickImage;
+  final bool busy;
+  final bool imagesEnabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final tool = InsertTool(
+      onImage: onImage,
+      onSymbol: onSymbol,
+      onEquation: onEquation,
+      onOpen: onOpen,
+      onClose: onClose,
+      pickImage: pickImage,
+    );
+    Widget button(String name, IconData icon, String label, String choice) =>
+        TextButton.icon(
+          key: ValueKey('insert-$name'),
+          onPressed: () {
+            onOpen?.call();
+            tool.select(context, choice);
+          },
+          icon: Icon(icon),
+          label: Text(label),
+        );
+    return TextFieldTapRegion(
+      child: ExcludeFocus(
+        child: Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            IconButton(
+              key: const ValueKey('text-undo'),
+              tooltip: 'Undo',
+              onPressed: onUndo,
+              icon: const Icon(Icons.undo),
+            ),
+            IconButton(
+              key: const ValueKey('text-redo'),
+              tooltip: 'Redo',
+              onPressed: onRedo,
+              icon: const Icon(Icons.redo),
+            ),
+            const SizedBox(width: 8),
+            if (imagesEnabled)
+              busy
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : button('image', Icons.image_outlined, 'Picture', 'image'),
+            button('symbol', Icons.emoji_symbols_outlined, 'Symbol', 'symbol'),
+            button('equation', Icons.functions, 'Equation', 'equation'),
+            if (onPageBreak != null)
+              TextButton.icon(
+                key: const ValueKey('insert-page-break'),
+                onPressed: onPageBreak,
+                icon: const Icon(Icons.insert_page_break_outlined),
+                label: const Text('Page break'),
+              ),
           ],
         ),
       ),

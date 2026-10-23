@@ -103,6 +103,11 @@ class NoteExporter {
     final out = StringBuffer();
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
+      if (line.pageBreak) {
+        out.write('\f');
+        if (i < lines.length - 1) out.write('\n');
+        continue;
+      }
       out.write(' ' * line.indent);
       if (line.bullet) out.write(line.mark);
       for (final piece in line.pieces) {
@@ -150,6 +155,10 @@ class NoteExporter {
 
     final body = StringBuffer();
     for (final line in lines) {
+      if (line.pageBreak) {
+        body.write('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+        continue;
+      }
       final left = line.indent * 120 + (line.bullet ? 360 : 0);
       body.write('<w:p>');
       if (left > 0 || line.bullet) {
@@ -285,22 +294,26 @@ class NoteExporter {
     final doc = pw.Document(theme: theme);
     final content = <pw.Widget>[
       for (final line in lines)
-        pdfLine(
-          line,
-          basePt: _basePx * _ptPerPx,
-          baseColor: PdfColors.black,
-          embed: (piece) {
-            final pic = pictures[_key(piece)];
-            if (pic == null) return null;
-            return pw.Image(
-              pw.MemoryImage(pic.bytes),
-              width: pic.shownWidth * _ptPerPx,
-              height: pic.shownHeight * _ptPerPx,
-            );
-          },
-          fallback: (piece) =>
-              piece.embed!.isImage ? '[picture]' : '\$${piece.embed!.latex}\$',
-        ),
+        if (line.pageBreak)
+          pw.NewPage()
+        else
+          pdfLine(
+            line,
+            basePt: _basePx * _ptPerPx,
+            baseColor: PdfColors.black,
+            embed: (piece) {
+              final pic = pictures[_key(piece)];
+              if (pic == null) return null;
+              return pw.Image(
+                pw.MemoryImage(pic.bytes),
+                width: pic.shownWidth * _ptPerPx,
+                height: pic.shownHeight * _ptPerPx,
+              );
+            },
+            fallback: (piece) => piece.embed!.isImage
+                ? '[picture]'
+                : '\$${piece.embed!.latex}\$',
+          ),
     ];
     doc.addPage(
       pw.MultiPage(

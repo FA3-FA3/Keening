@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/export_handle.dart';
 import '../utils/sheet_model.dart';
+import 'collapsible_toolbar.dart';
+import 'conditional_format_dialog.dart';
 
 const _rowHeight = 28.0;
 const _headerHeight = 28.0;
@@ -215,9 +217,31 @@ class _SheetEditorState extends State<SheetEditor> {
     _apply((d) => d.settings = next);
   }
 
+  /// Opens the conditional formatting rules; applying them is one undo step.
+  Future<void> _formatRules() async {
+    _commitEdit();
+    final s = _sel;
+    final next = await showConditionalFormattingDialog(
+      context,
+      rules: _data.rules,
+      rows: _data.rows,
+      cols: _data.cols,
+      selection: (r1: s.r1, c1: s.c1, r2: s.r2, c2: s.c2),
+    );
+    if (next == null || !mounted) return;
+    if (next.length == _data.rules.length &&
+        [
+          for (var i = 0; i < next.length; i++) next[i] == _data.rules[i],
+        ].every((same) => same)) {
+      return;
+    }
+    _apply((d) => d.rules = List.of(next));
+  }
+
   void _restore(SheetData d) {
     _data
       ..settings = d.settings
+      ..rules = List.of(d.rules)
       ..rows = d.rows
       ..cols = d.cols
       ..cells.clear()
@@ -239,6 +263,8 @@ class _SheetEditorState extends State<SheetEditor> {
       d.colWidths
         ..clear()
         ..addAll(next.colWidths);
+      // An import replaces everything, so rules for the old cells go too.
+      d.rules = [];
     });
     setState(() {
       _anchor = (0, 0);
@@ -808,6 +834,13 @@ class _SheetEditorState extends State<SheetEditor> {
                     () => _align(CellAlign.right),
                     selected: _all((c) => c.align == CellAlign.right),
                   ),
+                  _tool(
+                    const ValueKey('sheet-conditional'),
+                    Icons.rule,
+                    'Conditional formatting',
+                    _formatRules,
+                    selected: _data.rules.isNotEmpty,
+                  ),
                   const SizedBox(height: 24, child: VerticalDivider()),
                   _tool(
                     const ValueKey('sheet-row-above'),
@@ -1166,7 +1199,7 @@ class _SheetEditorState extends State<SheetEditor> {
     onKeyEvent: _gridKey,
     child: Column(
       children: [
-        _toolbar(),
+        CollapsibleToolbar(child: _toolbar()),
         const Divider(height: 1),
         _formulaBar(),
         const Divider(height: 1),
@@ -1329,6 +1362,31 @@ class _GridPainter extends CustomPainter {
       Rect.fromLTRB(x0, y0, x1, y1),
       Paint()..color = scheme.surface,
     );
+    // Conditional formatting: fills go under the grid lines and the text.
+    final looks = <CellKey, CfStyle>{};
+    if (data.rules.isNotEmpty) {
+      for (var r = r0; r <= r1; r++) {
+        for (var c = c0; c <= c1; c++) {
+          final look = data.styleAt(r, c, eval);
+          if (look == null) continue;
+          looks[(r, c)] = look;
+          final bg = look.bg;
+          if (bg == null) continue;
+          canvas.drawRect(
+            Rect.fromLTRB(
+              starts[c],
+              r * _rowHeight,
+              starts[c + 1],
+              (r + 1) * _rowHeight,
+            ),
+            Paint()
+              ..color = Color(
+                0xFF000000 | int.parse(bg.substring(1), radix: 16),
+              ),
+          );
+        }
+      }
+    }
     // Selected block.
     final block = Rect.fromLTRB(
       starts[sel.c1],
@@ -1363,14 +1421,24 @@ class _GridPainter extends CustomPainter {
         final text = formatValue(value);
         final w = starts[c + 1] - starts[c];
         final isError = value is SheetError;
+        final look = looks[(r, c)];
+        final ruleText = look?.fg;
         final tp = TextPainter(
           text: TextSpan(
             text: text,
             style: TextStyle(
               fontSize: 14,
-              fontWeight: cell.bold ? FontWeight.bold : FontWeight.normal,
+              fontWeight: cell.bold || (look?.bold ?? false)
+                  ? FontWeight.bold
+                  : FontWeight.normal,
               fontStyle: cell.italic ? FontStyle.italic : FontStyle.normal,
-              color: isError ? scheme.error : scheme.onSurface,
+              color: ruleText != null
+                  ? Color(
+                      0xFF000000 | int.parse(ruleText.substring(1), radix: 16),
+                    )
+                  : isError
+                  ? scheme.error
+                  : scheme.onSurface,
             ),
           ),
           textDirection: TextDirection.ltr,

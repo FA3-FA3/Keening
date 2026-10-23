@@ -94,7 +94,16 @@ export function ganttHandler(pool, scope = 'gantt') {
         await query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE', [owner]);
         const count = await query('SELECT count(*)::int AS count FROM public.gantt_calendars WHERE owner_id=$1', [owner]);
         if (count.rows[0].count >= 100) fail('You can create up to 100 calendars.');
-        result = { calendar: (await query('INSERT INTO public.gantt_calendars(owner_id,name,color) VALUES($1,$2,$3) RETURNING id,name,color', [owner,name,color])).rows[0] };
+        if (scope === 'gantt') {
+          // A Gantt calendar is a document (in the top-level folder); the database
+          // makes the calendar itself when the document is added.
+          const docs = await db.query('SELECT count(*)::int AS count FROM public.pads WHERE owner_id=$1', [owner]);
+          if (docs.rows[0].count >= 500) fail('You can create up to 500 documents.');
+          const pad = (await db.query("INSERT INTO public.pads(owner_id,name,kind,doc) VALUES($1,$2,'gantt','{\"version\":1}'::jsonb) RETURNING id", [owner,name])).rows[0];
+          result = { calendar: (await db.query('UPDATE public.gantt_calendars SET color=$1 WHERE id=$2 RETURNING id,name,color', [color,pad.id])).rows[0] };
+        } else {
+          result = { calendar: (await query('INSERT INTO public.gantt_calendars(owner_id,name,color) VALUES($1,$2,$3) RETURNING id,name,color', [owner,name,color])).rows[0] };
+        }
       } else {
         if (!uuid(body.calendar_id)) fail('Invalid calendar.');
         // Serialize mutations within a calendar, including dependency validation.
@@ -114,10 +123,13 @@ export function ganttHandler(pool, scope = 'gantt') {
           result = { items };
         } else if (body.action === 'renameCalendar') {
           const name = text(body.name,100,'calendar name');
-          await query('UPDATE public.gantt_calendars SET name=$1 WHERE id=$2', [name,calendarId]);
+          if (scope === 'gantt') await db.query('UPDATE public.pads SET name=$1,updated_at=now() WHERE id=$2', [name,calendarId]);
+          else await query('UPDATE public.gantt_calendars SET name=$1 WHERE id=$2', [name,calendarId]);
           result = { saved: true };
         } else if (body.action === 'deleteCalendar') {
-          await query('DELETE FROM public.gantt_calendars WHERE id=$1', [calendarId]);
+          // A Gantt calendar is a document: deleting it deletes the calendar and its phases.
+          if (scope === 'gantt') await db.query('DELETE FROM public.pads WHERE id=$1', [calendarId]);
+          else await query('DELETE FROM public.gantt_calendars WHERE id=$1', [calendarId]);
           result = { deleted: true };
         } else {
           const items = (await query('SELECT id,prerequisite_id FROM public.gantt_items WHERE calendar_id=$1 ORDER BY calendar_position,id', [calendarId])).rows;

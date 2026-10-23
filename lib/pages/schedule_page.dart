@@ -616,25 +616,6 @@ class _SchedulePageState extends State<SchedulePage> {
                       ],
                     ),
                   ),
-                  if (_tags.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                      child: Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          for (final tag in _tags)
-                            Chip(
-                              avatar: Icon(
-                                Icons.circle,
-                                size: 14,
-                                color: _color(tag['color'] as String),
-                              ),
-                              label: Text(tag['name'] as String),
-                            ),
-                        ],
-                      ),
-                    ),
                   if (_loading) const LinearProgressIndicator(),
                   if (_error != null)
                     Padding(

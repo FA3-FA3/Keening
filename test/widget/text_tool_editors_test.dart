@@ -64,7 +64,7 @@ void main() {
         final rail = find.byKey(const ValueKey('note-tool-text'));
         expect(rail, findsOneWidget);
         expect(find.byKey(const ValueKey('note-tool-select')), findsOneWidget);
-        expect(find.byKey(const ValueKey('insert-menu')), findsOneWidget);
+        expect(find.byKey(const ValueKey('note-tool-insert')), findsOneWidget);
         // The tools are in a column to the left of the page, under the settings.
         final tool = tester.getTopLeft(rail);
         final field = tester.getTopLeft(
@@ -76,11 +76,11 @@ void main() {
         expect(tool.dx, lessThan(field.dx));
         expect(settings.dy, lessThan(tool.dy));
         expect(
-          tester.getTopLeft(find.byKey(const ValueKey('insert-menu'))).dx,
+          tester.getTopLeft(find.byKey(const ValueKey('note-tool-insert'))).dx,
           tool.dx,
         );
         expect(
-          tester.getTopLeft(find.byKey(const ValueKey('insert-menu'))).dy,
+          tester.getTopLeft(find.byKey(const ValueKey('note-tool-insert'))).dy,
           greaterThan(tool.dy),
         );
         // The text tool is the default and shows its settings.
@@ -193,7 +193,8 @@ void main() {
         isTrue,
         reason: 'remembered for new text',
       );
-      await enterRich(tester, 
+      await enterRich(
+        tester,
         find.byKey(const ValueKey('notepad-field')),
         'abc',
       );
@@ -354,7 +355,8 @@ void main() {
       expect(find.byKey(const ValueKey('text-undo')), findsOneWidget);
       expect(find.byKey(const ValueKey('text-redo')), findsOneWidget);
       // The page can still be typed in and undone from here.
-      await enterRich(tester, 
+      await enterRich(
+        tester,
         find.byKey(const ValueKey('notepad-field')),
         'Hello!',
       );
@@ -369,23 +371,24 @@ void main() {
       expect(find.byKey(const ValueKey('text-bold')), findsOneWidget);
     });
 
-    testWidgets('the insert tool works whichever tool is chosen', (
-      tester,
-    ) async {
-      final c = await mount(tester, text: 'ab');
-      await tester.tap(find.byKey(const ValueKey('note-tool-select')));
-      await tester.pump();
-      c.selection = const TextSelection.collapsed(offset: 2);
-      await tester.tap(find.byKey(const ValueKey('insert-menu')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('insert-symbol')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('symbol-group-Common')));
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('symbol-©')));
-      await settle(tester);
-      expect(saves.last.$1, 'ab©');
-    });
+    testWidgets(
+      'the insert tool inserts at the caret left by the select tool',
+      (tester) async {
+        final c = await mount(tester, text: 'ab');
+        await tester.tap(find.byKey(const ValueKey('note-tool-select')));
+        await tester.pump();
+        c.selection = const TextSelection.collapsed(offset: 2);
+        await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('insert-symbol')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('symbol-group-Common')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('symbol-©')));
+        await settle(tester);
+        expect(saves.last.$1, 'ab©');
+      },
+    );
 
     testWidgets('undo and redo cover typing and formatting', (tester) async {
       final c = await mount(tester, text: 'Hello');

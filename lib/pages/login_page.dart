@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../utils/api_client.dart';
 import '../utils/app_colors.dart';
+import '../utils/remembered_login.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, this.register = false});
@@ -20,6 +21,7 @@ class _LoginPageState extends State<LoginPage> {
   final _code = TextEditingController();
   final _api = ApiClient();
   bool _busy = false;
+  bool _remember = true;
   String? _error;
 
   @override
@@ -56,6 +58,19 @@ class _LoginPageState extends State<LoginPage> {
         email: _email.text.trim(),
         password: _password.text,
       );
+      // On the desktop the login can be kept, so the next start needs none.
+      final store = loginStore;
+      if (store != null) {
+        try {
+          if (_remember) {
+            await store.write(_email.text.trim(), _password.text);
+          } else {
+            await store.clear();
+          }
+        } catch (_) {
+          // Not being able to remember the login must not stop signing in.
+        }
+      }
       if (mounted) context.go('/dashboard');
     } on FirebaseAuthException catch (error) {
       if (mounted) {
@@ -186,6 +201,17 @@ class _LoginPageState extends State<LoginPage> {
                           : null,
                     ),
                   ],
+                  if (canRememberLogin)
+                    CheckboxListTile(
+                      key: const ValueKey('remember-me'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('Keep me signed in on this device'),
+                      value: _remember,
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() => _remember = v ?? true),
+                    ),
                   if (_error != null) ...[
                     const SizedBox(height: 16),
                     Text(_error!, semanticsLabel: _error),
