@@ -10,16 +10,16 @@ class SiteFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    color: AppColors.navBackground,
+    color: AppColors.navBackgroundOf(context),
     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
+        Text(
           'Navigation',
           style: TextStyle(
-            color: AppColors.navText,
+            color: AppColors.navTextOf(context),
             fontSize: 14,
             fontWeight: FontWeight.w400,
           ),
@@ -27,10 +27,10 @@ class SiteFooter extends StatelessWidget {
         const SizedBox(height: 8),
         InkWell(
           onTap: () => context.go('/'),
-          child: const Text(
+          child: Text(
             'Home',
             style: TextStyle(
-              color: AppColors.navText,
+              color: AppColors.navTextOf(context),
               fontSize: 13,
               fontWeight: FontWeight.w300,
             ),

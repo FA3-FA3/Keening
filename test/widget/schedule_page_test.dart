@@ -113,6 +113,11 @@ void main() {
   testWidgets('color tags save, retry, reload and label session choices', (
     tester,
   ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final api = FakeSchedule();
     addTearDown(api.close);
     await tester.pumpWidget(
@@ -163,7 +168,17 @@ void main() {
     expect(find.byType(Chip), findsNothing);
     await tester.tap(find.text('Add session'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(ChoiceChip, 'Work'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Work'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('tag-picker-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsOneWidget);
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InputChip, 'Work'), findsOneWidget);
+    // The cross takes it off again.
+    await tester.tap(find.byTooltip('Remove tag'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InputChip), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('schedule-tags')));
@@ -186,6 +201,11 @@ void main() {
   testWidgets('new session can repeat on other days chosen in a calendar', (
     tester,
   ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final api = FakeSchedule();
     addTearDown(api.close);
     await tester.pumpWidget(
@@ -224,6 +244,11 @@ void main() {
   testWidgets(
     'new session date can change and the schedule reveals its saved day',
     (tester) async {
+      // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final api = FakeSchedule();
       addTearDown(api.close);
       await tester.pumpWidget(

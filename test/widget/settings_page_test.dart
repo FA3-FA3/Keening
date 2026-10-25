@@ -8,6 +8,11 @@ void main() {
   testWidgets('picture upload handles cancellation, errors, retry and removal', (
     tester,
   ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     var cancel = true;
     var fail = true;
     var saves = 0;

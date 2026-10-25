@@ -3,6 +3,7 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import 'equation_table.dart';
 import 'horizontal_scroll.dart';
 import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// The size equations are measured and first drawn at.
 const equationFontSize = 24.0;
@@ -382,26 +383,29 @@ class _EquationEditorState extends State<_EquationEditor> {
         : null;
     // A plain Dialog rather than an AlertDialog: that measures its contents'
     // natural width, which the equation drawing does not support.
-    return Dialog(
+    return AppDialog(
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
         child: FixedWidth(
           width: 520,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-                child: Text(
-                  widget.initial.isEmpty ? 'Insert equation' : 'Edit equation',
-                  style: Theme.of(context).textTheme.titleLarge,
+          child: SingleChildScrollView(
+            key: const ValueKey('dialog-scroll'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+                  child: Text(
+                    widget.initial.isEmpty
+                        ? 'Insert equation'
+                        : 'Edit equation',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
+                Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -501,27 +505,27 @@ class _EquationEditorState extends State<_EquationEditor> {
                     ],
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      key: const ValueKey('equation-cancel'),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      key: const ValueKey('equation-apply'),
-                      onPressed: _valid ? _apply : null,
-                      child: Text(widget.initial.isEmpty ? 'Insert' : 'Save'),
-                    ),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        key: const ValueKey('equation-cancel'),
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        key: const ValueKey('equation-apply'),
+                        onPressed: _valid ? _apply : null,
+                        child: Text(widget.initial.isEmpty ? 'Insert' : 'Save'),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

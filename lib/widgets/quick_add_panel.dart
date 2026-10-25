@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
+import '../utils/retro_theme.dart';
 import '../utils/boards_service.dart';
 import '../utils/calendar_service.dart';
 import '../utils/document_defaults.dart';
@@ -499,22 +500,15 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     ];
   }
 
-  /// The panel is always this wide; on a narrower screen it keeps its width
-  /// and scrolls sideways instead of squeezing its fields.
+  /// The panel is up to this wide; on a narrower screen it is as wide as the
+  /// screen allows and its fields fit that.
   static const _panelWidth = 480.0;
 
   Widget _sideways(BuildContext context, Widget content) {
     final room = MediaQuery.sizeOf(context).width - 32;
-    if (room >= _panelWidth) {
-      return SizedBox(width: _panelWidth, child: content);
-    }
     return SizedBox(
-      width: room,
-      child: SingleChildScrollView(
-        key: const ValueKey('sideways-scroll'),
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(width: _panelWidth, child: content),
-      ),
+      width: room >= _panelWidth ? _panelWidth : room,
+      child: content,
     );
   }
 
@@ -524,8 +518,11 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     final fields = _fields();
     return Material(
       key: const ValueKey('quick-add-panel'),
-      elevation: 8,
-      borderRadius: BorderRadius.circular(12),
+      elevation: isRetro(context) ? 0 : 8,
+      shape: isRetro(context)
+          ? RetroBorder(palette: retroPalette(context))
+          : null,
+      borderRadius: isRetro(context) ? null : BorderRadius.circular(12),
       color: AppColors.surface(context),
       child: ConstrainedBox(
         constraints: BoxConstraints(

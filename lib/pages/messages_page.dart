@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import '../utils/messages_service.dart';
 import '../utils/people_service.dart';
+import '../utils/retro_theme.dart';
 import '../widgets/profile_avatar.dart';
-import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
+import '../utils/time_settings.dart';
 
 List<Map<String, dynamic>> _list(Object? v) => [
   for (final e in (v as List? ?? const [])) Map<String, dynamic>.from(e as Map),
@@ -18,7 +20,8 @@ String messageTime(Object? at, {DateTime? now}) {
   final today = now ?? DateTime.now();
   final sameDay =
       t.year == today.year && t.month == today.month && t.day == today.day;
-  return DateFormat(sameDay ? 'HH:mm' : 'd MMM HH:mm').format(t);
+  final clock = formatClock(t.hour, t.minute);
+  return sameDay ? clock : '${DateFormat('d MMM').format(t)} $clock';
 }
 
 /// Messages: private conversations with friends. The list on the left holds
@@ -351,7 +354,9 @@ class _MessagesPageState extends State<MessagesPage> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: mine ? scheme.primaryContainer : scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: isRetro(context)
+              ? BorderRadius.zero
+              : BorderRadius.circular(14),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,11 +568,11 @@ class _FriendPickerState extends State<_FriendPicker> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 360,
     key: const ValueKey('friend-picker'),
     title: const Text('New message'),
-    content: FixedWidth(
-      width: 360,
+    content: SizedBox(
       height: 320,
       child: _error != null
           ? Text(_error!)

@@ -144,6 +144,7 @@ void main() {
       await typeEquation(tester, r'\frac{a}{b}+\sqrt{x}');
       expect(applyEnabled(tester), isTrue);
       expect(find.byType(Math), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await tester.pumpAndSettle();
       expect(results.single!.latex, r'\frac{a}{b}+\sqrt{x}');
@@ -185,6 +186,7 @@ void main() {
       final results = await open(tester, initial: 'x^2');
       expect(find.text('Edit equation'), findsOneWidget);
       expect(find.text('Save'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await tester.pumpAndSettle();
       expect(results.single!.latex, 'x^2');
@@ -193,6 +195,7 @@ void main() {
     testWidgets('cancel returns nothing', (tester) async {
       final results = await open(tester);
       await typeEquation(tester, 'x');
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-cancel')));
       await tester.tap(find.byKey(const ValueKey('equation-cancel')));
       await tester.pumpAndSettle();
       expect(results.single, isNull);
@@ -322,6 +325,7 @@ void main() {
       await tester.pump();
       await insert(tester, 'equation');
       await typeEquation(tester, r'A=\pi r^2');
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await settle(tester);
       expect(saves.last.$1, 'Area $embedChar');
@@ -356,6 +360,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Edit equation'), findsOneWidget);
       await typeEquation(tester, r'x^3');
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await settle(tester);
       expect(saves.last.$2.single.format.embed, const Embed.equation('x^3'));
@@ -623,6 +628,7 @@ void main() {
       await mount(tester);
       await insert(tester, 'equation');
       await typeEquation(tester, r'E=mc^2');
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await settle(tester);
       final eq = saves.last.single as EquationEl;
@@ -684,6 +690,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Edit equation'), findsOneWidget);
       await typeEquation(tester, r'\sqrt{x}');
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-apply')));
       await tester.tap(find.byKey(const ValueKey('equation-apply')));
       await settle(tester);
       final edited = saves.last.single as EquationEl;

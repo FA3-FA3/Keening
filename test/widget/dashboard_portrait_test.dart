@@ -41,12 +41,23 @@ void main() {
     expect(topBar(tester), 48);
   });
 
-  testWidgets('the sidebar is the same width in portrait and landscape', (
+  testWidgets('in portrait the sidebar is only as wide as its icons', (
     tester,
   ) async {
     await mount(tester, phone);
-    expect(sidebar(tester), 124);
+    expect(sidebar(tester), 52);
     await mount(tester, tablet);
+    expect(sidebar(tester), 52);
+    // Folded away, it is the same thin bar.
+    await tester.tap(find.byTooltip('Collapse sidebar'));
+    await tester.pumpAndSettle();
+    expect(sidebar(tester), 52);
+  });
+
+  testWidgets('in landscape the sidebar keeps its icons and names', (
+    tester,
+  ) async {
+    await mount(tester, landscape);
     expect(sidebar(tester), 190);
     await tester.tap(find.byTooltip('Collapse sidebar'));
     await tester.pumpAndSettle();

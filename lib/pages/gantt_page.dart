@@ -10,6 +10,7 @@ import '../widgets/calendar_dependency_arrows.dart';
 import '../widgets/collapsible_toolbar.dart';
 import '../widgets/item_links.dart';
 import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
 
 String _iso(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 int _daysBetween(DateTime start, DateTime end) => DateTime.utc(
@@ -88,69 +89,72 @@ class _DateRangePickerPopupState extends State<_DateRangePickerPopup> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
+    return AppDialog(
       child: FixedWidth(
         width: 700,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Select dates',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: SingleChildScrollView(
+            key: const ValueKey('dialog-scroll'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Select dates',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _column(
+                        'Start date',
+                        CalendarDatePicker(
+                          initialDate: _start,
+                          firstDate: widget.firstDate,
+                          lastDate: widget.lastDate,
+                          onDateChanged: (date) => setState(() {
+                            _start = date;
+                            if (_end.isBefore(_start)) _end = _start;
+                          }),
+                        ),
+                      ),
+                      const VerticalDivider(width: 1),
+                      _column(
+                        'End date',
+                        CalendarDatePicker(
+                          key: ValueKey(_start),
+                          initialDate: _end,
+                          firstDate: _start,
+                          lastDate: widget.lastDate,
+                          onDateChanged: (date) => setState(() => _end = date),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    _column(
-                      'Start date',
-                      CalendarDatePicker(
-                        initialDate: _start,
-                        firstDate: widget.firstDate,
-                        lastDate: widget.lastDate,
-                        onDateChanged: (date) => setState(() {
-                          _start = date;
-                          if (_end.isBefore(_start)) _end = _start;
-                        }),
-                      ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
                     ),
-                    const VerticalDivider(width: 1),
-                    _column(
-                      'End date',
-                      CalendarDatePicker(
-                        key: ValueKey(_start),
-                        initialDate: _end,
-                        firstDate: _start,
-                        lastDate: widget.lastDate,
-                        onDateChanged: (date) => setState(() => _end = date),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        DateTimeRange(start: _start, end: _end),
                       ),
+                      child: const Text('Apply'),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(
-                      context,
-                      DateTimeRange(start: _start, end: _end),
-                    ),
-                    child: const Text('Apply'),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -304,58 +308,47 @@ class _GanttPageState extends State<GanttPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, update) => PopScope(
           canPop: !saving,
-          child: AlertDialog(
+          child: AppAlertDialog(
+            width: 360,
             title: Text(rename ? 'Rename calendar' : 'Create calendar'),
-            content: FixedWidth(
-              width: 360,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextFormField(
-                      initialValue: name,
-                      autofocus: true,
-                      enabled: !saving,
-                      maxLength: 100,
-                      decoration: const InputDecoration(
-                        labelText: 'Calendar name',
-                      ),
-                      onChanged: (v) => name = v,
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    autofocus: true,
+                    enabled: !saving,
+                    maxLength: 100,
+                    decoration: const InputDecoration(
+                      labelText: 'Calendar name',
                     ),
-                    if (!rename)
-                      AppDropdownButtonFormField<String>(
-                        initialValue: color,
-                        decoration: const InputDecoration(labelText: 'Colour'),
-                        items: const [
-                          DropdownMenuItem(
-                            value: '#2E7D5B',
-                            child: Text('Green'),
-                          ),
-                          DropdownMenuItem(
-                            value: '#2563EB',
-                            child: Text('Blue'),
-                          ),
-                          DropdownMenuItem(
-                            value: '#7C3AED',
-                            child: Text('Purple'),
-                          ),
-                          DropdownMenuItem(
-                            value: '#0D9488',
-                            child: Text('Teal'),
-                          ),
-                          DropdownMenuItem(
-                            value: '#A16207',
-                            child: Text('Gold'),
-                          ),
-                        ],
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => color = v!),
-                      ),
-                    if (error != null) Text(error!),
-                  ],
-                ),
+                    onChanged: (v) => name = v,
+                  ),
+                  if (!rename)
+                    AppDropdownButtonFormField<String>(
+                      initialValue: color,
+                      decoration: const InputDecoration(labelText: 'Colour'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: '#2E7D5B',
+                          child: Text('Green'),
+                        ),
+                        DropdownMenuItem(value: '#2563EB', child: Text('Blue')),
+                        DropdownMenuItem(
+                          value: '#7C3AED',
+                          child: Text('Purple'),
+                        ),
+                        DropdownMenuItem(value: '#0D9488', child: Text('Teal')),
+                        DropdownMenuItem(value: '#A16207', child: Text('Gold')),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (v) => update(() => color = v!),
+                    ),
+                  if (error != null) Text(error!),
+                ],
               ),
             ),
             actions: [
@@ -421,7 +414,7 @@ class _GanttPageState extends State<GanttPage> {
     final selected = _selected;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: const Text('Delete calendar?'),
         content: const Text(
           'This permanently deletes this calendar and all its phases.',
@@ -496,7 +489,7 @@ class _GanttPageState extends State<GanttPage> {
             if (remove) {
               final confirmed = await showDialog<bool>(
                 context: context,
-                builder: (context) => AlertDialog(
+                builder: (context) => AppAlertDialog(
                   title: const Text('Delete item?'),
                   content: const Text(
                     'This also removes links that depend on this item.',
@@ -546,96 +539,91 @@ class _GanttPageState extends State<GanttPage> {
 
           return PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 420,
               title: Text(item == null ? 'New phase' : 'Phase details'),
-              content: FixedWidth(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        initialValue: title,
-                        autofocus: true,
-                        enabled: !saving,
-                        maxLength: 200,
-                        decoration: const InputDecoration(labelText: 'Title'),
-                        onChanged: (v) => title = v,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      initialValue: title,
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: 200,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                      onChanged: (v) => title = v,
+                    ),
+                    TextFormField(
+                      initialValue: description,
+                      enabled: !saving,
+                      maxLength: 5000,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
                       ),
-                      TextFormField(
-                        initialValue: description,
-                        enabled: !saving,
-                        maxLength: 5000,
-                        minLines: 2,
-                        maxLines: 5,
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                        ),
-                        onChanged: (v) => description = v,
+                      onChanged: (v) => description = v,
+                    ),
+                    const SizedBox(height: 12),
+                    AppDropdownButtonFormField<String>(
+                      initialValue: prerequisite,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Prerequisite (optional)',
                       ),
-                      const SizedBox(height: 12),
-                      AppDropdownButtonFormField<String>(
-                        initialValue: prerequisite,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Prerequisite (optional)',
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: '',
-                            child: Text('None'),
-                          ),
-                          for (final entry in options)
-                            DropdownMenuItem(
-                              value: entry['id'] as String,
-                              child: Text(
-                                entry['title'] as String,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                      items: [
+                        const DropdownMenuItem(value: '', child: Text('None')),
+                        for (final entry in options)
+                          DropdownMenuItem(
+                            value: entry['id'] as String,
+                            child: Text(
+                              entry['title'] as String,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                        ],
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => prerequisite = v ?? ''),
+                          ),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (v) => update(() => prerequisite = v ?? ''),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final picked = await _pickDateRange(
+                                context: context,
+                                initialDateRange: range,
+                                firstDate: DateTime(1900),
+                                lastDate: DateTime(2200, 12, 31),
+                              );
+                              if (picked != null && context.mounted) {
+                                update(() => range = picked);
+                              }
+                            },
+                      icon: const Icon(Icons.date_range),
+                      label: Text(
+                        '${DateFormat.yMMMd().format(range.start)} – ${DateFormat.yMMMd().format(range.end)}',
                       ),
-                      const SizedBox(height: 16),
-                      OutlinedButton.icon(
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                final picked = await _pickDateRange(
-                                  context: context,
-                                  initialDateRange: range,
-                                  firstDate: DateTime(1900),
-                                  lastDate: DateTime(2200, 12, 31),
-                                );
-                                if (picked != null && context.mounted) {
-                                  update(() => range = picked);
-                                }
-                              },
-                        icon: const Icon(Icons.date_range),
-                        label: Text(
-                          '${DateFormat.yMMMd().format(range.start)} – ${DateFormat.yMMMd().format(range.end)}',
-                        ),
-                      ),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Completed'),
-                        value: completed,
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => completed = v!),
-                      ),
-                      ItemLinks(
-                        source: 'event',
-                        eventId: item?['id'] as String?,
-                        enabled: !saving,
-                        onChanged: () => linksChanged = true,
-                      ),
-                      if (error != null) Text(error!),
-                    ],
-                  ),
+                    ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Completed'),
+                      value: completed,
+                      onChanged: saving
+                          ? null
+                          : (v) => update(() => completed = v!),
+                    ),
+                    ItemLinks(
+                      source: 'event',
+                      eventId: item?['id'] as String?,
+                      enabled: !saving,
+                      onChanged: () => linksChanged = true,
+                    ),
+                    if (error != null) Text(error!),
+                  ],
                 ),
               ),
               actions: [

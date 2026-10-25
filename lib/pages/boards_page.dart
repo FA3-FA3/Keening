@@ -7,6 +7,8 @@ import '../utils/boards_service.dart';
 import '../widgets/item_links.dart';
 import '../widgets/tag_manager_dialog.dart';
 import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/tag_picker.dart';
 
 /// Shared colour palette for panels, tasks, and tags across this page.
 const List<String> _kColorPalette = [
@@ -371,7 +373,7 @@ class _BoardsPageState extends State<BoardsPage> {
   Future<bool> _confirm(String title, String message) async =>
       await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => AppAlertDialog(
           title: Text(title),
           content: Text(message),
           actions: [
@@ -404,45 +406,43 @@ class _BoardsPageState extends State<BoardsPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => PopScope(
           canPop: !saving,
-          child: AlertDialog(
+          child: AppAlertDialog(
+            width: 360,
             title: Text(
               existing == null
                   ? (kind == 'workplace' ? 'Create board' : 'New $kind')
                   : (kind == 'panel' ? 'Edit panel' : 'Rename $noun'),
             ),
-            content: FixedWidth(
-              width: 360,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      initialValue: name,
-                      autofocus: true,
-                      enabled: !saving,
-                      maxLength: 100,
-                      decoration: InputDecoration(
-                        labelText:
-                            '${noun[0].toUpperCase()}${noun.substring(1)} name',
-                      ),
-                      onChanged: (v) => name = v,
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    autofocus: true,
+                    enabled: !saving,
+                    maxLength: 100,
+                    decoration: InputDecoration(
+                      labelText:
+                          '${noun[0].toUpperCase()}${noun.substring(1)} name',
                     ),
-                    if (kind != 'workplace') ...[
-                      const SizedBox(height: 12),
-                      const Text('Colour'),
-                      const SizedBox(height: 8),
-                      IgnorePointer(
-                        ignoring: saving,
-                        child: _colorSwatchRow(
-                          selected: color,
-                          onSelect: (v) => update(() => color = v),
-                        ),
+                    onChanged: (v) => name = v,
+                  ),
+                  if (kind != 'workplace') ...[
+                    const SizedBox(height: 12),
+                    const Text('Colour'),
+                    const SizedBox(height: 8),
+                    IgnorePointer(
+                      ignoring: saving,
+                      child: _colorSwatchRow(
+                        selected: color,
+                        onSelect: (v) => update(() => color = v),
                       ),
-                    ],
-                    if (error != null) Text(error!),
+                    ),
                   ],
-                ),
+                  if (error != null) Text(error!),
+                ],
               ),
             ),
             actions: [
@@ -587,7 +587,7 @@ class _BoardsPageState extends State<BoardsPage> {
 
           return PopScope(
             canPop: !saving,
-            child: Dialog(
+            child: AppDialog(
               child: FixedWidth(
                 width: 688,
                 child: SingleChildScrollView(
@@ -644,24 +644,14 @@ class _BoardsPageState extends State<BoardsPage> {
                         const Text(
                           'No tags yet. Create tags using Tags on the board.',
                         ),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          for (final tag in _tags)
-                            FilterChip(
-                              label: Text(tag['name'] as String),
-                              selected: selectedTags.contains(tag['id']),
-                              onSelected: saving
-                                  ? null
-                                  : (v) => update(() {
-                                      if (v) {
-                                        selectedTags.add(tag['id'] as String);
-                                      } else {
-                                        selectedTags.remove(tag['id']);
-                                      }
-                                    }),
-                            ),
-                        ],
+                      TagPicker(
+                        tags: _tags,
+                        selected: selectedTags,
+                        multiple: true,
+                        enabled: !saving,
+                        colorOf: (hex) => _parseColor(hex) ?? AppColors.grey400,
+                        onAdd: (id) => update(() => selectedTags.add(id)),
+                        onRemove: (id) => update(() => selectedTags.remove(id)),
                       ),
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
@@ -780,10 +770,14 @@ class _BoardsPageState extends State<BoardsPage> {
     final id = panel['id'] as String;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => Dialog(
+      builder: (ctx) => AppDialog(
         child: SizedBox(
-          width: MediaQuery.sizeOf(ctx).width * 0.7071067811865476,
-          height: MediaQuery.sizeOf(ctx).height * 0.7071067811865476,
+          width:
+              MediaQuery.sizeOf(ctx).width *
+              (dialogIsFullscreen(ctx) ? 1 : 0.7071067811865476),
+          height:
+              MediaQuery.sizeOf(ctx).height *
+              (dialogIsFullscreen(ctx) ? 1 : 0.7071067811865476),
           child: ValueListenableBuilder<int>(
             valueListenable: _revision,
             builder: (_, revision, child) {

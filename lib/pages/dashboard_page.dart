@@ -21,6 +21,8 @@ import 'documents_page.dart';
 import 'projects_page.dart';
 import '../utils/window_chrome.dart';
 import '../utils/gantt_service.dart';
+import '../utils/retro_theme.dart';
+import 'package:intl/intl.dart' show DateFormat;
 import '../utils/remembered_login.dart';
 import '../utils/messages_service.dart';
 import '../utils/people_service.dart';
@@ -32,6 +34,7 @@ import 'messages_page.dart';
 import 'people_page.dart';
 import 'schedule_page.dart';
 import 'overview_page.dart';
+import '../utils/time_settings.dart';
 
 const _dashboardTabs = [
   'Dashboard',
@@ -47,6 +50,23 @@ const _dashboardTabs = [
 /// space they keep it and scroll sideways, rather than squeezing their contents.
 const _pageMinWidth = 560.0;
 const _topBarMinWidth = 600.0;
+const _topBarMinWidthRetro = 1000.0;
+
+/// The width of the sidebar in portrait, where it shows only the icons.
+const _iconBarWidth = 52.0;
+
+/// The icon for each page of the sidebar.
+IconData _tabIcon(String tab) => switch (tab) {
+  'Dashboard' => Icons.dashboard_outlined,
+  'Projects' => Icons.work_outline,
+  'Calendar' => Icons.calendar_month_outlined,
+  'Boards' => Icons.view_kanban_outlined,
+  'Schedule' => Icons.schedule,
+  'Documents' => Icons.description_outlined,
+  'People' => Icons.people_outline,
+  _ => Icons.circle_outlined,
+};
+
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
 const _navigationHeight = 36.0;
 
@@ -371,6 +391,10 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Color _tabColor(String tab) {
+    if (isRetro(context)) {
+      final palette = retroPalette(context);
+      return tab == _selectedTab ? palette.faceLight : palette.face;
+    }
     final base = tab == _selectedTab
         ? AppColors.primary(context).withValues(alpha: .15)
         : AppColors.text(context).withValues(alpha: .06);
@@ -662,23 +686,34 @@ class _DashboardPageState extends State<DashboardPage> {
                                                           'tab-surface-$tab',
                                                         ),
                                                         color: _tabColor(tab),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              _navigationRadius,
-                                                          side: BorderSide(
-                                                            color:
-                                                                tab ==
-                                                                    _selectedTab
-                                                                ? AppColors.primary(
-                                                                    context,
-                                                                  )
-                                                                : AppColors.text(
-                                                                    context,
-                                                                  ).withValues(
-                                                                    alpha: 0.12,
-                                                                  ),
-                                                          ),
-                                                        ),
+                                                        shape: isRetro(context)
+                                                            ? RetroBorder(
+                                                                sunken:
+                                                                    tab ==
+                                                                    _selectedTab,
+                                                                palette:
+                                                                    retroPalette(
+                                                                      context,
+                                                                    ),
+                                                              )
+                                                            : RoundedRectangleBorder(
+                                                                borderRadius:
+                                                                    _navigationRadius,
+                                                                side: BorderSide(
+                                                                  color:
+                                                                      tab ==
+                                                                          _selectedTab
+                                                                      ? AppColors.primary(
+                                                                          context,
+                                                                        )
+                                                                      : AppColors.text(
+                                                                          context,
+                                                                        ).withValues(
+                                                                          alpha:
+                                                                              0.12,
+                                                                        ),
+                                                                ),
+                                                              ),
                                                         clipBehavior:
                                                             Clip.antiAlias,
                                                         child: SizedBox(
@@ -808,7 +843,10 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                               Expanded(
                                 child: MinWidthScroll(
-                                  minWidth: _pageMinWidth,
+                                  // Settings fits the screen instead of scrolling sideways.
+                                  minWidth: _selectedTab == 'Settings'
+                                      ? 0
+                                      : _pageMinWidth,
                                   child: _openTabs.isEmpty
                                       ? const SizedBox.expand(
                                           key: ValueKey('workspace-empty'),
@@ -1009,12 +1047,20 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MinWidthScroll(
-      minWidth: _topBarMinWidth,
+      minWidth: isRetro(context) ? _topBarMinWidthRetro : _topBarMinWidth,
       child: Container(
         key: const ValueKey('workspace-top-bar'),
         height: _topBarHeight(context),
         width: double.infinity,
-        color: AppColors.navBackground,
+        decoration: BoxDecoration(
+          color: AppColors.navBackgroundOf(context),
+          // The retro look has a black line under the bar.
+          border: isRetro(context)
+              ? Border(
+                  bottom: BorderSide(color: retroPalette(context).lo, width: 2),
+                )
+              : null,
+        ),
         padding: EdgeInsets.only(
           left: hasCustomTitleBar ? 16 : 24,
           right: hasCustomTitleBar ? 0 : 24,
@@ -1029,14 +1075,25 @@ class _TopBar extends StatelessWidget {
               Text(
                 'Keening',
                 style: TextStyle(
-                  color: AppColors.navBrand,
+                  color: AppColors.navBrandOf(context),
                   fontSize: 18,
                   fontWeight: FontWeight.w400,
                   letterSpacing: 0.5,
                 ),
               ),
+              if (isRetro(context)) ...[
+                const SizedBox(width: 16),
+                _StatusCell(
+                  key: const ValueKey('status-username'),
+                  text: username,
+                  height: _topBarHeight(context),
+                ),
+                // The time and date are left off on a phone (portrait).
+                if (!_portrait(context))
+                  _RetroClock(height: _topBarHeight(context)),
+              ],
               const Spacer(),
-              if (MediaQuery.sizeOf(context).width >= 700)
+              if (MediaQuery.sizeOf(context).width >= 700 && !isRetro(context))
                 SizedBox(
                   width: MediaQuery.sizeOf(context).width < 900 ? 220 : 260,
                   child: OutlinedButton.icon(
@@ -1044,7 +1101,7 @@ class _TopBar extends StatelessWidget {
                     icon: const Icon(Icons.search),
                     label: const Text('Search all pages'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.navText,
+                      foregroundColor: AppColors.navTextOf(context),
                     ),
                   ),
                 )
@@ -1053,7 +1110,7 @@ class _TopBar extends StatelessWidget {
                   tooltip: 'Search all pages',
                   onPressed: onSearch,
                   icon: const Icon(Icons.search),
-                  color: AppColors.navText,
+                  color: AppColors.navTextOf(context),
                 ),
               const Spacer(),
               IconButton(
@@ -1064,7 +1121,7 @@ class _TopBar extends StatelessWidget {
                 isSelected: quickAddOpen,
                 icon: const Icon(Icons.add_circle_outline),
                 selectedIcon: const Icon(Icons.add_circle),
-                color: AppColors.navText,
+                color: AppColors.navTextOf(context),
               ),
               IconButton(
                 key: const ValueKey('messages-button'),
@@ -1073,7 +1130,7 @@ class _TopBar extends StatelessWidget {
                     ? 'Messages ($unreadMessages unread)'
                     : 'Messages',
                 onPressed: onMessages,
-                color: AppColors.navText,
+                color: AppColors.navTextOf(context),
                 icon: Badge(
                   key: const ValueKey('messages-badge'),
                   isLabelVisible: unreadMessages > 0,
@@ -1091,13 +1148,27 @@ class _TopBar extends StatelessWidget {
                   child: TextButton.icon(
                     key: const ValueKey('account-settings'),
                     onPressed: onSettings,
+                    // The retro theme has no highlight of its own on buttons.
+                    style: ButtonStyle(
+                      overlayColor: WidgetStateProperty.resolveWith((states) {
+                        final tint = AppColors.navTextOf(context);
+                        if (states.contains(WidgetState.pressed)) {
+                          return tint.withValues(alpha: 0.24);
+                        }
+                        if (states.contains(WidgetState.hovered) ||
+                            states.contains(WidgetState.focused)) {
+                          return tint.withValues(alpha: 0.14);
+                        }
+                        return null;
+                      }),
+                    ),
                     icon: ProfileAvatar(picture: picture, radius: 15),
                     label: Text(
                       username,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: AppColors.navText,
+                        color: AppColors.navTextOf(context),
                         fontSize: 13,
                         fontWeight: FontWeight.w300,
                       ),
@@ -1130,6 +1201,117 @@ class _Sidebar extends StatelessWidget {
   final String? selectedTab;
   final ValueChanged<String> onSelect;
 
+  /// One page of the sidebar: its icon and name (in portrait, just the icon, in
+  /// a bar as thin as the icons).
+  Widget _item(BuildContext context, String tab) {
+    final selected = selectedTab == tab;
+    final retro = isRetro(context);
+    final color = retro
+        ? retroPalette(context).face
+        : (selected
+              ? AppColors.navTextActiveOf(context).withValues(alpha: 0.15)
+              : AppColors.navTextOf(context).withValues(alpha: 0.06));
+    final shape = retro
+        ? RetroBorder(sunken: selected, palette: retroPalette(context))
+        : RoundedRectangleBorder(
+                borderRadius: _navigationRadius,
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.navTextActiveOf(context)
+                      : AppColors.navTextOf(context).withValues(alpha: 0.12),
+                ),
+              )
+              as ShapeBorder;
+    final ink = selected
+        ? AppColors.navTextActiveOf(context)
+        : AppColors.navTextOf(context);
+    final icon = Icon(_tabIcon(tab), size: 22, color: ink);
+    if (_portrait(context)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: SizedBox(
+          height: 40,
+          child: Semantics(
+            selected: selected,
+            button: true,
+            label: tab,
+            child: Material(
+              color: color,
+              shape: shape,
+              clipBehavior: Clip.antiAlias,
+              child: Tooltip(
+                message: tab,
+                child: InkWell(
+                  key: ValueKey('nav-$tab'),
+                  onTap: () => onSelect(tab),
+                  child: Center(child: icon),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SizedBox(
+        height: 40,
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Positioned(
+              left: -24,
+              right: 8,
+              top: 0,
+              bottom: 0,
+              child: Semantics(
+                selected: selected,
+                button: true,
+                child: Material(
+                  color: color,
+                  shape: shape,
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: ValueKey('nav-$tab'),
+                    onTap: () => onSelect(tab),
+                    child: Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.only(left: 36, right: 12),
+                      // (A scroll view that never scrolls: while the bar is
+                      // opening or closing it is briefly narrower than this.)
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const NeverScrollableScrollPhysics(),
+                        child: Row(
+                          children: [
+                            icon,
+                            const SizedBox(width: 10),
+                            Text(
+                              tab,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: TextStyle(
+                                color: ink,
+                                fontSize: 15,
+                                fontWeight: selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w300,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedContainer(
     key: const ValueKey('workspace-sidebar'),
@@ -1137,12 +1319,14 @@ class _Sidebar extends StatelessWidget {
         ? Duration.zero
         : const Duration(milliseconds: 200),
     curve: Curves.easeInOut,
-    width: collapsed
+    width: _portrait(context)
+        ? _iconBarWidth
+        : collapsed
         ? 48
         : MediaQuery.sizeOf(context).width < 600
         ? 124
         : 190,
-    color: AppColors.navBackground,
+    color: AppColors.navBackgroundOf(context),
     child: Column(
       children: [
         Expanded(
@@ -1151,71 +1335,7 @@ class _Sidebar extends StatelessWidget {
               : ListView(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   children: [
-                    for (final tab in _dashboardTabs)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: SizedBox(
-                          height: 40,
-                          child: Stack(
-                            clipBehavior: Clip.hardEdge,
-                            children: [
-                              Positioned(
-                                left: -24,
-                                right: 8,
-                                top: 0,
-                                bottom: 0,
-                                child: Semantics(
-                                  selected: selectedTab == tab,
-                                  button: true,
-                                  child: Material(
-                                    color: selectedTab == tab
-                                        ? AppColors.navTextActive.withValues(
-                                            alpha: 0.15,
-                                          )
-                                        : AppColors.navText.withValues(
-                                            alpha: 0.06,
-                                          ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: _navigationRadius,
-                                      side: BorderSide(
-                                        color: selectedTab == tab
-                                            ? AppColors.navTextActive
-                                            : AppColors.navText.withValues(
-                                                alpha: 0.12,
-                                              ),
-                                      ),
-                                    ),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: InkWell(
-                                      key: ValueKey('nav-$tab'),
-                                      onTap: () => onSelect(tab),
-                                      child: Container(
-                                        alignment: Alignment.centerLeft,
-                                        padding: const EdgeInsets.only(
-                                          left: 40,
-                                          right: 16,
-                                        ),
-                                        child: Text(
-                                          tab,
-                                          style: TextStyle(
-                                            color: selectedTab == tab
-                                                ? AppColors.navTextActive
-                                                : AppColors.navText,
-                                            fontSize: 15,
-                                            fontWeight: selectedTab == tab
-                                                ? FontWeight.w600
-                                                : FontWeight.w300,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    for (final tab in _dashboardTabs) _item(context, tab),
                   ],
                 ),
         ),
@@ -1227,12 +1347,96 @@ class _Sidebar extends StatelessWidget {
               key: const ValueKey('toggle-sidebar'),
               tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
               onPressed: onToggle,
-              color: AppColors.navText,
+              color: AppColors.navTextOf(context),
               icon: Icon(collapsed ? Icons.chevron_right : Icons.chevron_left),
             ),
           ),
         ),
       ],
     ),
+  );
+}
+
+/// One of the cells of the retro look's status bar: the name, the time, the
+/// date. Each has a line down its left side.
+class _StatusCell extends StatelessWidget {
+  const _StatusCell({super.key, required this.text, required this.height});
+  final String text;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: height,
+    constraints: const BoxConstraints(maxWidth: 180),
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      border: Border(
+        left: BorderSide(color: retroPalette(context).lo, width: 2),
+        right: BorderSide(color: retroPalette(context).lo, width: 2),
+      ),
+    ),
+    child: Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: retroPalette(context).text,
+        fontFamily: Retro.font,
+        fontFamilyFallback: const ['Roboto'],
+        fontSize: 20,
+      ),
+    ),
+  );
+}
+
+/// The time and the date, kept up to date, as two status cells.
+class _RetroClock extends StatefulWidget {
+  const _RetroClock({required this.height});
+  final double height;
+
+  @override
+  State<_RetroClock> createState() => _RetroClockState();
+}
+
+class _RetroClockState extends State<_RetroClock> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<TimeSettings>(
+    valueListenable: timeSettings,
+    builder: (context, settings, _) {
+      // The time in the chosen time zone, written as the settings say.
+      final now = appNow(settings: settings);
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StatusCell(
+            key: const ValueKey('status-time'),
+            text: formatClock(now.hour, now.minute, settings: settings),
+            height: widget.height,
+          ),
+          _StatusCell(
+            key: const ValueKey('status-date'),
+            text: DateFormat('MM/dd yyyy').format(now),
+            height: widget.height,
+          ),
+        ],
+      );
+    },
   );
 }

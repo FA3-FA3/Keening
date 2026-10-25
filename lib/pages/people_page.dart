@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../utils/people_service.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/app_dialog.dart';
 
 List<Map<String, dynamic>> _list(Object? v) => [
   for (final e in (v as List? ?? const [])) Map<String, dynamic>.from(e as Map),
@@ -140,7 +141,7 @@ class _PeoplePageState extends State<PeoplePage> {
     final name = friend['username'] as String;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: const Text('Remove friend?'),
         content: Text(
           '$name will no longer be able to message you, and you will not be '

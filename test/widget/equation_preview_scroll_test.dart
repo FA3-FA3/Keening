@@ -22,7 +22,7 @@ ScrollPosition position(WidgetTester tester, String key) => tester
 void main() {
   group('the equation preview', () {
     Future<void> open(WidgetTester tester) async {
-      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.physicalSize = const Size(1400, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -162,7 +162,7 @@ void main() {
 
   group('the table builder', () {
     testWidgets('scrolls a wide preview and many columns too', (tester) async {
-      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.physicalSize = const Size(1400, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);

@@ -24,7 +24,7 @@ import '../widgets/export_dialog.dart';
 import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
 import '../widgets/sheet_editor.dart';
-import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
 
 /// A kind of document that can be created.
 class DocumentType {
@@ -305,28 +305,24 @@ class _DocumentsPageState extends State<DocumentsPage> {
         return StatefulBuilder(
           builder: (ctx, update) => PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 360,
               title: Text(existing == null ? 'New folder' : 'Rename folder'),
-              content: FixedWidth(
-                width: 360,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      key: const ValueKey('folder-name-field'),
-                      initialValue: name,
-                      autofocus: true,
-                      enabled: !saving,
-                      maxLength: 100,
-                      decoration: const InputDecoration(
-                        labelText: 'Folder name',
-                      ),
-                      onChanged: (v) => name = v,
-                    ),
-                    if (error != null) Text(error!),
-                  ],
-                ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    key: const ValueKey('folder-name-field'),
+                    initialValue: name,
+                    autofocus: true,
+                    enabled: !saving,
+                    maxLength: 100,
+                    decoration: const InputDecoration(labelText: 'Folder name'),
+                    onChanged: (v) => name = v,
+                  ),
+                  if (error != null) Text(error!),
+                ],
               ),
               actions: [
                 TextButton(
@@ -421,7 +417,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
     String plural(int n, String one) => '$n ${n == 1 ? one : '${one}s'}';
     final yes = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: const Text('Delete folder?'),
         content: Text(
           subfolders == 0 && documents == 0
@@ -482,43 +478,41 @@ class _DocumentsPageState extends State<DocumentsPage> {
         return StatefulBuilder(
           builder: (ctx, update) => PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 400,
               title: Text(
                 existing == null ? 'New ${type.label}' : 'Edit ${type.label}',
               ),
-              content: FixedWidth(
-                width: 400,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        key: const ValueKey('doc-name-field'),
-                        initialValue: name,
-                        autofocus: true,
-                        enabled: !saving,
-                        maxLength: 100,
-                        decoration: const InputDecoration(
-                          labelText: 'Document name',
-                        ),
-                        onChanged: (v) => name = v,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      key: const ValueKey('doc-name-field'),
+                      initialValue: name,
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: 100,
+                      decoration: const InputDecoration(
+                        labelText: 'Document name',
                       ),
-                      TextFormField(
-                        key: const ValueKey('doc-description-field'),
-                        initialValue: description,
-                        enabled: !saving,
-                        maxLength: 1000,
-                        minLines: 3,
-                        maxLines: 6,
-                        decoration: const InputDecoration(
-                          labelText: 'Description (optional)',
-                        ),
-                        onChanged: (v) => description = v,
+                      onChanged: (v) => name = v,
+                    ),
+                    TextFormField(
+                      key: const ValueKey('doc-description-field'),
+                      initialValue: description,
+                      enabled: !saving,
+                      maxLength: 1000,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Description (optional)',
                       ),
-                      if (error != null) Text(error!),
-                    ],
-                  ),
+                      onChanged: (v) => description = v,
+                    ),
+                    if (error != null) Text(error!),
+                  ],
                 ),
               ),
               actions: [
@@ -1041,7 +1035,7 @@ class _DocumentDetailsState extends State<_DocumentDetails> {
   Future<void> _delete() async {
     final yes = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: const Text('Delete document?'),
         content: const Text(
           'This permanently deletes the document and its pictures.',
@@ -1082,52 +1076,48 @@ class _DocumentDetailsState extends State<_DocumentDetails> {
     final type = documentTypeOf(doc['kind'] as String?);
     final description = (doc['description'] as String? ?? '').trim();
     final edited = DateTime.tryParse(doc['updated_at'] as String? ?? '');
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 420,
       title: Text(
         doc['name'] as String,
         key: const ValueKey('doc-details-name'),
       ),
-      content: FixedWidth(
-        width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(type.icon, size: 18),
-                  const SizedBox(width: 6),
-                  Text(type.label, key: const ValueKey('doc-details-type')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                description.isEmpty ? 'No description.' : description,
-                key: const ValueKey('doc-details-description'),
-                style: description.isEmpty
-                    ? const TextStyle(fontStyle: FontStyle.italic)
-                    : null,
-              ),
-              if (edited != null) ...[
-                const SizedBox(height: 16),
-                Text(
-                  'Last edited ${DateFormat.yMMMd().add_jm().format(edited.toLocal())}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(type.icon, size: 18),
+                const SizedBox(width: 6),
+                Text(type.label, key: const ValueKey('doc-details-type')),
               ],
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              description.isEmpty ? 'No description.' : description,
+              key: const ValueKey('doc-details-description'),
+              style: description.isEmpty
+                  ? const TextStyle(fontStyle: FontStyle.italic)
+                  : null,
+            ),
+            if (edited != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Last edited ${DateFormat.yMMMd().add_jm().format(edited.toLocal())}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
-          ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
         ),
       ),
       actions: [
@@ -1242,10 +1232,10 @@ class _MoveDialogState extends State<_MoveDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 380,
     title: Text(widget.title),
-    content: FixedWidth(
-      width: 380,
+    content: SizedBox(
       height: 320,
       child: ListView(
         children: [
@@ -1561,7 +1551,7 @@ class _NoteScreenState extends State<_NoteScreen> {
     if (hasContent) {
       final yes = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => AppAlertDialog(
           key: const ValueKey('import-confirm'),
           title: const Text('Replace this note?'),
           content: const Text(
@@ -1592,7 +1582,7 @@ class _NoteScreenState extends State<_NoteScreen> {
       showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => const AlertDialog(
+        builder: (_) => const AppAlertDialog(
           key: ValueKey('import-busy'),
           content: Row(
             children: [
@@ -1781,7 +1771,7 @@ class _SheetScreenState extends State<_SheetScreen> {
       if (_handle.data().used.row >= 0) {
         final yes = await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
+          builder: (ctx) => AppAlertDialog(
             key: const ValueKey('import-confirm'),
             title: const Text('Replace this spreadsheet?'),
             content: const Text(

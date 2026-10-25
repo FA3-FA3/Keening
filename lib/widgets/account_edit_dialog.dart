@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 class AccountEditDialog extends StatefulWidget {
   const AccountEditDialog({
@@ -61,109 +61,105 @@ class _AccountEditDialogState extends State<AccountEditDialog> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_saving,
-    child: AlertDialog(
+    child: AppAlertDialog(
+      width: 400,
       title: Text('Change ${widget.action}'),
-      content: FixedWidth(
-        width: 400,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _form,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+      content: SingleChildScrollView(
+        child: Form(
+          key: _form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextFormField(
+                controller: _value,
+                autofocus: true,
+                enabled: !_saving,
+                obscureText: widget.action == 'password',
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardType: widget.action == 'email'
+                    ? TextInputType.emailAddress
+                    : TextInputType.text,
+                decoration: InputDecoration(
+                  labelText: 'New ${widget.action}',
+                  helperText: widget.action == 'username'
+                      ? '3-30 letters, numbers or underscores'
+                      : widget.action == 'password'
+                      ? '8-128 characters'
+                      : null,
+                ),
+                validator: (value) {
+                  final text = value ?? '';
+                  if (widget.action == 'username' &&
+                      !RegExp(r'^[A-Za-z0-9_]{3,30}$').hasMatch(text.trim())) {
+                    return 'Use 3-30 letters, numbers or underscores.';
+                  }
+                  if (widget.action == 'email' &&
+                      (text.trim().length > 254 ||
+                          !RegExp(
+                            r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                          ).hasMatch(text.trim()))) {
+                    return 'Enter a valid email address.';
+                  }
+                  if (widget.action == 'password' &&
+                      (text.length < 8 || text.length > 128)) {
+                    return 'Use 8-128 characters.';
+                  }
+                  if (widget.action != 'password' &&
+                      text.trim() == widget.currentValue) {
+                    return 'Enter a different ${widget.action}.';
+                  }
+                  return null;
+                },
+              ),
+              if (widget.action == 'password')
                 TextFormField(
-                  controller: _value,
-                  autofocus: true,
+                  controller: _confirmation,
                   enabled: !_saving,
-                  obscureText: widget.action == 'password',
+                  obscureText: true,
                   autocorrect: false,
                   enableSuggestions: false,
-                  keyboardType: widget.action == 'email'
-                      ? TextInputType.emailAddress
-                      : TextInputType.text,
-                  decoration: InputDecoration(
-                    labelText: 'New ${widget.action}',
-                    helperText: widget.action == 'username'
-                        ? '3-30 letters, numbers or underscores'
-                        : widget.action == 'password'
-                        ? '8-128 characters'
-                        : null,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm new password',
                   ),
-                  validator: (value) {
-                    final text = value ?? '';
-                    if (widget.action == 'username' &&
-                        !RegExp(
-                          r'^[A-Za-z0-9_]{3,30}$',
-                        ).hasMatch(text.trim())) {
-                      return 'Use 3-30 letters, numbers or underscores.';
-                    }
-                    if (widget.action == 'email' &&
-                        (text.trim().length > 254 ||
-                            !RegExp(
-                              r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                            ).hasMatch(text.trim()))) {
-                      return 'Enter a valid email address.';
-                    }
-                    if (widget.action == 'password' &&
-                        (text.length < 8 || text.length > 128)) {
-                      return 'Use 8-128 characters.';
-                    }
-                    if (widget.action != 'password' &&
-                        text.trim() == widget.currentValue) {
-                      return 'Enter a different ${widget.action}.';
-                    }
-                    return null;
-                  },
+                  validator: (value) =>
+                      value == _value.text ? null : 'Passwords do not match.',
                 ),
-                if (widget.action == 'password')
-                  TextFormField(
-                    controller: _confirmation,
-                    enabled: !_saving,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Confirm new password',
-                    ),
-                    validator: (value) =>
-                        value == _value.text ? null : 'Passwords do not match.',
+              if (widget.action != 'username') ...[
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _currentPassword,
+                  enabled: !_saving,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Current password',
                   ),
-                if (widget.action != 'username') ...[
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _currentPassword,
-                    enabled: !_saving,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Current password',
-                    ),
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Enter your current password.'
-                        : null,
-                  ),
-                ],
-                if (widget.action == 'email')
-                  const Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: Text(
-                      'We will send a confirmation link to your new email address.',
-                    ),
-                  ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Enter your current password.'
+                      : null,
+                ),
               ],
-            ),
+              if (widget.action == 'email')
+                const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: Text(
+                    'We will send a confirmation link to your new email address.',
+                  ),
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

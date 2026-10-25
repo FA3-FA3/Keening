@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 class ProfileCropDialog extends StatefulWidget {
   const ProfileCropDialog({super.key, required this.bytes});
@@ -123,88 +123,81 @@ class _ProfileCropDialogState extends State<ProfileCropDialog> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_applying,
-    child: AlertDialog(
+    child: AppAlertDialog(
+      width: 360,
       title: const Text('Crop profile picture'),
-      content: FixedWidth(
-        width: 360,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_image == null && _error == null)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: CircularProgressIndicator(),
-                ),
-              if (_image != null) ...[
-                const Text('Drag to reposition. Use the slider to zoom.'),
-                const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) => AspectRatio(
-                    aspectRatio: 1,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.move,
-                      child: GestureDetector(
-                        key: const ValueKey('profile-crop-preview'),
-                        onPanUpdate: _applying
-                            ? null
-                            : (details) => setState(() {
-                                _center -=
-                                    details.delta *
-                                    (_side / constraints.maxWidth);
-                                _clampCenter();
-                              }),
-                        child: CustomPaint(
-                          painter: _CropPainter(_image!, _crop),
-                        ),
-                      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_image == null && _error == null)
+              const Padding(
+                padding: EdgeInsets.all(32),
+                child: CircularProgressIndicator(),
+              ),
+            if (_image != null) ...[
+              const Text('Drag to reposition. Use the slider to zoom.'),
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, constraints) => AspectRatio(
+                  aspectRatio: 1,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.move,
+                    child: GestureDetector(
+                      key: const ValueKey('profile-crop-preview'),
+                      onPanUpdate: _applying
+                          ? null
+                          : (details) => setState(() {
+                              _center -=
+                                  details.delta *
+                                  (_side / constraints.maxWidth);
+                              _clampCenter();
+                            }),
+                      child: CustomPaint(painter: _CropPainter(_image!, _crop)),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.zoom_out),
-                    Expanded(
-                      child: Slider(
-                        key: const ValueKey('profile-crop-zoom'),
-                        min: 1,
-                        max: 4,
-                        value: _zoom,
-                        label: '${_zoom.toStringAsFixed(1)}x',
-                        semanticFormatterCallback: (value) =>
-                            'Zoom ${value.toStringAsFixed(1)} times',
-                        onChanged: _applying
-                            ? null
-                            : (value) => setState(() {
-                                _zoom = value;
-                                _clampCenter();
-                              }),
-                      ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.zoom_out),
+                  Expanded(
+                    child: Slider(
+                      key: const ValueKey('profile-crop-zoom'),
+                      min: 1,
+                      max: 4,
+                      value: _zoom,
+                      label: '${_zoom.toStringAsFixed(1)}x',
+                      semanticFormatterCallback: (value) =>
+                          'Zoom ${value.toStringAsFixed(1)} times',
+                      onChanged: _applying
+                          ? null
+                          : (value) => setState(() {
+                              _zoom = value;
+                              _clampCenter();
+                            }),
                     ),
-                    const Icon(Icons.zoom_in),
-                  ],
-                ),
-                TextButton(
-                  onPressed: _applying
-                      ? null
-                      : () => setState(() {
-                          _zoom = 1;
-                          _center = Offset(
-                            _image!.width / 2,
-                            _image!.height / 2,
-                          );
-                        }),
-                  child: const Text('Reset crop'),
-                ),
-              ],
-              if (_error != null)
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                  ),
+                  const Icon(Icons.zoom_in),
+                ],
+              ),
+              TextButton(
+                onPressed: _applying
+                    ? null
+                    : () => setState(() {
+                        _zoom = 1;
+                        _center = Offset(_image!.width / 2, _image!.height / 2);
+                      }),
+                child: const Text('Reset crop'),
+              ),
             ],
-          ),
+            if (_error != null)
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
         ),
       ),
       actions: [

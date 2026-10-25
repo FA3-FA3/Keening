@@ -471,7 +471,13 @@ void main() {
         find.byType(TextFormField).first,
         'Write proposal',
       );
-      await tester.tap(find.widgetWithText(FilterChip, 'Priority'));
+      // The tags to add are in a dropdown; the chosen one shows as a chip.
+      expect(find.widgetWithText(FilterChip, 'Priority'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('tag-picker-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Priority').last);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(InputChip, 'Priority'), findsOneWidget);
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
       final b = api.boards.values.first;

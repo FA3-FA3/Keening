@@ -61,7 +61,7 @@ void main() {
     CalendarFake api, {
     double width = 1200,
   }) async {
-    tester.view.physicalSize = Size(width, 1100);
+    tester.view.physicalSize = Size(width, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -101,7 +101,12 @@ void main() {
     await tester.tap(find.text('Add event'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, 'Trip');
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Travel'));
+    expect(find.widgetWithText(ChoiceChip, 'Travel'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('tag-picker-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Travel').last);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InputChip, 'Travel'), findsOneWidget);
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(api.events.last['tag_id'], api.tags.single['id']);
@@ -161,6 +166,11 @@ void main() {
   testWidgets(
     'single-day events accept optional time slots and reject reversed times',
     (tester) async {
+      // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final api = CalendarFake();
       await mount(tester, api);
       await tester.tap(find.text('Add event'));
@@ -228,25 +238,31 @@ void main() {
     },
   );
 
-  testWidgets(
-    'narrow layout and first event persist in a independent calendar',
-    (tester) async {
-      final api = CalendarFake();
-      api.calendars.clear();
-      api.events.clear();
-      await mount(tester, api, width: 320);
-      await tester.ensureVisible(find.text('Add event'));
-      await tester.tap(find.text('Add event'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField).first, 'New plan');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(api.calendars.single['name'], 'Calendar');
-      expect(api.events.single['start_date'], '2026-09-29');
-      expect(api.events.single['kind'], 'event');
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('narrow layout and first event persist in a independent calendar', (
+    tester,
+  ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = CalendarFake();
+    api.calendars.clear();
+    api.events.clear();
+    await mount(tester, api, width: 320);
+    await tester.ensureVisible(find.text('Add event'));
+    await tester.tap(find.text('Add event'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'New plan');
+    // The popup scrolls sideways on a narrow screen: bring the button into view.
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(api.calendars.single['name'], 'Calendar');
+    expect(api.events.single['start_date'], '2026-09-29');
+    expect(api.events.single['kind'], 'event');
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('load errors can be retried', (tester) async {
     final api = CalendarFake()..fail = true;

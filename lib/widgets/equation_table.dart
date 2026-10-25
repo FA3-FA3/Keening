@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'equation_editor.dart' show EquationView, equationParses;
 import 'horizontal_scroll.dart';
+import 'app_dialog.dart';
 
 /// How a table's edges are drawn.
 enum TableStyle {
@@ -171,7 +172,7 @@ class _TableBuilderState extends State<_TableBuilder> {
     final scheme = Theme.of(context).colorScheme;
     // A plain Dialog: an AlertDialog measures its contents' natural width,
     // which the equation drawing does not support.
-    return Dialog(
+    return AppDialog(
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 560,

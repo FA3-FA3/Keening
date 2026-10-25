@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/pad_model.dart';
 import 'colour_picker.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Background colours offered in the page settings (any colour can be picked).
 const padBackgrounds = [
@@ -253,191 +253,189 @@ class _PadPageDialogState extends State<_PadPageDialog> {
   Widget build(BuildContext context) {
     final named = _size != _custom && _size != _standard;
     final standard = PadPage.standard;
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 480,
       key: const ValueKey('page-dialog'),
       title: const Text('Page setup'),
-      content: FixedWidth(
-        width: 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DropdownButtonFormField<String>(
-                key: const ValueKey('page-size'),
-                initialValue: _size,
-                decoration: const InputDecoration(labelText: 'Page size'),
-                items: [
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButtonFormField<String>(
+              key: const ValueKey('page-size'),
+              initialValue: _size,
+              decoration: const InputDecoration(labelText: 'Page size'),
+              items: [
+                DropdownMenuItem(
+                  value: _standard,
+                  child: Text(
+                    'Default (${standard.width.round()} × ${standard.height.round()} px)',
+                  ),
+                ),
+                for (final p in padPapers)
                   DropdownMenuItem(
-                    value: _standard,
+                    value: p.name,
                     child: Text(
-                      'Default (${standard.width.round()} × ${standard.height.round()} px)',
+                      '${p.name} (${_mm(p.widthMm)} × ${_mm(p.heightMm)} mm)',
                     ),
                   ),
-                  for (final p in padPapers)
-                    DropdownMenuItem(
-                      value: p.name,
-                      child: Text(
-                        '${p.name} (${_mm(p.widthMm)} × ${_mm(p.heightMm)} mm)',
-                      ),
+                const DropdownMenuItem(
+                  value: _custom,
+                  child: Text('Custom size'),
+                ),
+              ],
+              onChanged: (v) => _chooseSize(v ?? _size),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<bool>(
+              key: const ValueKey('page-orientation'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.crop_portrait),
+                  label: Text('Portrait'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.crop_landscape),
+                  label: Text('Landscape'),
+                ),
+              ],
+              selected: {_landscape},
+              onSelectionChanged: (s) => _setOrientation(s.first),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('page-width'),
+                    controller: _width,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                  const DropdownMenuItem(
-                    value: _custom,
-                    child: Text('Custom size'),
+                    decoration: const InputDecoration(labelText: 'Width'),
+                    onChanged: (_) => setState(() {
+                      if (named || _size == _standard) _size = _custom;
+                    }),
                   ),
-                ],
-                onChanged: (v) => _chooseSize(v ?? _size),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(8, 16, 8, 0),
+                  child: Text('×'),
+                ),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('page-height'),
+                    controller: _height,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(labelText: 'Height'),
+                    onChanged: (_) => setState(() {
+                      if (named || _size == _standard) _size = _custom;
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 84,
+                  child: DropdownButtonFormField<PadUnit>(
+                    key: const ValueKey('page-unit'),
+                    initialValue: _unit,
+                    decoration: const InputDecoration(labelText: 'Unit'),
+                    items: [
+                      for (final u in PadUnit.values)
+                        DropdownMenuItem(value: u, child: Text(u.label)),
+                    ],
+                    onChanged: (u) => _changeUnit(u ?? _unit),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Background colour',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                for (final hex in padBackgrounds)
+                  _swatch(
+                    ValueKey('page-bg-$hex'),
+                    hex,
+                    _background,
+                    () => setState(() => _background = hex),
+                  ),
+                TextButton.icon(
+                  key: const ValueKey('page-bg-custom'),
+                  onPressed: _pickBackground,
+                  icon: const Icon(Icons.palette_outlined),
+                  label: const Text('Other…'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              key: const ValueKey('page-grid'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Show grid lines'),
+              value: _grid,
+              onChanged: (v) => setState(() => _grid = v),
+            ),
+            if (_grid) ...[
+              TextField(
+                key: const ValueKey('page-grid-size'),
+                controller: _gridSize,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Grid spacing',
+                  suffixText: _unit.label,
+                ),
               ),
               const SizedBox(height: 12),
-              SegmentedButton<bool>(
-                key: const ValueKey('page-orientation'),
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    icon: Icon(Icons.crop_portrait),
-                    label: Text('Portrait'),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    icon: Icon(Icons.crop_landscape),
-                    label: Text('Landscape'),
-                  ),
-                ],
-                selected: {_landscape},
-                onSelectionChanged: (s) => _setOrientation(s.first),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('page-width'),
-                      controller: _width,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(labelText: 'Width'),
-                      onChanged: (_) => setState(() {
-                        if (named || _size == _standard) _size = _custom;
-                      }),
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(8, 16, 8, 0),
-                    child: Text('×'),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('page-height'),
-                      controller: _height,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(labelText: 'Height'),
-                      onChanged: (_) => setState(() {
-                        if (named || _size == _standard) _size = _custom;
-                      }),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 84,
-                    child: DropdownButtonFormField<PadUnit>(
-                      key: const ValueKey('page-unit'),
-                      initialValue: _unit,
-                      decoration: const InputDecoration(labelText: 'Unit'),
-                      items: [
-                        for (final u in PadUnit.values)
-                          DropdownMenuItem(value: u, child: Text(u.label)),
-                      ],
-                      onChanged: (u) => _changeUnit(u ?? _unit),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Background colour',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  for (final hex in padBackgrounds)
+                  Text(
+                    'Line colour',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  for (final hex in padGridColours)
                     _swatch(
-                      ValueKey('page-bg-$hex'),
+                      ValueKey('page-grid-colour-$hex'),
                       hex,
-                      _background,
-                      () => setState(() => _background = hex),
+                      _gridColour,
+                      () => setState(() => _gridColour = hex),
                     ),
-                  TextButton.icon(
-                    key: const ValueKey('page-bg-custom'),
-                    onPressed: _pickBackground,
-                    icon: const Icon(Icons.palette_outlined),
-                    label: const Text('Other…'),
+                  TextButton(
+                    key: const ValueKey('page-grid-colour-custom'),
+                    onPressed: _pickGridColour,
+                    child: const Text('Other…'),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                key: const ValueKey('page-grid'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Show grid lines'),
-                value: _grid,
-                onChanged: (v) => setState(() => _grid = v),
-              ),
-              if (_grid) ...[
-                TextField(
-                  key: const ValueKey('page-grid-size'),
-                  controller: _gridSize,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: 'Grid spacing',
-                    suffixText: _unit.label,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      'Line colour',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    for (final hex in padGridColours)
-                      _swatch(
-                        ValueKey('page-grid-colour-$hex'),
-                        hex,
-                        _gridColour,
-                        () => setState(() => _gridColour = hex),
-                      ),
-                    TextButton(
-                      key: const ValueKey('page-grid-colour-custom'),
-                      onPressed: _pickGridColour,
-                      child: const Text('Other…'),
-                    ),
-                  ],
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  key: const ValueKey('page-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
             ],
-          ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                key: const ValueKey('page-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
         ),
       ),
       actions: [

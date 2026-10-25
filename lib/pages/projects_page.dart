@@ -4,6 +4,7 @@ import '../utils/projects_service.dart';
 import '../widgets/project_timeline.dart';
 import 'documents_page.dart' show documentTypeOf;
 import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
 
 /// Colours offered for a project.
 const projectColors = [
@@ -238,78 +239,72 @@ class _ProjectsPageState extends State<ProjectsPage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, update) => AlertDialog(
+        builder: (ctx, update) => AppAlertDialog(
+          width: 420,
           key: const ValueKey('project-form'),
           title: Text(existing == null ? 'New project' : 'Edit project'),
-          content: FixedWidth(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextFormField(
-                    key: const ValueKey('project-name-field'),
-                    initialValue: name,
-                    autofocus: true,
-                    enabled: !saving,
-                    maxLength: 100,
-                    decoration: const InputDecoration(
-                      labelText: 'Project name',
-                    ),
-                    onChanged: (v) => name = v,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  key: const ValueKey('project-name-field'),
+                  initialValue: name,
+                  autofocus: true,
+                  enabled: !saving,
+                  maxLength: 100,
+                  decoration: const InputDecoration(labelText: 'Project name'),
+                  onChanged: (v) => name = v,
+                ),
+                TextFormField(
+                  key: const ValueKey('project-description-field'),
+                  initialValue: description,
+                  enabled: !saving,
+                  maxLength: 1000,
+                  minLines: 2,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
                   ),
-                  TextFormField(
-                    key: const ValueKey('project-description-field'),
-                    initialValue: description,
-                    enabled: !saving,
-                    maxLength: 1000,
-                    minLines: 2,
-                    maxLines: 5,
-                    decoration: const InputDecoration(
-                      labelText: 'Description (optional)',
-                    ),
-                    onChanged: (v) => description = v,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final hex in projectColors)
-                        InkWell(
-                          key: ValueKey('project-color-$hex'),
-                          customBorder: const CircleBorder(),
-                          onTap: saving
-                              ? null
-                              : () => update(() => color = hex),
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: _hex(hex),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: hex == color
-                                    ? Theme.of(ctx).colorScheme.onSurface
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
+                  onChanged: (v) => description = v,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final hex in projectColors)
+                      InkWell(
+                        key: ValueKey('project-color-$hex'),
+                        customBorder: const CircleBorder(),
+                        onTap: saving ? null : () => update(() => color = hex),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: _hex(hex),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: hex == color
+                                  ? Theme.of(ctx).colorScheme.onSurface
+                                  : Colors.transparent,
+                              width: 3,
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      error!,
-                      key: const ValueKey('project-form-error'),
-                      style: TextStyle(color: Theme.of(ctx).colorScheme.error),
-                    ),
+                      ),
                   ],
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error!,
+                    key: const ValueKey('project-form-error'),
+                    style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
           actions: [
@@ -382,7 +377,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
   Future<void> _delete() async {
     final yes = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         key: const ValueKey('project-delete-dialog'),
         title: const Text('Delete project?'),
         content: const Text(
@@ -1571,11 +1566,11 @@ class _LinkDialogState extends State<_LinkDialog> {
   Widget build(BuildContext context) {
     final data = _data;
     final nothing = data != null && data.values.every((l) => l.isEmpty);
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 480,
       key: const ValueKey('link-dialog'),
       title: const Text('Link items'),
-      content: FixedWidth(
-        width: 480,
+      content: SizedBox(
         height: 480,
         child: _error != null
             ? Center(

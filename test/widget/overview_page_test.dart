@@ -63,11 +63,21 @@ void main() {
       expect(find.text('Tomorrow'), findsNothing);
       expect(find.text("Tomorrow's sessions"), findsNothing);
       expect(find.text('Tomorrow event'), findsOneWidget);
+      // The sessions are hidden to begin with; the header says how many there
+      // are, and a button opens them.
+      expect(find.text("Today's sessions"), findsOneWidget);
+      expect(find.text('(2)'), findsOneWidget);
+      expect(find.text('Early today'), findsNothing);
+      expect(find.text('Later today'), findsNothing);
+      expect(find.byTooltip('Show sessions'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sessions-toggle')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Hide sessions'), findsOneWidget);
       final today = tester.getTopLeft(find.text("Today's events"));
       final sessions = tester.getTopLeft(find.text("Today's sessions"));
       final tomorrow = tester.getTopLeft(find.text("Tomorrow's events"));
       expect(sessions.dx, greaterThan(today.dx));
-      expect(sessions.dy, today.dy);
+      expect(sessions.dy, closeTo(today.dy, 12));
       expect(tomorrow.dx, today.dx);
       expect(
         tomorrow.dy,
@@ -109,6 +119,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No events today.'), findsOneWidget);
     expect(find.text('No events tomorrow.'), findsOneWidget);
+    // The sessions are folded away until asked for.
+    expect(find.text('No sessions planned.'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('sessions-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('No sessions planned.'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sessions-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('No sessions planned.'), findsNothing);
   });
 }

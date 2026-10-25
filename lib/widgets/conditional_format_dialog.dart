@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/sheet_model.dart';
 import 'colour_picker.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Ready-made looks for a rule: a fill and a text colour that go together.
 const cfPresets = <({String name, String bg, String fg})>[
@@ -98,79 +98,77 @@ class _RulesDialogState extends State<_RulesDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 560,
     key: const ValueKey('cf-dialog'),
     title: const Text('Conditional formatting'),
-    content: FixedWidth(
-      width: 560,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'A rule colours the cells in a range whose value meets a '
-              'condition. Where rules overlap, the one nearer the top wins.',
-              style: Theme.of(context).textTheme.bodySmall,
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'A rule colours the cells in a range whose value meets a '
+            'condition. Where rules overlap, the one nearer the top wins.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          if (_rules.isEmpty)
+            const Padding(
+              key: ValueKey('cf-empty'),
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text('No rules yet.'),
             ),
-            const SizedBox(height: 8),
-            if (_rules.isEmpty)
-              const Padding(
-                key: ValueKey('cf-empty'),
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('No rules yet.'),
+          for (var i = 0; i < _rules.length; i++)
+            ListTile(
+              key: ValueKey('cf-rule-$i'),
+              contentPadding: EdgeInsets.zero,
+              leading: cfSample(context, _rules[i]),
+              title: Text(cellRangeText(_rules[i].range)),
+              subtitle: Text(_rules[i].summary),
+              trailing: Wrap(
+                children: [
+                  IconButton(
+                    key: ValueKey('cf-up-$i'),
+                    tooltip: 'Higher priority',
+                    onPressed: i == 0 ? null : () => _move(i, i - 1),
+                    icon: const Icon(Icons.arrow_upward, size: 20),
+                  ),
+                  IconButton(
+                    key: ValueKey('cf-down-$i'),
+                    tooltip: 'Lower priority',
+                    onPressed: i == _rules.length - 1
+                        ? null
+                        : () => _move(i, i + 1),
+                    icon: const Icon(Icons.arrow_downward, size: 20),
+                  ),
+                  IconButton(
+                    key: ValueKey('cf-edit-$i'),
+                    tooltip: 'Edit rule',
+                    onPressed: () => _edit(i),
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                  ),
+                  IconButton(
+                    key: ValueKey('cf-delete-$i'),
+                    tooltip: 'Delete rule',
+                    onPressed: () => setState(() => _rules.removeAt(i)),
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                  ),
+                ],
               ),
-            for (var i = 0; i < _rules.length; i++)
-              ListTile(
-                key: ValueKey('cf-rule-$i'),
-                contentPadding: EdgeInsets.zero,
-                leading: cfSample(context, _rules[i]),
-                title: Text(cellRangeText(_rules[i].range)),
-                subtitle: Text(_rules[i].summary),
-                trailing: Wrap(
-                  children: [
-                    IconButton(
-                      key: ValueKey('cf-up-$i'),
-                      tooltip: 'Higher priority',
-                      onPressed: i == 0 ? null : () => _move(i, i - 1),
-                      icon: const Icon(Icons.arrow_upward, size: 20),
-                    ),
-                    IconButton(
-                      key: ValueKey('cf-down-$i'),
-                      tooltip: 'Lower priority',
-                      onPressed: i == _rules.length - 1
-                          ? null
-                          : () => _move(i, i + 1),
-                      icon: const Icon(Icons.arrow_downward, size: 20),
-                    ),
-                    IconButton(
-                      key: ValueKey('cf-edit-$i'),
-                      tooltip: 'Edit rule',
-                      onPressed: () => _edit(i),
-                      icon: const Icon(Icons.edit_outlined, size: 20),
-                    ),
-                    IconButton(
-                      key: ValueKey('cf-delete-$i'),
-                      tooltip: 'Delete rule',
-                      onPressed: () => setState(() => _rules.removeAt(i)),
-                      icon: const Icon(Icons.delete_outline, size: 20),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const ValueKey('cf-add'),
-              onPressed: _rules.length >= sheetMaxRules
-                  ? null
-                  : () => _edit(null),
-              icon: const Icon(Icons.add),
-              label: const Text('Add rule'),
             ),
-            if (_rules.length >= sheetMaxRules)
-              Text('A sheet can have up to $sheetMaxRules rules.'),
-          ],
-        ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const ValueKey('cf-add'),
+            onPressed: _rules.length >= sheetMaxRules
+                ? null
+                : () => _edit(null),
+            icon: const Icon(Icons.add),
+            label: const Text('Add rule'),
+          ),
+          if (_rules.length >= sheetMaxRules)
+            Text('A sheet can have up to $sheetMaxRules rules.'),
+        ],
       ),
     ),
     actions: [
@@ -293,131 +291,129 @@ class _RuleDialogState extends State<_RuleDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 460,
     key: const ValueKey('cf-rule-dialog'),
     title: Text(widget.rule == null ? 'New rule' : 'Edit rule'),
-    content: FixedWidth(
-      width: 460,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const ValueKey('cf-range'),
+            controller: _range,
+            decoration: const InputDecoration(
+              labelText: 'Apply to range',
+              helperText: 'For example B2:D20, or one cell such as C5.',
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<CfCondition>(
+            key: const ValueKey('cf-condition'),
+            isExpanded: true,
+            initialValue: _condition,
+            decoration: const InputDecoration(
+              labelText: 'Format cells whose value',
+            ),
+            items: [
+              for (final c in CfCondition.values)
+                DropdownMenuItem(value: c, child: Text(c.label)),
+            ],
+            onChanged: (c) => setState(() {
+              _condition = c ?? _condition;
+              _error = null;
+            }),
+          ),
+          if (_condition.needs >= 1)
             TextField(
-              key: const ValueKey('cf-range'),
-              controller: _range,
-              decoration: const InputDecoration(
-                labelText: 'Apply to range',
-                helperText: 'For example B2:D20, or one cell such as C5.',
+              key: const ValueKey('cf-value'),
+              controller: _value,
+              decoration: InputDecoration(
+                labelText: _condition.needs == 2 ? 'From' : 'Value',
               ),
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<CfCondition>(
-              key: const ValueKey('cf-condition'),
-              isExpanded: true,
-              initialValue: _condition,
-              decoration: const InputDecoration(
-                labelText: 'Format cells whose value',
-              ),
-              items: [
-                for (final c in CfCondition.values)
-                  DropdownMenuItem(value: c, child: Text(c.label)),
-              ],
-              onChanged: (c) => setState(() {
-                _condition = c ?? _condition;
-                _error = null;
-              }),
+          if (_condition.needs >= 2)
+            TextField(
+              key: const ValueKey('cf-value2'),
+              controller: _value2,
+              decoration: const InputDecoration(labelText: 'To'),
             ),
-            if (_condition.needs >= 1)
-              TextField(
-                key: const ValueKey('cf-value'),
-                controller: _value,
-                decoration: InputDecoration(
-                  labelText: _condition.needs == 2 ? 'From' : 'Value',
-                ),
-              ),
-            if (_condition.needs >= 2)
-              TextField(
-                key: const ValueKey('cf-value2'),
-                controller: _value2,
-                decoration: const InputDecoration(labelText: 'To'),
-              ),
-            const SizedBox(height: 16),
-            Text('Look', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < cfPresets.length; i++)
-                  InkWell(
-                    key: ValueKey('cf-style-$i'),
-                    onTap: () => setState(() {
-                      _bg = cfPresets[i].bg;
-                      _fg = cfPresets[i].fg;
-                    }),
-                    child: Tooltip(
-                      message: cfPresets[i].name,
-                      child: DecoratedBox(
-                        position: DecorationPosition.foreground,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            width: 3,
-                            color:
-                                _bg == cfPresets[i].bg && _fg == cfPresets[i].fg
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.transparent,
-                          ),
+          const SizedBox(height: 16),
+          Text('Look', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < cfPresets.length; i++)
+                InkWell(
+                  key: ValueKey('cf-style-$i'),
+                  onTap: () => setState(() {
+                    _bg = cfPresets[i].bg;
+                    _fg = cfPresets[i].fg;
+                  }),
+                  child: Tooltip(
+                    message: cfPresets[i].name,
+                    child: DecoratedBox(
+                      position: DecorationPosition.foreground,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          width: 3,
+                          color:
+                              _bg == cfPresets[i].bg && _fg == cfPresets[i].fg
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.transparent,
                         ),
-                        child: cfSample(
-                          context,
-                          CfRule(
-                            range: (r1: 0, c1: 0, r2: 0, c2: 0),
-                            condition: CfCondition.empty,
-                            bg: cfPresets[i].bg,
-                            fg: cfPresets[i].fg,
-                          ),
+                      ),
+                      child: cfSample(
+                        context,
+                        CfRule(
+                          range: (r1: 0, c1: 0, r2: 0, c2: 0),
+                          condition: CfCondition.empty,
+                          bg: cfPresets[i].bg,
+                          fg: cfPresets[i].fg,
                         ),
                       ),
                     ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                OutlinedButton(
-                  key: const ValueKey('cf-fill-custom'),
-                  onPressed: () => _custom(fill: true),
-                  child: const Text('Fill colour…'),
                 ),
-                OutlinedButton(
-                  key: const ValueKey('cf-text-custom'),
-                  onPressed: () => _custom(fill: false),
-                  child: const Text('Text colour…'),
-                ),
-                FilterChip(
-                  key: const ValueKey('cf-bold'),
-                  label: const Text('Bold'),
-                  selected: _bold,
-                  onSelected: (v) => setState(() => _bold = v),
-                ),
-                cfSample(context, _preview, key: const ValueKey('cf-preview')),
-              ],
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  _error!,
-                  key: const ValueKey('cf-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton(
+                key: const ValueKey('cf-fill-custom'),
+                onPressed: () => _custom(fill: true),
+                child: const Text('Fill colour…'),
               ),
-          ],
-        ),
+              OutlinedButton(
+                key: const ValueKey('cf-text-custom'),
+                onPressed: () => _custom(fill: false),
+                child: const Text('Text colour…'),
+              ),
+              FilterChip(
+                key: const ValueKey('cf-bold'),
+                label: const Text('Bold'),
+                selected: _bold,
+                onSelected: (v) => setState(() => _bold = v),
+              ),
+              cfSample(context, _preview, key: const ValueKey('cf-preview')),
+            ],
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _error!,
+                key: const ValueKey('cf-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
       ),
     ),
     actions: [

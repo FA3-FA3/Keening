@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/local_store.dart';
+import '../utils/retro_theme.dart';
 
 const _collapsedKey = 'keening.toolbarCollapsed';
 
@@ -66,22 +67,31 @@ class CollapsibleToolbar extends StatelessWidget {
           ),
         );
       }
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: child),
-          Padding(
-            padding: const EdgeInsets.only(top: 4, right: 4),
-            child: IconButton(
-              key: const ValueKey('toolbar-collapse'),
-              tooltip: 'Hide the tool bar',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-              onPressed: () => toolbarCollapsed.value = true,
+      return ColoredBox(
+        // A grey bar, in the retro look, rather than the desktop showing through.
+        color: isRetro(context)
+            ? retroPalette(context).face
+            : Colors.transparent,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: child),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, right: 4),
+              child: IconButton(
+                key: const ValueKey('toolbar-collapse'),
+                tooltip: 'Hide the tool bar',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
+                icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                onPressed: () => toolbarCollapsed.value = true,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     },
   );

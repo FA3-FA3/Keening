@@ -138,12 +138,12 @@ class _CaptionButtonState extends State<_CaptionButton> {
             color: red
                 ? const Color(0xFFC42B1C)
                 : _hover
-                ? AppColors.navText.withValues(alpha: 0.12)
+                ? AppColors.navTextOf(context).withValues(alpha: 0.12)
                 : Colors.transparent,
             child: Icon(
               widget.icon,
               size: widget.iconSize,
-              color: red ? Colors.white : AppColors.navText,
+              color: red ? Colors.white : AppColors.navTextOf(context),
             ),
           ),
         ),

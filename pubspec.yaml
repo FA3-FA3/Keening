@@ -21,6 +21,7 @@ dependencies:
   intl: ^0.20.3
   pasteboard: ^0.5.0
   pdf: ^3.13.1
+  timezone: ^0.11.2
   web: ^1.1.0
   window_manager: ^0.5.2
   xml: ^7.0.1
@@ -48,3 +49,7 @@ flutter:
         - asset: assets/fonts/Roboto-bolditalic.ttf
           weight: 700
           style: italic
+    # The pixel font of the retro look.
+    - family: VT323
+      fonts:
+        - asset: assets/fonts/VT323-Regular.ttf

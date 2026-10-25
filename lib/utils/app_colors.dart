@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'retro_theme.dart';
+import 'ui_colours.dart';
 
 /// Centralised color palette. Never hardcode `Color(0x...)` or `Colors.x[n]`
 /// in pages/widgets — add a shade here first and reference it via [AppColors].
@@ -28,23 +30,36 @@ class AppColors {
   static const Color surfaceDark = Color(0xFF1E1E1E);
   static const Color textDark = Color(0xFFF2F2F2);
 
-  static Color primary(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? primaryDark
-      : primaryLight;
+  /// The primary colour: the one the user chose, or the app's own.
+  static Color primary(BuildContext context) => isRetro(context)
+      ? retroPrimary(context)
+      : uiColours.value.primary ??
+            (Theme.of(context).brightness == Brightness.dark
+                ? primaryDark
+                : primaryLight);
 
-  static Color background(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
+  /// The accent colour: the one the user chose, or the app's own.
+  static Color accentOf(BuildContext context) => isRetro(context)
+      ? retroPrimary(context)
+      : uiColours.value.accent ?? accent;
+
+  static Color background(BuildContext context) => isRetro(context)
+      ? retroDesktop(context)
+      : Theme.of(context).brightness == Brightness.dark
       ? backgroundDark
       : backgroundLight;
 
-  static Color surface(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
+  static Color surface(BuildContext context) => isRetro(context)
+      ? retroPalette(context).face
+      : Theme.of(context).brightness == Brightness.dark
       ? surfaceDark
       : surfaceLight;
 
-  static Color text(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark ? textDark : textLight;
+  static Color text(BuildContext context) => isRetro(context)
+      ? retroPalette(context).text
+      : Theme.of(context).brightness == Brightness.dark
+      ? textDark
+      : textLight;
 
   // Top nav bar — fixed dark bar regardless of app theme, matching the
   // site's brand header.
@@ -52,6 +67,18 @@ class AppColors {
   static const Color navText = Color(0xFFE6E6E6);
   static const Color navTextActive = Color(0xFF8FCB9B);
   static const Color navBrand = Color(0xFF8FCB9B);
+
+  // The same bar in the retro look: a grey bar with black text.
+  static Color navBackgroundOf(BuildContext context) =>
+      isRetro(context) ? retroPalette(context).face : navBackground;
+  static Color navTextOf(BuildContext context) =>
+      isRetro(context) ? retroPalette(context).text : navText;
+  static Color navTextActiveOf(BuildContext context) => isRetro(context)
+      ? retroPrimary(context)
+      : uiColours.value.accent ?? navTextActive;
+  static Color navBrandOf(BuildContext context) => isRetro(context)
+      ? retroPrimary(context)
+      : uiColours.value.accent ?? navBrand;
 
   // About page editorial sections — fixed dark gray backdrop regardless of
   // app theme, matching the nav bar and footer elsewhere on the site.

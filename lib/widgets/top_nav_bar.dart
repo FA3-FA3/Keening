@@ -25,7 +25,7 @@ class TopNavBar extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minHeight: 148),
       width: double.infinity,
-      color: AppColors.navBackground,
+      color: AppColors.navBackgroundOf(context),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -34,7 +34,7 @@ class TopNavBar extends StatelessWidget {
             'Keening',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: AppColors.navBrand,
+              color: AppColors.navBrandOf(context),
               fontSize: 26,
               fontWeight: FontWeight.w400,
               letterSpacing: 0.5,
@@ -70,7 +70,7 @@ class _NavTab extends StatelessWidget {
       child: Text(
         item.label,
         style: TextStyle(
-          color: AppColors.navText,
+          color: AppColors.navTextOf(context),
           fontSize: 15,
           fontWeight: isActive ? FontWeight.w400 : FontWeight.w300,
         ),

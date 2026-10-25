@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../utils/image_crop.dart';
 import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Opens the crop menu for a picture. Returns the cropped picture, or null if
 /// cancelled or nothing was cropped away.
@@ -99,22 +100,23 @@ class _ImageCropperState extends State<_ImageCropper> {
     final scheme = Theme.of(context).colorScheme;
     final ready = _image != null && _geometry != null;
     // A plain Dialog: an AlertDialog measures its contents' natural width.
-    return Dialog(
+    return AppDialog(
       child: FixedWidth(
         width: 580,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-              child: Text(
-                'Crop picture',
-                style: Theme.of(context).textTheme.titleLarge,
+        child: SingleChildScrollView(
+          key: const ValueKey('dialog-scroll'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+                child: Text(
+                  'Crop picture',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
+              Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,33 +168,33 @@ class _ImageCropperState extends State<_ImageCropper> {
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    key: const ValueKey('crop-reset'),
-                    onPressed: ready && _changed && !_busy ? _reset : null,
-                    child: const Text('Reset'),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    key: const ValueKey('crop-cancel'),
-                    onPressed: _busy ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    key: const ValueKey('crop-apply'),
-                    onPressed: ready && _changed && !_busy ? _apply : null,
-                    child: Text(_busy ? 'Cropping…' : 'Crop'),
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      key: const ValueKey('crop-reset'),
+                      onPressed: ready && _changed && !_busy ? _reset : null,
+                      child: const Text('Reset'),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      key: const ValueKey('crop-cancel'),
+                      onPressed: _busy ? null : () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      key: const ValueKey('crop-apply'),
+                      onPressed: ready && _changed && !_busy ? _apply : null,
+                      child: Text(_busy ? 'Cropping…' : 'Crop'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

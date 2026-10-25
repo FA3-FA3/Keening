@@ -162,6 +162,11 @@ void main() {
   testWidgets('the text tool formats the selected text and autosaves it', (
     tester,
   ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final notes = await mount(tester, text: 'Hello world');
     final c = controller(tester);
     c.selection = const TextSelection(baseOffset: 0, extentOffset: 5);

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../utils/file_export.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// One file type a document can be exported as.
 class ExportFormat {
@@ -130,108 +130,102 @@ class _ExportDialogState extends State<_ExportDialog> {
   @override
   Widget build(BuildContext context) {
     final done = _done;
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 440,
       key: const ValueKey('export-dialog'),
       title: const Text('Export'),
-      content: FixedWidth(
-        width: 440,
-        child: done != null
-            ? Row(
+      content: done != null
+          ? Row(
+              children: [
+                const Icon(Icons.check_circle_outline, color: Colors.green),
+                const SizedBox(width: 12),
+                Expanded(child: Text(done, key: const ValueKey('export-done'))),
+              ],
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_circle_outline, color: Colors.green),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(done, key: const ValueKey('export-done')),
-                  ),
-                ],
-              )
-            : SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.formats.length > 1)
-                      DropdownButtonFormField<ExportFormat>(
-                        key: const ValueKey('export-format'),
-                        initialValue: _format,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'File type',
-                        ),
-                        items: [
-                          for (final f in widget.formats)
-                            DropdownMenuItem(
-                              value: f,
-                              child: Text(
-                                f.label,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                        onChanged: _busy
-                            ? null
-                            : (f) => setState(() => _format = f ?? _format),
-                      )
-                    else
-                      Text(_format.label),
-                    const SizedBox(height: 12),
-                    TextField(
-                      key: const ValueKey('export-name'),
-                      controller: _name,
-                      enabled: !_busy,
-                      decoration: InputDecoration(
-                        labelText: 'File name',
-                        suffixText: '.${_format.extension}',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (widget.canChoose)
-                      Row(
-                        children: [
-                          const Icon(Icons.folder_open_outlined),
-                          const SizedBox(width: 8),
-                          Expanded(
+                  if (widget.formats.length > 1)
+                    DropdownButtonFormField<ExportFormat>(
+                      key: const ValueKey('export-format'),
+                      initialValue: _format,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'File type'),
+                      items: [
+                        for (final f in widget.formats)
+                          DropdownMenuItem(
+                            value: f,
                             child: Text(
-                              _folder?.name ?? 'No folder chosen yet',
-                              key: const ValueKey('export-folder'),
+                              f.label,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          TextButton(
-                            key: const ValueKey('export-choose-folder'),
-                            onPressed: _busy ? null : _choose,
-                            child: Text(
-                              _folder == null ? 'Choose folder…' : 'Change…',
-                            ),
+                      ],
+                      onChanged: _busy
+                          ? null
+                          : (f) => setState(() => _format = f ?? _format),
+                    )
+                  else
+                    Text(_format.label),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('export-name'),
+                    controller: _name,
+                    enabled: !_busy,
+                    decoration: InputDecoration(
+                      labelText: 'File name',
+                      suffixText: '.${_format.extension}',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (widget.canChoose)
+                    Row(
+                      children: [
+                        const Icon(Icons.folder_open_outlined),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _folder?.name ?? 'No folder chosen yet',
+                            key: const ValueKey('export-folder'),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                      )
-                    else
-                      Text(
-                        'Your browser cannot ask for a folder, so it saves the '
-                        'file to its downloads folder. (Chrome and Edge let '
-                        'you choose the folder.)',
-                        key: const ValueKey('export-no-folder'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    if (_busy) ...[
-                      const SizedBox(height: 16),
-                      const LinearProgressIndicator(),
-                    ],
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _error!,
-                        key: const ValueKey('export-error'),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
                         ),
-                      ),
-                    ],
+                        TextButton(
+                          key: const ValueKey('export-choose-folder'),
+                          onPressed: _busy ? null : _choose,
+                          child: Text(
+                            _folder == null ? 'Choose folder…' : 'Change…',
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      'Your browser cannot ask for a folder, so it saves the '
+                      'file to its downloads folder. (Chrome and Edge let '
+                      'you choose the folder.)',
+                      key: const ValueKey('export-no-folder'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  if (_busy) ...[
+                    const SizedBox(height: 16),
+                    const LinearProgressIndicator(),
                   ],
-                ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      key: const ValueKey('export-error'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
               ),
-      ),
+            ),
       actions: [
         TextButton(
           key: const ValueKey('export-close'),

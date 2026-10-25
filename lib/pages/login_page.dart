@@ -220,7 +220,7 @@ class _LoginPageState extends State<LoginPage> {
                   ElevatedButton(
                     onPressed: _busy ? null : _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.accent,
+                      backgroundColor: AppColors.accentOf(context),
                       foregroundColor: Colors.white,
                     ),
                     child: Text(

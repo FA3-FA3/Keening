@@ -9,6 +9,8 @@ import '../widgets/schedule_timeline.dart';
 import '../widgets/tag_manager_dialog.dart';
 import '../widgets/item_links.dart';
 import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/tag_picker.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({
@@ -183,169 +185,150 @@ class _SchedulePageState extends State<SchedulePage> {
         builder: (ctx, update) {
           return PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 420,
               title: Text(block == null ? 'New session' : 'Edit session'),
-              content: FixedWidth(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      OutlinedButton.icon(
-                        key: const ValueKey('session-date'),
-                        icon: const Icon(
-                          Icons.calendar_today_outlined,
-                          size: 18,
-                        ),
-                        label: Text(DateFormat.yMMMEd().format(sessionDate)),
-                        onPressed: saving
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const ValueKey('session-date'),
+                      icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                      label: Text(DateFormat.yMMMEd().format(sessionDate)),
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final picked = await showDatePicker(
+                                context: ctx,
+                                initialDate: sessionDate,
+                                firstDate: DateTime(1900),
+                                lastDate: DateTime(2200, 12, 31),
+                                helpText: 'Session date',
+                              );
+                              if (picked != null && ctx.mounted) {
+                                update(() => sessionDate = picked);
+                              }
+                            },
+                    ),
+                    if (block == null) ...[
+                      SwitchListTile(
+                        key: const ValueKey('session-repeat'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Recurring session'),
+                        subtitle: const Text('Also happens on other days'),
+                        value: repeat,
+                        onChanged: saving
                             ? null
-                            : () async {
-                                final picked = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: sessionDate,
-                                  firstDate: DateTime(1900),
-                                  lastDate: DateTime(2200, 12, 31),
-                                  helpText: 'Session date',
-                                );
-                                if (picked != null && ctx.mounted) {
-                                  update(() => sessionDate = picked);
-                                }
-                              },
+                            : (v) => update(() => repeat = v),
                       ),
-                      if (block == null) ...[
-                        SwitchListTile(
-                          key: const ValueKey('session-repeat'),
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Recurring session'),
-                          subtitle: const Text('Also happens on other days'),
-                          value: repeat,
-                          onChanged: saving
-                              ? null
-                              : (v) => update(() => repeat = v),
+                      if (repeat) ...[
+                        MultiDateCalendar(
+                          fixed: sessionDate,
+                          selected: repeatDates,
+                          enabled: !saving,
+                          onChanged: (d) => update(() {
+                            repeatDates
+                              ..clear()
+                              ..addAll(d);
+                          }),
                         ),
-                        if (repeat) ...[
-                          MultiDateCalendar(
-                            fixed: sessionDate,
-                            selected: repeatDates,
-                            enabled: !saving,
-                            onChanged: (d) => update(() {
-                              repeatDates
-                                ..clear()
-                                ..addAll(d);
-                            }),
-                          ),
-                          Text(
-                            repeatDates.isEmpty
-                                ? 'Tap days to repeat this session on.'
-                                : 'Repeats on ${repeatDates.length} other ${repeatDates.length == 1 ? 'day' : 'days'}.',
-                          ),
-                        ],
+                        Text(
+                          repeatDates.isEmpty
+                              ? 'Tap days to repeat this session on.'
+                              : 'Repeats on ${repeatDates.length} other ${repeatDates.length == 1 ? 'day' : 'days'}.',
+                        ),
                       ],
-                      TextFormField(
-                        initialValue: title,
-                        autofocus: true,
-                        enabled: !saving,
-                        maxLength: 200,
-                        decoration: const InputDecoration(labelText: 'Title'),
-                        onChanged: (v) => title = v,
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              initialValue: start,
-                              enabled: !saving,
-                              decoration: const InputDecoration(
-                                labelText: 'Start time',
-                                hintText: '09:00',
-                                helperText: '24-hour HH:mm',
-                              ),
-                              onChanged: (v) => start = v,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: TextFormField(
-                              initialValue: end,
-                              enabled: !saving,
-                              decoration: const InputDecoration(
-                                labelText: 'End time',
-                                hintText: '17:00',
-                                helperText: 'Same day',
-                              ),
-                              onChanged: (v) => end = v,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Tag'),
-                      if (_tags.isEmpty)
-                        const Text(
-                          'Create tags using the Tags menu on Schedule.',
-                        ),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('No tag'),
-                            selected: tagId == null,
-                            onSelected: saving
-                                ? null
-                                : (_) => update(() => tagId = null),
-                          ),
-                          for (final tag in _tags)
-                            ChoiceChip(
-                              label: Text(tag['name'] as String),
-                              selected: tagId == tag['id'],
-                              avatar: Icon(
-                                Icons.circle,
-                                color: _color(tag['color'] as String),
-                                size: 12,
-                              ),
-                              onSelected: saving
-                                  ? null
-                                  : (_) => update(() {
-                                      tagId = tag['id'] as String;
-                                      color = tag['color'] as String;
-                                    }),
-                            ),
-                        ],
-                      ),
-                      TextFormField(
-                        key: const ValueKey('session-location'),
-                        initialValue: location,
-                        enabled: !saving,
-                        maxLength: 500,
-                        decoration: const InputDecoration(
-                          labelText: 'Location (optional)',
-                        ),
-                        onChanged: (v) => location = v,
-                      ),
-                      TextFormField(
-                        initialValue: note,
-                        enabled: !saving,
-                        maxLength: 2000,
-                        minLines: 2,
-                        maxLines: 4,
-                        decoration: const InputDecoration(labelText: 'Notes'),
-                        onChanged: (v) => note = v,
-                      ),
-                      ItemLinks(
-                        source: 'session',
-                        sessionId: block?['id'] as String?,
-                        enabled: !saving,
-                      ),
-                      ItemAttachments(
-                        itemType: 'session',
-                        itemId: block?['id'] as String?,
-                        enabled: !saving,
-                      ),
-                      if (error != null) Text(error!),
                     ],
-                  ),
+                    TextFormField(
+                      initialValue: title,
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: 200,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                      onChanged: (v) => title = v,
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: start,
+                            enabled: !saving,
+                            decoration: const InputDecoration(
+                              labelText: 'Start time',
+                              hintText: '09:00',
+                              helperText: '24-hour HH:mm',
+                            ),
+                            onChanged: (v) => start = v,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: end,
+                            enabled: !saving,
+                            decoration: const InputDecoration(
+                              labelText: 'End time',
+                              hintText: '17:00',
+                              helperText: 'Same day',
+                            ),
+                            onChanged: (v) => end = v,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Tag'),
+                    if (_tags.isEmpty)
+                      const Text(
+                        'Create tags using the Tags menu on Schedule.',
+                      ),
+                    TagPicker(
+                      tags: _tags,
+                      selected: [?tagId],
+                      multiple: false,
+                      enabled: !saving,
+                      colorOf: _color,
+                      onAdd: (id) => update(() {
+                        tagId = id;
+                        color =
+                            _tags.firstWhere((t) => t['id'] == id)['color']
+                                as String;
+                      }),
+                      onRemove: (_) => update(() => tagId = null),
+                    ),
+                    TextFormField(
+                      key: const ValueKey('session-location'),
+                      initialValue: location,
+                      enabled: !saving,
+                      maxLength: 500,
+                      decoration: const InputDecoration(
+                        labelText: 'Location (optional)',
+                      ),
+                      onChanged: (v) => location = v,
+                    ),
+                    TextFormField(
+                      initialValue: note,
+                      enabled: !saving,
+                      maxLength: 2000,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(labelText: 'Notes'),
+                      onChanged: (v) => note = v,
+                    ),
+                    ItemLinks(
+                      source: 'session',
+                      sessionId: block?['id'] as String?,
+                      enabled: !saving,
+                    ),
+                    ItemAttachments(
+                      itemType: 'session',
+                      itemId: block?['id'] as String?,
+                      enabled: !saving,
+                    ),
+                    if (error != null) Text(error!),
+                  ],
                 ),
               ),
               actions: [
@@ -356,7 +339,7 @@ class _SchedulePageState extends State<SchedulePage> {
                         : () async {
                             final yes = await showDialog<bool>(
                               context: ctx,
-                              builder: (confirm) => AlertDialog(
+                              builder: (confirm) => AppAlertDialog(
                                 title: const Text('Delete this session?'),
                                 actions: [
                                   TextButton(

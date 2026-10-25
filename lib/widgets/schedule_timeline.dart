@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
+import '../utils/time_settings.dart';
 
 class ScheduleTimeline extends StatelessWidget {
   const ScheduleTimeline({
@@ -42,7 +43,9 @@ class ScheduleTimeline extends StatelessWidget {
     return int.parse(p[0]) * 60 + int.parse(p[1]);
   }
 
-  String _label(int hour) => hour == 24
+  String _label(int hour) => timeSettings.value.hour24
+      ? formatHHmm('${hour.toString().padLeft(2, '0')}:00')
+      : hour == 24
       ? '12am'
       : hour == 0
       ? '12am'
@@ -257,7 +260,7 @@ class ScheduleTimeline extends StatelessWidget {
                     ),
                     child: Tooltip(
                       message:
-                          '${entry.block['start']} – ${entry.block['end']} · ${entry.block['title']}${_locationLabel(entry.block)}',
+                          '${formatTimeRange(entry.block['start'], entry.block['end'], separator: ' – ')} · ${entry.block['title']}${_locationLabel(entry.block)}',
                       child: Material(
                         color: Color.alphaBlend(
                           _color(entry.block['color']).withValues(alpha: .18),
@@ -286,7 +289,7 @@ class ScheduleTimeline extends StatelessWidget {
                               child: Text(
                                 size.maxHeight < 40
                                     ? '${entry.block['title']}'
-                                    : '${entry.block['start']} – ${entry.block['end']}\n${entry.block['title']}${_locationLabel(entry.block)}',
+                                    : '${formatTimeRange(entry.block['start'], entry.block['end'], separator: ' – ')}\n${entry.block['title']}${_locationLabel(entry.block)}',
                                 maxLines: math.max(
                                   1,
                                   (size.maxHeight / 17).floor(),

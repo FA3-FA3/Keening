@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'rich_field_helpers.dart';
 import 'package:keening/pages/documents_page.dart';
+import 'package:keening/widgets/app_dialog.dart';
 import 'package:keening/utils/pads_service.dart';
 
 const _png =
@@ -509,7 +510,7 @@ void main() {
       tester
           .getTopLeft(
             find.descendant(
-              of: find.byType(AlertDialog),
+              of: find.byType(AppAlertDialog),
               matching: find.text('Plans'),
             ),
           )
@@ -518,7 +519,7 @@ void main() {
         tester
             .getTopLeft(
               find.descendant(
-                of: find.byType(AlertDialog),
+                of: find.byType(AppAlertDialog),
                 matching: find.text('Work'),
               ),
             )

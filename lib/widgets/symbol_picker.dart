@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/symbol_library.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Groups of symbols the picker offers.
 const symbolGroups = <String, String>{
@@ -47,62 +47,59 @@ class _SymbolPickerState extends State<_SymbolPicker> {
     final symbols = _group == 'Recent'
         ? widget.library.recent
         : symbolGroups[_group]!.split(' ');
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 360,
       title: const Text('Insert symbol'),
-      scrollable: true,
-      content: FixedWidth(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                for (final g in groups)
-                  ChoiceChip(
-                    key: ValueKey('symbol-group-$g'),
-                    label: Text(g),
-                    selected: g == _group,
-                    onSelected: (_) => setState(() => _group = g),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 200,
-              child: symbols.isEmpty
-                  ? const Center(child: Text('Symbols you insert appear here.'))
-                  : SingleChildScrollView(
-                      child: Wrap(
-                        children: [
-                          for (final s in symbols)
-                            Tooltip(
-                              message:
-                                  'U+${s.runes.first.toRadixString(16).toUpperCase().padLeft(4, '0')}',
-                              child: InkWell(
-                                key: ValueKey('symbol-$s'),
-                                onTap: () => _choose(s),
-                                borderRadius: BorderRadius.circular(6),
-                                child: SizedBox(
-                                  width: 40,
-                                  height: 40,
-                                  child: Center(
-                                    child: Text(
-                                      s,
-                                      style: const TextStyle(fontSize: 22),
-                                    ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (final g in groups)
+                ChoiceChip(
+                  key: ValueKey('symbol-group-$g'),
+                  label: Text(g),
+                  selected: g == _group,
+                  onSelected: (_) => setState(() => _group = g),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 200,
+            child: symbols.isEmpty
+                ? const Center(child: Text('Symbols you insert appear here.'))
+                : SingleChildScrollView(
+                    child: Wrap(
+                      children: [
+                        for (final s in symbols)
+                          Tooltip(
+                            message:
+                                'U+${s.runes.first.toRadixString(16).toUpperCase().padLeft(4, '0')}',
+                            child: InkWell(
+                              key: ValueKey('symbol-$s'),
+                              onTap: () => _choose(s),
+                              borderRadius: BorderRadius.circular(6),
+                              child: SizedBox(
+                                width: 40,
+                                height: 40,
+                                child: Center(
+                                  child: Text(
+                                    s,
+                                    style: const TextStyle(fontSize: 22),
                                   ),
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
-            ),
-          ],
-        ),
+                  ),
+          ),
+        ],
       ),
       actions: [
         TextButton(

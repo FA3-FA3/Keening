@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../utils/note_settings.dart';
 import '../utils/sheet_model.dart';
 import 'colour_picker.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 Widget _swatch(
   BuildContext context,
@@ -69,62 +69,60 @@ class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 440,
     key: const ValueKey('note-settings-dialog'),
     title: const Text('Notepad settings'),
-    content: FixedWidth(
-      width: 440,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SwitchListTile(
-              key: const ValueKey('note-setting-pages'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Pages'),
-              subtitle: const Text(
-                'Lay the note out on A4 pages, with margins and a dotted line '
-                'where each page ends. Off, the text fills the whole window.',
-              ),
-              value: _pages,
-              onChanged: (v) => setState(() => _pages = v),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            key: const ValueKey('note-setting-pages'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Pages'),
+            subtitle: const Text(
+              'Lay the note out on A4 pages, with margins and a dotted line '
+              'where each page ends. Off, the text fills the whole window.',
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Background colour',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (final hex in noteBackgrounds)
-                  _swatch(
-                    context,
-                    ValueKey('note-bg-$hex'),
-                    hex,
-                    _background,
-                    () => setState(() => _background = hex),
-                  ),
-                TextButton.icon(
-                  key: const ValueKey('note-bg-custom'),
-                  onPressed: _other,
-                  icon: const Icon(Icons.palette_outlined),
-                  label: const Text('Other…'),
+            value: _pages,
+            onChanged: (v) => setState(() => _pages = v),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Background colour',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final hex in noteBackgrounds)
+                _swatch(
+                  context,
+                  ValueKey('note-bg-$hex'),
+                  hex,
+                  _background,
+                  () => setState(() => _background = hex),
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Text turns light on a dark background so it stays readable. '
-              'Exported Word and PDF files stay white.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
+              TextButton.icon(
+                key: const ValueKey('note-bg-custom'),
+                onPressed: _other,
+                icon: const Icon(Icons.palette_outlined),
+                label: const Text('Other…'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Text turns light on a dark background so it stays readable. '
+            'Exported Word and PDF files stay white.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     ),
     actions: [
@@ -206,59 +204,57 @@ class _SheetSettingsDialogState extends State<_SheetSettingsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 420,
     key: const ValueKey('sheet-settings-dialog'),
     title: const Text('Spreadsheet settings'),
-    content: FixedWidth(
-      width: 420,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SwitchListTile(
-              key: const ValueKey('sheet-setting-gridlines'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Gridlines'),
-              subtitle: const Text('The lines between cells.'),
-              value: _gridlines,
-              onChanged: (v) => setState(() => _gridlines = v),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            key: const ValueKey('sheet-setting-gridlines'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Gridlines'),
+            subtitle: const Text('The lines between cells.'),
+            value: _gridlines,
+            onChanged: (v) => setState(() => _gridlines = v),
+          ),
+          SwitchListTile(
+            key: const ValueKey('sheet-setting-headers'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Row and column headers'),
+            subtitle: const Text(
+              'The letters along the top and numbers down the side (columns '
+              'are resized by their headers).',
             ),
-            SwitchListTile(
-              key: const ValueKey('sheet-setting-headers'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Row and column headers'),
-              subtitle: const Text(
-                'The letters along the top and numbers down the side (columns '
-                'are resized by their headers).',
-              ),
-              value: _headers,
-              onChanged: (v) => setState(() => _headers = v),
+            value: _headers,
+            onChanged: (v) => setState(() => _headers = v),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            key: const ValueKey('sheet-setting-width'),
+            controller: _width,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Usual column width',
+              suffixText: 'px',
+              helperText:
+                  'For columns you have not resized. Resized columns keep '
+                  'their own width.',
+              helperMaxLines: 2,
             ),
+          ),
+          if (_error != null) ...[
             const SizedBox(height: 8),
-            TextField(
-              key: const ValueKey('sheet-setting-width'),
-              controller: _width,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Usual column width',
-                suffixText: 'px',
-                helperText:
-                    'For columns you have not resized. Resized columns keep '
-                    'their own width.',
-                helperMaxLines: 2,
-              ),
+            Text(
+              _error!,
+              key: const ValueKey('settings-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                key: const ValueKey('settings-error'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
           ],
-        ),
+        ],
       ),
     ),
     actions: [

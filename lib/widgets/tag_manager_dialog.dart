@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Colour choices shared by the tags on the Boards, Schedule and Calendar pages.
 const tagColors = [
@@ -127,64 +127,60 @@ class _TagManagerDialogState extends State<TagManagerDialog> {
 
           return PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 380,
               title: Text(existing == null ? 'New tag' : 'Edit tag'),
-              content: FixedWidth(
-                width: 380,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextFormField(
-                        initialValue: name,
-                        autofocus: true,
-                        enabled: !saving,
-                        maxLength: widget.maxNameLength,
-                        decoration: const InputDecoration(
-                          labelText: 'Tag name',
-                        ),
-                        onChanged: (v) => name = v,
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Colour'),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: [
-                          for (final c in {...tagColors, color})
-                            Semantics(
-                              label: 'Colour $c',
-                              selected: color == c,
-                              child: IconButton(
-                                tooltip: c,
-                                style: IconButton.styleFrom(
-                                  backgroundColor: tagColor(c),
-                                ),
-                                onPressed: saving
-                                    ? null
-                                    : () => update(() => color = c),
-                                icon: Icon(
-                                  color == c ? Icons.check : null,
-                                  color: Colors.white,
-                                ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      initialValue: name,
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: widget.maxNameLength,
+                      decoration: const InputDecoration(labelText: 'Tag name'),
+                      onChanged: (v) => name = v,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Colour'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        for (final c in {...tagColors, color})
+                          Semantics(
+                            label: 'Colour $c',
+                            selected: color == c,
+                            child: IconButton(
+                              tooltip: c,
+                              style: IconButton.styleFrom(
+                                backgroundColor: tagColor(c),
+                              ),
+                              onPressed: saving
+                                  ? null
+                                  : () => update(() => color = c),
+                              icon: Icon(
+                                color == c ? Icons.check : null,
+                                color: Colors.white,
                               ),
                             ),
-                        ],
-                      ),
-                      if (error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            error!,
-                            style: TextStyle(
-                              color: Theme.of(ctx).colorScheme.error,
-                            ),
+                          ),
+                      ],
+                    ),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(ctx).colorScheme.error,
                           ),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
               ),
               actions: [
@@ -195,7 +191,7 @@ class _TagManagerDialogState extends State<TagManagerDialog> {
                         : () async {
                             final yes = await showDialog<bool>(
                               context: ctx,
-                              builder: (confirm) => AlertDialog(
+                              builder: (confirm) => AppAlertDialog(
                                 title: const Text('Delete tag?'),
                                 content: Text(widget.deleteWarning),
                                 actions: [
@@ -264,50 +260,46 @@ class _TagManagerDialogState extends State<TagManagerDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppAlertDialog(
+    width: 380,
     title: Text(widget.title),
-    content: FixedWidth(
-      width: 380,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_tags.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Create a tag, give it a name and choose its colour.',
-                ),
-              ),
-            for (final tag in _tags)
-              ListTile(
-                key: ValueKey('tag-${tag['id']}'),
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  Icons.circle,
-                  size: 16,
-                  color: tagColor(tag['color'] as String? ?? tagColors.first),
-                ),
-                title: Text(tag['name'] as String),
-                trailing: IconButton(
-                  tooltip: 'Edit ${tag['name']}',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _form(existing: tag),
-                ),
-              ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _tags.length >= widget.maxTags
-                    ? null
-                    : () => _form(),
-                icon: const Icon(Icons.add),
-                label: const Text('New tag'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_tags.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Create a tag, give it a name and choose its colour.',
               ),
             ),
-          ],
-        ),
+          for (final tag in _tags)
+            ListTile(
+              key: ValueKey('tag-${tag['id']}'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                Icons.circle,
+                size: 16,
+                color: tagColor(tag['color'] as String? ?? tagColors.first),
+              ),
+              title: Text(tag['name'] as String),
+              trailing: IconButton(
+                tooltip: 'Edit ${tag['name']}',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => _form(existing: tag),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _tags.length >= widget.maxTags ? null : () => _form(),
+              icon: const Icon(Icons.add),
+              label: const Text('New tag'),
+            ),
+          ),
+        ],
       ),
     ),
     actions: [

@@ -5,7 +5,9 @@ import '../utils/app_colors.dart';
 import '../utils/calendar_service.dart';
 import '../widgets/item_links.dart';
 import '../widgets/tag_manager_dialog.dart';
-import '../widgets/fixed_width.dart';
+import '../widgets/app_dialog.dart';
+import '../utils/time_settings.dart';
+import '../widgets/tag_picker.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({
@@ -277,184 +279,162 @@ class _CalendarPageState extends State<CalendarPage> {
 
           return PopScope(
             canPop: !saving,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 420,
               title: Text(event == null ? 'New event' : 'Event details'),
-              content: FixedWidth(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        initialValue: title,
-                        autofocus: true,
-                        enabled: !saving,
-                        maxLength: 200,
-                        decoration: const InputDecoration(labelText: 'Title'),
-                        onChanged: (v) => title = v,
-                      ),
-                      const SizedBox(height: 12),
-                      for (final endDate in [false, if (hasEnd) true])
-                        OutlinedButton.icon(
-                          key: ValueKey(
-                            endDate ? 'event-end-date' : 'event-start-date',
-                          ),
-                          icon: const Icon(Icons.calendar_today_outlined),
-                          label: Text(
-                            (endDate ? 'End: ' : 'Date: ') +
-                                DateFormat.yMMMd().format(
-                                  endDate ? range.end : range.start,
-                                ),
-                          ),
-                          onPressed: saving
-                              ? null
-                              : () async {
-                                  final picked = await showDatePicker(
-                                    context: ctx,
-                                    initialDate: endDate
-                                        ? range.end
-                                        : range.start,
-                                    firstDate: endDate
-                                        ? range.start
-                                        : DateTime(1900),
-                                    lastDate: DateTime(2200, 12, 31),
-                                  );
-                                  if (picked != null && ctx.mounted) {
-                                    update(() {
-                                      range = endDate
-                                          ? DateTimeRange(
-                                              start: range.start,
-                                              end: picked,
-                                            )
-                                          : DateTimeRange(
-                                              start: picked,
-                                              end:
-                                                  !hasEnd ||
-                                                      picked.isAfter(range.end)
-                                                  ? picked
-                                                  : range.end,
-                                            );
-                                    });
-                                  }
-                                },
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      initialValue: title,
+                      autofocus: true,
+                      enabled: !saving,
+                      maxLength: 200,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                      onChanged: (v) => title = v,
+                    ),
+                    const SizedBox(height: 12),
+                    for (final endDate in [false, if (hasEnd) true])
+                      OutlinedButton.icon(
+                        key: ValueKey(
+                          endDate ? 'event-end-date' : 'event-start-date',
                         ),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Add end date'),
-                        value: hasEnd,
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => hasEnd = v!),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Time slot'),
-                        value: timed,
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => timed = v),
-                      ),
-                      if (timed) ...[
-                        const Text(
-                          'Creates a linked Schedule session each day. Event changes update those sessions.',
-                        ),
-                        TextFormField(
-                          key: const ValueKey('event-start-time'),
-                          initialValue: startTime,
-                          enabled: !saving,
-                          decoration: const InputDecoration(
-                            labelText: 'Start time',
-                            hintText: '09:00',
-                            helperText: '24-hour HH:mm',
-                          ),
-                          onChanged: (v) => startTime = v,
-                        ),
-                        TextFormField(
-                          key: const ValueKey('event-end-time'),
-                          initialValue: endTime,
-                          enabled: !saving,
-                          decoration: const InputDecoration(
-                            labelText: 'End time',
-                            hintText: '10:00',
-                            helperText: 'Same day; 24:00 is midnight',
-                          ),
-                          onChanged: (v) => endTime = v,
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      const Text('Tag'),
-                      if (_tags.isEmpty)
-                        const Text(
-                          'Create tags using the Tags menu on Calendar.',
-                        ),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('No tag'),
-                            selected: tagId == null,
-                            onSelected: saving
-                                ? null
-                                : (_) => update(() => tagId = null),
-                          ),
-                          for (final tag in _tags)
-                            ChoiceChip(
-                              label: Text(tag['name'] as String),
-                              selected: tagId == tag['id'],
-                              avatar: Icon(
-                                Icons.circle,
-                                size: 12,
-                                color: tagColor(tag['color'] as String),
+                        icon: const Icon(Icons.calendar_today_outlined),
+                        label: Text(
+                          (endDate ? 'End: ' : 'Date: ') +
+                              DateFormat.yMMMd().format(
+                                endDate ? range.end : range.start,
                               ),
-                              onSelected: saving
-                                  ? null
-                                  : (_) => update(
-                                      () => tagId = tag['id'] as String,
-                                    ),
-                            ),
-                        ],
-                      ),
-                      TextFormField(
-                        key: const ValueKey('event-location'),
-                        initialValue: location,
-                        enabled: !saving,
-                        maxLength: 500,
-                        decoration: const InputDecoration(
-                          labelText: 'Location (optional)',
                         ),
-                        onChanged: (v) => location = v,
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final picked = await showDatePicker(
+                                  context: ctx,
+                                  initialDate: endDate
+                                      ? range.end
+                                      : range.start,
+                                  firstDate: endDate
+                                      ? range.start
+                                      : DateTime(1900),
+                                  lastDate: DateTime(2200, 12, 31),
+                                );
+                                if (picked != null && ctx.mounted) {
+                                  update(() {
+                                    range = endDate
+                                        ? DateTimeRange(
+                                            start: range.start,
+                                            end: picked,
+                                          )
+                                        : DateTimeRange(
+                                            start: picked,
+                                            end:
+                                                !hasEnd ||
+                                                    picked.isAfter(range.end)
+                                                ? picked
+                                                : range.end,
+                                          );
+                                  });
+                                }
+                              },
+                      ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Add end date'),
+                      value: hasEnd,
+                      onChanged: saving
+                          ? null
+                          : (v) => update(() => hasEnd = v!),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Time slot'),
+                      value: timed,
+                      onChanged: saving ? null : (v) => update(() => timed = v),
+                    ),
+                    if (timed) ...[
+                      const Text(
+                        'Creates a linked Schedule session each day. Event changes update those sessions.',
                       ),
                       TextFormField(
-                        initialValue: description,
+                        key: const ValueKey('event-start-time'),
+                        initialValue: startTime,
                         enabled: !saving,
-                        minLines: 2,
-                        maxLines: 5,
-                        maxLength: 5000,
-                        decoration: const InputDecoration(labelText: 'Notes'),
-                        onChanged: (v) => description = v,
+                        decoration: const InputDecoration(
+                          labelText: 'Start time',
+                          hintText: '09:00',
+                          helperText: '24-hour HH:mm',
+                        ),
+                        onChanged: (v) => startTime = v,
                       ),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Completed'),
-                        value: completed,
-                        onChanged: saving
-                            ? null
-                            : (v) => update(() => completed = v!),
-                      ),
-                      ItemLinks(
-                        source: 'calendar',
-                        calendarEventId: event?['id'] as String?,
+                      TextFormField(
+                        key: const ValueKey('event-end-time'),
+                        initialValue: endTime,
                         enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'End time',
+                          hintText: '10:00',
+                          helperText: 'Same day; 24:00 is midnight',
+                        ),
+                        onChanged: (v) => endTime = v,
                       ),
-                      ItemAttachments(
-                        itemType: 'event',
-                        itemId: event?['id'] as String?,
-                        enabled: !saving,
-                      ),
-                      if (error != null) Text(error!),
                     ],
-                  ),
+                    const SizedBox(height: 12),
+                    const Text('Tag'),
+                    if (_tags.isEmpty)
+                      const Text(
+                        'Create tags using the Tags menu on Calendar.',
+                      ),
+                    TagPicker(
+                      tags: _tags,
+                      selected: [?tagId],
+                      multiple: false,
+                      enabled: !saving,
+                      colorOf: tagColor,
+                      onAdd: (id) => update(() => tagId = id),
+                      onRemove: (_) => update(() => tagId = null),
+                    ),
+                    TextFormField(
+                      key: const ValueKey('event-location'),
+                      initialValue: location,
+                      enabled: !saving,
+                      maxLength: 500,
+                      decoration: const InputDecoration(
+                        labelText: 'Location (optional)',
+                      ),
+                      onChanged: (v) => location = v,
+                    ),
+                    TextFormField(
+                      initialValue: description,
+                      enabled: !saving,
+                      minLines: 2,
+                      maxLines: 5,
+                      maxLength: 5000,
+                      decoration: const InputDecoration(labelText: 'Notes'),
+                      onChanged: (v) => description = v,
+                    ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Completed'),
+                      value: completed,
+                      onChanged: saving
+                          ? null
+                          : (v) => update(() => completed = v!),
+                    ),
+                    ItemLinks(
+                      source: 'calendar',
+                      calendarEventId: event?['id'] as String?,
+                      enabled: !saving,
+                    ),
+                    ItemAttachments(
+                      itemType: 'event',
+                      itemId: event?['id'] as String?,
+                      enabled: !saving,
+                    ),
+                    if (error != null) Text(error!),
+                  ],
                 ),
               ),
               actions: [
@@ -690,7 +670,10 @@ class _CalendarPageState extends State<CalendarPage> {
                         [
                           event['start_time'] == null
                               ? 'All day'
-                              : '${event['start_time']} - ${event['end_time']}',
+                              : formatTimeRange(
+                                  event['start_time'],
+                                  event['end_time'],
+                                ),
                           if ((event['location'] as String? ?? '').isNotEmpty)
                             event['location'] as String,
                         ].join(' / '),
@@ -783,7 +766,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     Text(
                       event['start_time'] == null
                           ? 'All day'
-                          : '${event['start_time'] as String} - ${event['end_time'] as String}${event['start_date'] == event['end_date'] ? '' : ' each day'}',
+                          : '${formatTimeRange(event['start_time'], event['end_time'])}${event['start_date'] == event['end_date'] ? '' : ' each day'}',
                     ),
                     if ((event['location'] as String? ?? '').isNotEmpty)
                       Padding(

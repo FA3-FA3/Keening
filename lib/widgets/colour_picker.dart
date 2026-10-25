@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/colour_library.dart';
 import '../utils/rich_text.dart' show hexColor;
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// What the picker returns: a colour, or null [hex] for "no colour" (the
 /// document's default text colour, or no highlight).
@@ -137,94 +137,89 @@ class _ColourPickerState extends State<_ColourPicker> {
   @override
   Widget build(BuildContext context) {
     final library = widget.library;
-    return AlertDialog(
+    return AppAlertDialog(
+      width: 300,
       title: Text(widget.title),
-      scrollable: true,
-      content: FixedWidth(
-        width: 300,
-        child: ListenableBuilder(
-          listenable: library,
-          builder: (context, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Saturation (across) and brightness (down) for the chosen hue.
-              _SaturationValueBox(
-                key: const ValueKey('colour-sv'),
-                hsv: _hsv,
-                onChanged: _set,
-              ),
-              const SizedBox(height: 8),
-              _HueSlider(
-                key: const ValueKey('colour-hue'),
-                hue: _hsv.hue,
-                onChanged: (h) => _set(_hsv.withHue(h)),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Container(
-                    key: const ValueKey('colour-preview'),
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: _hsv.toColor(),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade500),
-                    ),
+      content: ListenableBuilder(
+        listenable: library,
+        builder: (context, _) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Saturation (across) and brightness (down) for the chosen hue.
+            _SaturationValueBox(
+              key: const ValueKey('colour-sv'),
+              hsv: _hsv,
+              onChanged: _set,
+            ),
+            const SizedBox(height: 8),
+            _HueSlider(
+              key: const ValueKey('colour-hue'),
+              hue: _hsv.hue,
+              onChanged: (h) => _set(_hsv.withHue(h)),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Container(
+                  key: const ValueKey('colour-preview'),
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: _hsv.toColor(),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade500),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('colour-hex'),
-                      controller: _hexField,
-                      decoration: InputDecoration(
-                        labelText: 'Hex colour',
-                        isDense: true,
-                        errorText: _message,
-                      ),
-                      onChanged: _typed,
-                      onSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('colour-hex'),
+                    controller: _hexField,
+                    decoration: InputDecoration(
+                      labelText: 'Hex colour',
+                      isDense: true,
+                      errorText: _message,
                     ),
+                    onChanged: _typed,
+                    onSubmitted: (_) => _submit(),
                   ),
-                  IconButton(
-                    key: const ValueKey('colour-favourite'),
-                    tooltip: library.isFavourite(_hex)
-                        ? 'Remove from favourites'
-                        : 'Add to favourites',
-                    onPressed: () {
-                      if (!library.toggleFavourite(_hex)) {
-                        setState(
-                          () => _message =
-                              'You can keep up to ${ColourLibrary.maxFavourites} favourites.',
-                        );
-                      }
-                    },
-                    icon: Icon(
-                      library.isFavourite(_hex)
-                          ? Icons.star
-                          : Icons.star_border,
-                      color: library.isFavourite(_hex) ? Colors.amber : null,
-                    ),
+                ),
+                IconButton(
+                  key: const ValueKey('colour-favourite'),
+                  tooltip: library.isFavourite(_hex)
+                      ? 'Remove from favourites'
+                      : 'Add to favourites',
+                  onPressed: () {
+                    if (!library.toggleFavourite(_hex)) {
+                      setState(
+                        () => _message =
+                            'You can keep up to ${ColourLibrary.maxFavourites} favourites.',
+                      );
+                    }
+                  },
+                  icon: Icon(
+                    library.isFavourite(_hex) ? Icons.star : Icons.star_border,
+                    color: library.isFavourite(_hex) ? Colors.amber : null,
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _row(
-                'Favourites',
-                library.favourites,
-                'colour-favourite-chip',
-                'Star a colour to keep it here.',
-              ),
-              const SizedBox(height: 8),
-              _row(
-                'Recently used',
-                library.recent,
-                'colour-recent',
-                'Colours you use appear here.',
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _row(
+              'Favourites',
+              library.favourites,
+              'colour-favourite-chip',
+              'Star a colour to keep it here.',
+            ),
+            const SizedBox(height: 8),
+            _row(
+              'Recently used',
+              library.recent,
+              'colour-recent',
+              'Colours you use appear here.',
+            ),
+          ],
         ),
       ),
       actions: [

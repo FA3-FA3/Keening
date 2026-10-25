@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/links_service.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Both editors manage the same persisted event-to-task relationships.
 class ItemLinks extends StatefulWidget {
@@ -108,104 +108,97 @@ class _ItemLinksState extends State<ItemLinks> {
               .toList();
           return PopScope(
             canPop: !busy,
-            child: AlertDialog(
+            child: AppAlertDialog(
+              width: 520,
               title: const Text('Link items'),
-              scrollable: true,
-              content: FixedWidth(
-                width: 520,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Links are saved immediately and appear on both items.',
+                  ),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Search links',
+                    ),
+                    onChanged: (v) => update(() => search = v),
+                  ),
+                  if (error != null) Text(error!),
+                  if (_options.isEmpty)
                     const Text(
-                      'Links are saved immediately and appear on both items.',
+                      'Create an item in another tab to link it here.',
                     ),
-                    TextField(
-                      decoration: const InputDecoration(
-                        labelText: 'Search links',
-                      ),
-                      onChanged: (v) => update(() => search = v),
-                    ),
-                    if (error != null) Text(error!),
-                    if (_options.isEmpty)
-                      const Text(
-                        'Create an item in another tab to link it here.',
-                      ),
-                    if (_options.isNotEmpty)
-                      SizedBox(
-                        height: 240,
-                        child: visible.isEmpty
-                            ? const Center(child: Text('No matches.'))
-                            : ListView.builder(
-                                itemCount: visible.length,
-                                itemBuilder: (ctx, index) {
-                                  final option = visible[index];
-                                  return CheckboxListTile(
-                                    title: Text(option['title'] as String),
-                                    subtitle: Text(
-                                      '${option['location']}${option['archived'] == true ? ' · Archived' : ''}',
-                                    ),
-                                    value: option['linked'] == true,
-                                    onChanged: busy
-                                        ? null
-                                        : (linked) async {
-                                            update(() {
-                                              busy = true;
-                                              error = null;
+                  if (_options.isNotEmpty)
+                    SizedBox(
+                      height: 240,
+                      child: visible.isEmpty
+                          ? const Center(child: Text('No matches.'))
+                          : ListView.builder(
+                              itemCount: visible.length,
+                              itemBuilder: (ctx, index) {
+                                final option = visible[index];
+                                return CheckboxListTile(
+                                  title: Text(option['title'] as String),
+                                  subtitle: Text(
+                                    '${option['location']}${option['archived'] == true ? ' · Archived' : ''}',
+                                  ),
+                                  value: option['linked'] == true,
+                                  onChanged: busy
+                                      ? null
+                                      : (linked) async {
+                                          update(() {
+                                            busy = true;
+                                            error = null;
+                                          });
+                                          try {
+                                            await _service.call({
+                                              ..._source,
+                                              if (option['target_type'] != null)
+                                                'targetType':
+                                                    option['target_type'],
+                                              if (option['calendar_event_id'] !=
+                                                  null)
+                                                'calendarEventId':
+                                                    option['calendar_event_id'],
+                                              'action': linked == true
+                                                  ? 'link'
+                                                  : 'unlink',
+                                              if (option['session_id'] != null)
+                                                'sessionId':
+                                                    option['session_id'],
+                                              if (option['event_id'] != null)
+                                                'eventId': option['event_id'],
+                                              if (option['workplace_id'] !=
+                                                  null)
+                                                'workplaceId':
+                                                    option['workplace_id'],
+                                              if (option['task_id'] != null)
+                                                'taskId': option['task_id'],
+                                              if (option['panel_id'] != null)
+                                                'panelId': option['panel_id'],
                                             });
-                                            try {
-                                              await _service.call({
-                                                ..._source,
-                                                if (option['target_type'] !=
-                                                    null)
-                                                  'targetType':
-                                                      option['target_type'],
-                                                if (option['calendar_event_id'] !=
-                                                    null)
-                                                  'calendarEventId':
-                                                      option['calendar_event_id'],
-                                                'action': linked == true
-                                                    ? 'link'
-                                                    : 'unlink',
-                                                if (option['session_id'] !=
-                                                    null)
-                                                  'sessionId':
-                                                      option['session_id'],
-                                                if (option['event_id'] != null)
-                                                  'eventId': option['event_id'],
-                                                if (option['workplace_id'] !=
-                                                    null)
-                                                  'workplaceId':
-                                                      option['workplace_id'],
-                                                if (option['task_id'] != null)
-                                                  'taskId': option['task_id'],
-                                                if (option['panel_id'] != null)
-                                                  'panelId': option['panel_id'],
-                                              });
-                                              if (mounted) {
-                                                setState(
-                                                  () => option['linked'] =
-                                                      linked == true,
-                                                );
-                                              }
-                                              widget.onChanged?.call();
-                                            } catch (e) {
-                                              if (ctx.mounted) {
-                                                update(
-                                                  () => error = _message(e),
-                                                );
-                                              }
-                                            } finally {
-                                              if (ctx.mounted) {
-                                                update(() => busy = false);
-                                              }
+                                            if (mounted) {
+                                              setState(
+                                                () => option['linked'] =
+                                                    linked == true,
+                                              );
                                             }
-                                          },
-                                  );
-                                },
-                              ),
-                      ),
-                  ],
-                ),
+                                            widget.onChanged?.call();
+                                          } catch (e) {
+                                            if (ctx.mounted) {
+                                              update(() => error = _message(e));
+                                            }
+                                          } finally {
+                                            if (ctx.mounted) {
+                                              update(() => busy = false);
+                                            }
+                                          }
+                                        },
+                                );
+                              },
+                            ),
+                    ),
+                ],
               ),
               actions: [
                 TextButton(

@@ -1,6 +1,8 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 class GlobalSearchDialog extends StatefulWidget {
   const GlobalSearchDialog({super.key, required this.search});
@@ -66,10 +68,12 @@ class _GlobalSearchDialogState extends State<GlobalSearchDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => Dialog(
+  Widget build(BuildContext context) => AppDialog(
     insetPadding: const EdgeInsets.all(16),
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 650),
+      constraints: BoxConstraints(
+        maxHeight: math.min(650, MediaQuery.sizeOf(context).height - 48),
+      ),
       child: FixedWidth(
         width: 720,
         child: Padding(

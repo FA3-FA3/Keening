@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../utils/attachments_service.dart';
 import '../utils/file_save.dart';
-import 'fixed_width.dart';
+import 'app_dialog.dart';
 
 /// Files larger than this are refused before upload (the server enforces it too).
 const attachmentMaxBytes = 5 * 1024 * 1024;
@@ -267,26 +267,24 @@ class _ItemAttachmentsState extends State<ItemAttachments> {
     final bytes = base64Decode(full['data'] as String);
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
+        width: 640,
         title: Text(name, overflow: TextOverflow.ellipsis),
-        content: FixedWidth(
-          width: 640,
-          child: image
-              ? InteractiveViewer(
-                  child: Image.memory(
-                    Uint8List.fromList(bytes),
-                    key: const ValueKey('attachment-image'),
-                    errorBuilder: (_, _, _) =>
-                        const Text('This picture cannot be shown.'),
-                  ),
-                )
-              : SingleChildScrollView(
-                  child: SelectableText(
-                    _textPreview(bytes),
-                    key: const ValueKey('attachment-text'),
-                  ),
+        content: image
+            ? InteractiveViewer(
+                child: Image.memory(
+                  Uint8List.fromList(bytes),
+                  key: const ValueKey('attachment-image'),
+                  errorBuilder: (_, _, _) =>
+                      const Text('This picture cannot be shown.'),
                 ),
-        ),
+              )
+            : SingleChildScrollView(
+                child: SelectableText(
+                  _textPreview(bytes),
+                  key: const ValueKey('attachment-text'),
+                ),
+              ),
         actions: [
           TextButton(
             onPressed: () => _download(file),
@@ -312,7 +310,7 @@ class _ItemAttachmentsState extends State<ItemAttachments> {
   Future<void> _remove(Map<String, dynamic> file) async {
     final sure = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: const Text('Delete attachment?'),
         content: Text('"${file['name']}" will be deleted.'),
         actions: [
