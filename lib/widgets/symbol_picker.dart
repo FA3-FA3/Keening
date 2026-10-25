@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/symbol_library.dart';
+import 'fixed_width.dart';
 
 /// Groups of symbols the picker offers.
 const symbolGroups = <String, String>{
@@ -49,7 +50,7 @@ class _SymbolPickerState extends State<_SymbolPicker> {
     return AlertDialog(
       title: const Text('Insert symbol'),
       scrollable: true,
-      content: SizedBox(
+      content: FixedWidth(
         width: 360,
         child: Column(
           mainAxisSize: MainAxisSize.min,

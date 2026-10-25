@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'fixed_width.dart';
 
 class ProfileCropDialog extends StatefulWidget {
   const ProfileCropDialog({super.key, required this.bytes});
@@ -124,7 +125,7 @@ class _ProfileCropDialogState extends State<ProfileCropDialog> {
     canPop: !_applying,
     child: AlertDialog(
       title: const Text('Crop profile picture'),
-      content: SizedBox(
+      content: FixedWidth(
         width: 360,
         child: SingleChildScrollView(
           child: Column(

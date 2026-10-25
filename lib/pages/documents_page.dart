@@ -24,6 +24,7 @@ import '../widgets/export_dialog.dart';
 import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
 import '../widgets/sheet_editor.dart';
+import '../widgets/fixed_width.dart';
 
 /// A kind of document that can be created.
 class DocumentType {
@@ -306,7 +307,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
             canPop: !saving,
             child: AlertDialog(
               title: Text(existing == null ? 'New folder' : 'Rename folder'),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 360,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -485,7 +486,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
               title: Text(
                 existing == null ? 'New ${type.label}' : 'Edit ${type.label}',
               ),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 400,
                 child: SingleChildScrollView(
                   child: Column(
@@ -1086,7 +1087,7 @@ class _DocumentDetailsState extends State<_DocumentDetails> {
         doc['name'] as String,
         key: const ValueKey('doc-details-name'),
       ),
-      content: SizedBox(
+      content: FixedWidth(
         width: 420,
         child: SingleChildScrollView(
           child: Column(
@@ -1243,7 +1244,7 @@ class _MoveDialogState extends State<_MoveDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
-    content: SizedBox(
+    content: FixedWidth(
       width: 380,
       height: 320,
       child: ListView(

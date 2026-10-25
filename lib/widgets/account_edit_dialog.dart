@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'fixed_width.dart';
 
 class AccountEditDialog extends StatefulWidget {
   const AccountEditDialog({
@@ -62,7 +63,7 @@ class _AccountEditDialogState extends State<AccountEditDialog> {
     canPop: !_saving,
     child: AlertDialog(
       title: Text('Change ${widget.action}'),
-      content: SizedBox(
+      content: FixedWidth(
         width: 400,
         child: SingleChildScrollView(
           child: Form(

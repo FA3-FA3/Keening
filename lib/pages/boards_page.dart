@@ -6,6 +6,7 @@ import '../utils/app_colors.dart';
 import '../utils/boards_service.dart';
 import '../widgets/item_links.dart';
 import '../widgets/tag_manager_dialog.dart';
+import '../widgets/fixed_width.dart';
 
 /// Shared colour palette for panels, tasks, and tags across this page.
 const List<String> _kColorPalette = [
@@ -409,7 +410,7 @@ class _BoardsPageState extends State<BoardsPage> {
                   ? (kind == 'workplace' ? 'Create board' : 'New $kind')
                   : (kind == 'panel' ? 'Edit panel' : 'Rename $noun'),
             ),
-            content: SizedBox(
+            content: FixedWidth(
               width: 360,
               child: SingleChildScrollView(
                 child: Column(
@@ -587,8 +588,8 @@ class _BoardsPageState extends State<BoardsPage> {
           return PopScope(
             canPop: !saving,
             child: Dialog(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 688),
+              child: FixedWidth(
+                width: 688,
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -939,6 +940,7 @@ class _BoardsPageState extends State<BoardsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                physics: pageChainPhysics(context),
                 child: Row(
                   children: [
                     for (final w in _workplaces) _boardButton(w, disabled),
@@ -1125,6 +1127,7 @@ class _BoardsPageState extends State<BoardsPage> {
               padding: const EdgeInsets.all(16),
               child: ReorderableListView(
                 scrollDirection: Axis.horizontal,
+                physics: pageChainPhysics(context),
                 buildDefaultDragHandles: false,
                 onReorderItem: (oldIndex, newIndex) {
                   if (disabled) return;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../utils/note_settings.dart';
 import '../utils/sheet_model.dart';
 import 'colour_picker.dart';
+import 'fixed_width.dart';
 
 Widget _swatch(
   BuildContext context,
@@ -71,7 +72,7 @@ class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('note-settings-dialog'),
     title: const Text('Notepad settings'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 440,
       child: SingleChildScrollView(
         child: Column(
@@ -208,7 +209,7 @@ class _SheetSettingsDialogState extends State<_SheetSettingsDialog> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('sheet-settings-dialog'),
     title: const Text('Spreadsheet settings'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 420,
       child: SingleChildScrollView(
         child: Column(

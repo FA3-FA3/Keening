@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'equation_table.dart';
 import 'horizontal_scroll.dart';
+import 'fixed_width.dart';
 
 /// The size equations are measured and first drawn at.
 const equationFontSize = 24.0;
@@ -384,142 +385,144 @@ class _EquationEditorState extends State<_EquationEditor> {
     return Dialog(
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 520,
           maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-              child: Text(
-                widget.initial.isEmpty ? 'Insert equation' : 'Edit equation',
-                style: Theme.of(context).textTheme.titleLarge,
+        child: FixedWidth(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+                child: Text(
+                  widget.initial.isEmpty ? 'Insert equation' : 'Edit equation',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        for (final name in equationGroups.keys)
-                          ChoiceChip(
-                            key: ValueKey('equation-group-$name'),
-                            label: Text(name),
-                            selected: name == _group,
-                            onSelected: (_) => setState(() => _group = name),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (_group == 'Tables') ...[
-                      FilledButton.tonalIcon(
-                        key: const ValueKey('equation-table-builder'),
-                        onPressed: _buildTable,
-                        icon: const Icon(Icons.grid_on),
-                        label: const Text('Build a table or matrix…'),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          for (final name in equationGroups.keys)
+                            ChoiceChip(
+                              key: ValueKey('equation-group-$name'),
+                              label: Text(name),
+                              selected: name == _group,
+                              onSelected: (_) => setState(() => _group = name),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 8),
-                    ],
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: [
-                        for (final (i, t) in equationGroups[_group]!.indexed)
-                          Tooltip(
-                            message: t.$3,
-                            child: OutlinedButton(
-                              key: ValueKey('equation-template-$i'),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(40, 36),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                              ),
-                              onPressed: () => _insert(t.$2),
-                              child: Text(
-                                t.$1,
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                          ),
+                      if (_group == 'Tables') ...[
+                        FilledButton.tonalIcon(
+                          key: const ValueKey('equation-table-builder'),
+                          onPressed: _buildTable,
+                          icon: const Icon(Icons.grid_on),
+                          label: const Text('Build a table or matrix…'),
+                        ),
+                        const SizedBox(height: 8),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      key: const ValueKey('equation-field'),
-                      controller: _field,
-                      autofocus: true,
-                      minLines: 2,
-                      maxLines: 4,
-                      style: const TextStyle(fontFamily: 'monospace'),
-                      decoration: InputDecoration(
-                        labelText: 'LaTeX',
-                        hintText: r'e.g. \frac{-b \pm \sqrt{b^2-4ac}}{2a}',
-                        helperText:
-                            r'To show curly braces type \{ and \} (or use the { } button); plain { } only group things.',
-                        helperMaxLines: 2,
-                        errorText: error,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      key: const ValueKey('equation-preview'),
-                      constraints: const BoxConstraints(minHeight: 64),
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: scheme.outlineVariant),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: empty || error != null
-                          ? Text(
-                              empty ? 'The equation appears here.' : '',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            )
-                          : HorizontalScroll(
-                              key: const ValueKey('equation-preview-scroll'),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: KeyedSubtree(
-                                  key: _previewKey,
-                                  child: EquationView(latex: _latex),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          for (final (i, t) in equationGroups[_group]!.indexed)
+                            Tooltip(
+                              message: t.$3,
+                              child: OutlinedButton(
+                                key: ValueKey('equation-template-$i'),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(40, 36),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                ),
+                                onPressed: () => _insert(t.$2),
+                                child: Text(
+                                  t.$1,
+                                  style: const TextStyle(fontSize: 16),
                                 ),
                               ),
                             ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const ValueKey('equation-field'),
+                        controller: _field,
+                        autofocus: true,
+                        minLines: 2,
+                        maxLines: 4,
+                        style: const TextStyle(fontFamily: 'monospace'),
+                        decoration: InputDecoration(
+                          labelText: 'LaTeX',
+                          hintText: r'e.g. \frac{-b \pm \sqrt{b^2-4ac}}{2a}',
+                          helperText:
+                              r'To show curly braces type \{ and \} (or use the { } button); plain { } only group things.',
+                          helperMaxLines: 2,
+                          errorText: error,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        key: const ValueKey('equation-preview'),
+                        constraints: const BoxConstraints(minHeight: 64),
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: scheme.outlineVariant),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: empty || error != null
+                            ? Text(
+                                empty ? 'The equation appears here.' : '',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              )
+                            : HorizontalScroll(
+                                key: const ValueKey('equation-preview-scroll'),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: KeyedSubtree(
+                                    key: _previewKey,
+                                    child: EquationView(latex: _latex),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      key: const ValueKey('equation-cancel'),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      key: const ValueKey('equation-apply'),
+                      onPressed: _valid ? _apply : null,
+                      child: Text(widget.initial.isEmpty ? 'Insert' : 'Save'),
                     ),
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    key: const ValueKey('equation-cancel'),
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    key: const ValueKey('equation-apply'),
-                    onPressed: _valid ? _apply : null,
-                    child: Text(widget.initial.isEmpty ? 'Insert' : 'Save'),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

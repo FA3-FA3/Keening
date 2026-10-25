@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'fixed_width.dart';
 
 /// Colour choices shared by the tags on the Boards, Schedule and Calendar pages.
 const tagColors = [
@@ -128,7 +129,7 @@ class _TagManagerDialogState extends State<TagManagerDialog> {
             canPop: !saving,
             child: AlertDialog(
               title: Text(existing == null ? 'New tag' : 'Edit tag'),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 380,
                 child: SingleChildScrollView(
                   child: Column(
@@ -265,7 +266,7 @@ class _TagManagerDialogState extends State<TagManagerDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
-    content: SizedBox(
+    content: FixedWidth(
       width: 380,
       child: SingleChildScrollView(
         child: Column(

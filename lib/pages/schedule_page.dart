@@ -8,6 +8,7 @@ import '../widgets/multi_date_calendar.dart';
 import '../widgets/schedule_timeline.dart';
 import '../widgets/tag_manager_dialog.dart';
 import '../widgets/item_links.dart';
+import '../widgets/fixed_width.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({
@@ -184,7 +185,7 @@ class _SchedulePageState extends State<SchedulePage> {
             canPop: !saving,
             child: AlertDialog(
               title: Text(block == null ? 'New session' : 'Edit session'),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 420,
                 child: SingleChildScrollView(
                   child: Column(
@@ -669,6 +670,7 @@ class _SchedulePageState extends State<SchedulePage> {
                   child: SingleChildScrollView(
                     controller: _horizontal,
                     scrollDirection: Axis.horizontal,
+                    physics: pageChainPhysics(context),
                     child: SizedBox(width: width, child: _grid(width)),
                   ),
                 ),

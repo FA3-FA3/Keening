@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../utils/attachments_service.dart';
 import '../utils/file_save.dart';
+import 'fixed_width.dart';
 
 /// Files larger than this are refused before upload (the server enforces it too).
 const attachmentMaxBytes = 5 * 1024 * 1024;
@@ -268,7 +269,7 @@ class _ItemAttachmentsState extends State<ItemAttachments> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(name, overflow: TextOverflow.ellipsis),
-        content: SizedBox(
+        content: FixedWidth(
           width: 640,
           child: image
               ? InteractiveViewer(

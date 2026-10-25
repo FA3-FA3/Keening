@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/links_service.dart';
+import 'fixed_width.dart';
 
 /// Both editors manage the same persisted event-to-task relationships.
 class ItemLinks extends StatefulWidget {
@@ -110,7 +111,7 @@ class _ItemLinksState extends State<ItemLinks> {
             child: AlertDialog(
               title: const Text('Link items'),
               scrollable: true,
-              content: SizedBox(
+              content: FixedWidth(
                 width: 520,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

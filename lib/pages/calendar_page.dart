@@ -5,6 +5,7 @@ import '../utils/app_colors.dart';
 import '../utils/calendar_service.dart';
 import '../widgets/item_links.dart';
 import '../widgets/tag_manager_dialog.dart';
+import '../widgets/fixed_width.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({
@@ -278,7 +279,7 @@ class _CalendarPageState extends State<CalendarPage> {
             canPop: !saving,
             child: AlertDialog(
               title: Text(event == null ? 'New event' : 'Event details'),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 420,
                 child: SingleChildScrollView(
                   child: Column(

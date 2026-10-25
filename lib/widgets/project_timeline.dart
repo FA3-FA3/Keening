@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
+import 'fixed_width.dart';
 
 /// One phase on the timeline.
 class TimelineItem {
@@ -197,6 +198,7 @@ class _ProjectTimelineState extends State<ProjectTimeline> {
             child: SingleChildScrollView(
               controller: _horizontal,
               scrollDirection: Axis.horizontal,
+              physics: pageChainPhysics(context),
               child: GestureDetector(
                 key: const ValueKey('timeline-chart'),
                 behavior: HitTestBehavior.opaque,

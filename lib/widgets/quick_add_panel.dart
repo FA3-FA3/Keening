@@ -499,6 +499,25 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
     ];
   }
 
+  /// The panel is always this wide; on a narrower screen it keeps its width
+  /// and scrolls sideways instead of squeezing its fields.
+  static const _panelWidth = 480.0;
+
+  Widget _sideways(BuildContext context, Widget content) {
+    final room = MediaQuery.sizeOf(context).width - 32;
+    if (room >= _panelWidth) {
+      return SizedBox(width: _panelWidth, child: content);
+    }
+    return SizedBox(
+      width: room,
+      child: SingleChildScrollView(
+        key: const ValueKey('sideways-scroll'),
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(width: _panelWidth, child: content),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -510,73 +529,80 @@ class _QuickAddPanelState extends State<QuickAddPanel> {
       color: AppColors.surface(context),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 480,
           maxHeight: MediaQuery.sizeOf(context).height - 96,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
+        child: _sideways(
+          context,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Quick add',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        key: const ValueKey('quick-add-close'),
+                        tooltip: 'Close',
+                        onPressed: widget.onClose,
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final k in QuickAddKind.values)
+                        ChoiceChip(
+                          key: ValueKey('quick-add-${k.name}'),
+                          avatar: Icon(k.icon, size: 16),
+                          label: Text(k.label),
+                          selected: _kind == k,
+                          onSelected: _saving ? null : (_) => _select(k),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_loadingChoices) const LinearProgressIndicator(),
+                  for (final f in fields) ...[f, const SizedBox(height: 12)],
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
                       child: Text(
-                        'Quick add',
-                        style: Theme.of(context).textTheme.titleLarge,
+                        _error!,
+                        style: TextStyle(color: scheme.error),
                       ),
                     ),
-                    IconButton(
-                      key: const ValueKey('quick-add-close'),
-                      tooltip: 'Close',
-                      onPressed: widget.onClose,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final k in QuickAddKind.values)
-                      ChoiceChip(
-                        key: ValueKey('quick-add-${k.name}'),
-                        avatar: Icon(k.icon, size: 16),
-                        label: Text(k.label),
-                        selected: _kind == k,
-                        onSelected: _saving ? null : (_) => _select(k),
+                  if (_done != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        _done!,
+                        style: TextStyle(color: scheme.primary),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (_loadingChoices) const LinearProgressIndicator(),
-                for (final f in fields) ...[f, const SizedBox(height: 12)],
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(_error!, style: TextStyle(color: scheme.error)),
-                  ),
-                if (_done != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    key: const ValueKey('quick-add-submit'),
+                    onPressed: _saving || _loadingChoices ? null : _add,
                     child: Text(
-                      _done!,
-                      style: TextStyle(color: scheme.primary),
+                      _saving
+                          ? 'Adding...'
+                          : 'Add ${_kind.label.toLowerCase()}',
                     ),
                   ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  key: const ValueKey('quick-add-submit'),
-                  onPressed: _saving || _loadingChoices ? null : _add,
-                  child: Text(
-                    _saving ? 'Adding...' : 'Add ${_kind.label.toLowerCase()}',
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

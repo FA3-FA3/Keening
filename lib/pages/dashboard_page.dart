@@ -25,6 +25,7 @@ import '../utils/remembered_login.dart';
 import '../utils/messages_service.dart';
 import '../utils/people_service.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/fixed_width.dart';
 import '../widgets/quick_add_panel.dart';
 import 'calendar_page.dart';
 import 'messages_page.dart';
@@ -41,6 +42,11 @@ const _dashboardTabs = [
   'Documents',
   'People',
 ];
+
+/// The least width the page area and the top bar are laid out at. In a narrower
+/// space they keep it and scroll sideways, rather than squeezing their contents.
+const _pageMinWidth = 560.0;
+const _topBarMinWidth = 600.0;
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
 const _navigationHeight = 36.0;
 
@@ -801,142 +807,156 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ),
                               ),
                               Expanded(
-                                child: _openTabs.isEmpty
-                                    ? const SizedBox.expand(
-                                        key: ValueKey('workspace-empty'),
-                                      )
-                                    : IndexedStack(
-                                        index: _openTabs.indexOf(_selectedTab!),
-                                        alignment: Alignment.topLeft,
-                                        children: [
-                                          for (final tab in _openTabs)
-                                            tab.startsWith('doc:')
-                                                ? DocumentTab(
-                                                    service: widget.padsService,
-                                                    key: _pageKey(tab),
-                                                    ganttService:
-                                                        widget.ganttService,
-                                                    searchTarget:
-                                                        _docTargets[tab],
-                                                    closeIfMissing:
-                                                        _restoredDocTabs
-                                                            .contains(tab),
-                                                    document: _docTabs[tab]!,
-                                                    onClose: () =>
-                                                        _closeTab(tab),
-                                                  )
-                                                : tab == 'Dashboard'
-                                                ? OverviewPage(
-                                                    key: _pageKey('Dashboard'),
-                                                    active:
-                                                        _selectedTab ==
+                                child: MinWidthScroll(
+                                  minWidth: _pageMinWidth,
+                                  child: _openTabs.isEmpty
+                                      ? const SizedBox.expand(
+                                          key: ValueKey('workspace-empty'),
+                                        )
+                                      : IndexedStack(
+                                          index: _openTabs.indexOf(
+                                            _selectedTab!,
+                                          ),
+                                          alignment: Alignment.topLeft,
+                                          children: [
+                                            for (final tab in _openTabs)
+                                              tab.startsWith('doc:')
+                                                  ? DocumentTab(
+                                                      service:
+                                                          widget.padsService,
+                                                      key: _pageKey(tab),
+                                                      ganttService:
+                                                          widget.ganttService,
+                                                      searchTarget:
+                                                          _docTargets[tab],
+                                                      closeIfMissing:
+                                                          _restoredDocTabs
+                                                              .contains(tab),
+                                                      document: _docTabs[tab]!,
+                                                      onClose: () =>
+                                                          _closeTab(tab),
+                                                    )
+                                                  : tab == 'Dashboard'
+                                                  ? OverviewPage(
+                                                      key: _pageKey(
                                                         'Dashboard',
-                                                  )
-                                                : tab == 'Boards'
-                                                ? BoardsPage(
-                                                    searchTarget:
-                                                        _searchTargets['Boards'],
-                                                    key: _pageKey('Boards'),
-                                                  )
-                                                : tab == 'Projects'
-                                                ? ProjectsPage(
-                                                    key: _pageKey('Projects'),
-                                                    onOpenItem: (page, target) {
-                                                      if (page == 'Gantt') {
-                                                        _openGanttCalendar(
-                                                          target,
-                                                        );
-                                                        return;
-                                                      }
-                                                      _searchTargets[page] =
-                                                          target;
-                                                      _openTab(page);
-                                                    },
-                                                  )
-                                                : tab == 'Documents'
-                                                ? DocumentsPage(
-                                                    service: widget.padsService,
-                                                    ganttService:
-                                                        widget.ganttService,
-                                                    onOpenDocument:
-                                                        _openDocumentTab,
-                                                    onDocumentsChanged:
-                                                        _syncDocumentTabs,
-                                                    searchTarget:
-                                                        _searchTargets['Documents'],
-                                                    key: _pageKey('Documents'),
-                                                  )
-                                                : tab == 'Settings'
-                                                ? SettingsPage(
-                                                    key: const ValueKey(
-                                                      'workspace-page-Settings',
+                                                      ),
+                                                      active:
+                                                          _selectedTab ==
+                                                          'Dashboard',
+                                                    )
+                                                  : tab == 'Boards'
+                                                  ? BoardsPage(
+                                                      searchTarget:
+                                                          _searchTargets['Boards'],
+                                                      key: _pageKey('Boards'),
+                                                    )
+                                                  : tab == 'Projects'
+                                                  ? ProjectsPage(
+                                                      key: _pageKey('Projects'),
+                                                      onOpenItem: (page, target) {
+                                                        if (page == 'Gantt') {
+                                                          _openGanttCalendar(
+                                                            target,
+                                                          );
+                                                          return;
+                                                        }
+                                                        _searchTargets[page] =
+                                                            target;
+                                                        _openTab(page);
+                                                      },
+                                                    )
+                                                  : tab == 'Documents'
+                                                  ? DocumentsPage(
+                                                      service:
+                                                          widget.padsService,
+                                                      ganttService:
+                                                          widget.ganttService,
+                                                      onOpenDocument:
+                                                          _openDocumentTab,
+                                                      onDocumentsChanged:
+                                                          _syncDocumentTabs,
+                                                      searchTarget:
+                                                          _searchTargets['Documents'],
+                                                      key: _pageKey(
+                                                        'Documents',
+                                                      ),
+                                                    )
+                                                  : tab == 'Settings'
+                                                  ? SettingsPage(
+                                                      key: const ValueKey(
+                                                        'workspace-page-Settings',
+                                                      ),
+                                                      profile: _profile,
+                                                      loading: _profileLoading,
+                                                      error: _profileError,
+                                                      onRefresh: _loadProfile,
+                                                      onSavePicture:
+                                                          _savePicture,
+                                                      onChangeAccount:
+                                                          _changeAccount,
+                                                      onLogOut: _logOut,
+                                                    )
+                                                  : tab == 'People'
+                                                  ? PeoplePage(
+                                                      key: _pageKey('People'),
+                                                      service:
+                                                          widget.peopleService,
+                                                      onMessage: _openMessages,
+                                                    )
+                                                  : tab == 'Messages'
+                                                  ? MessagesPage(
+                                                      key: _pageKey('Messages'),
+                                                      service: widget
+                                                          .messagesService,
+                                                      peopleService:
+                                                          widget.peopleService,
+                                                      initialUsername:
+                                                          _messagesWith,
+                                                      onUnreadChanged: (n) {
+                                                        if (n !=
+                                                            _unreadMessages) {
+                                                          WidgetsBinding
+                                                              .instance
+                                                              .addPostFrameCallback((
+                                                                _,
+                                                              ) {
+                                                                if (mounted) {
+                                                                  setState(
+                                                                    () =>
+                                                                        _unreadMessages =
+                                                                            n,
+                                                                  );
+                                                                }
+                                                              });
+                                                        }
+                                                      },
+                                                    )
+                                                  : tab == 'Schedule'
+                                                  ? SchedulePage(
+                                                      searchTarget:
+                                                          _searchTargets['Schedule'],
+                                                      key: _pageKey('Schedule'),
+                                                      date: _scheduleDate,
+                                                      openRequest:
+                                                          _scheduleRequest,
+                                                      refreshRequest:
+                                                          _scheduleRefresh,
+                                                    )
+                                                  : CalendarPage(
+                                                      searchTarget:
+                                                          _searchTargets['Calendar'],
+                                                      key: _pageKey('Calendar'),
+                                                      onOpenSchedule:
+                                                          _openSchedule,
+                                                      onChanged: () => setState(
+                                                        () =>
+                                                            _scheduleRefresh++,
+                                                      ),
                                                     ),
-                                                    profile: _profile,
-                                                    loading: _profileLoading,
-                                                    error: _profileError,
-                                                    onRefresh: _loadProfile,
-                                                    onSavePicture: _savePicture,
-                                                    onChangeAccount:
-                                                        _changeAccount,
-                                                    onLogOut: _logOut,
-                                                  )
-                                                : tab == 'People'
-                                                ? PeoplePage(
-                                                    key: _pageKey('People'),
-                                                    service:
-                                                        widget.peopleService,
-                                                    onMessage: _openMessages,
-                                                  )
-                                                : tab == 'Messages'
-                                                ? MessagesPage(
-                                                    key: _pageKey('Messages'),
-                                                    service:
-                                                        widget.messagesService,
-                                                    peopleService:
-                                                        widget.peopleService,
-                                                    initialUsername:
-                                                        _messagesWith,
-                                                    onUnreadChanged: (n) {
-                                                      if (n !=
-                                                          _unreadMessages) {
-                                                        WidgetsBinding.instance
-                                                            .addPostFrameCallback((
-                                                              _,
-                                                            ) {
-                                                              if (mounted) {
-                                                                setState(
-                                                                  () =>
-                                                                      _unreadMessages =
-                                                                          n,
-                                                                );
-                                                              }
-                                                            });
-                                                      }
-                                                    },
-                                                  )
-                                                : tab == 'Schedule'
-                                                ? SchedulePage(
-                                                    searchTarget:
-                                                        _searchTargets['Schedule'],
-                                                    key: _pageKey('Schedule'),
-                                                    date: _scheduleDate,
-                                                    openRequest:
-                                                        _scheduleRequest,
-                                                    refreshRequest:
-                                                        _scheduleRefresh,
-                                                  )
-                                                : CalendarPage(
-                                                    searchTarget:
-                                                        _searchTargets['Calendar'],
-                                                    key: _pageKey('Calendar'),
-                                                    onOpenSchedule:
-                                                        _openSchedule,
-                                                    onChanged: () => setState(
-                                                      () => _scheduleRefresh++,
-                                                    ),
-                                                  ),
-                                        ],
-                                      ),
+                                          ],
+                                        ),
+                                ),
                               ),
                             ],
                           ),
@@ -988,113 +1008,109 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      key: const ValueKey('workspace-top-bar'),
-      height: _topBarHeight(context),
-      width: double.infinity,
-      color: AppColors.navBackground,
-      padding: EdgeInsets.only(
-        left: hasCustomTitleBar ? 16 : 24,
-        right: hasCustomTitleBar ? 0 : 24,
-      ),
-      child: WindowDragArea(
-        child: Row(
-          children: [
-            if (hasCustomTitleBar) ...[
-              const AppLogo(height: 22.5),
-              const SizedBox(width: 10),
-            ],
-            Text(
-              'Keening',
-              style: TextStyle(
-                color: AppColors.navBrand,
-                fontSize: 18,
-                fontWeight: FontWeight.w400,
-                letterSpacing: 0.5,
+    return MinWidthScroll(
+      minWidth: _topBarMinWidth,
+      child: Container(
+        key: const ValueKey('workspace-top-bar'),
+        height: _topBarHeight(context),
+        width: double.infinity,
+        color: AppColors.navBackground,
+        padding: EdgeInsets.only(
+          left: hasCustomTitleBar ? 16 : 24,
+          right: hasCustomTitleBar ? 0 : 24,
+        ),
+        child: WindowDragArea(
+          child: Row(
+            children: [
+              if (hasCustomTitleBar) ...[
+                const AppLogo(height: 22.5),
+                const SizedBox(width: 10),
+              ],
+              Text(
+                'Keening',
+                style: TextStyle(
+                  color: AppColors.navBrand,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
-            const Spacer(),
-            if (MediaQuery.sizeOf(context).width >= 700)
-              SizedBox(
-                width: MediaQuery.sizeOf(context).width < 900 ? 220 : 260,
-                child: OutlinedButton.icon(
+              const Spacer(),
+              if (MediaQuery.sizeOf(context).width >= 700)
+                SizedBox(
+                  width: MediaQuery.sizeOf(context).width < 900 ? 220 : 260,
+                  child: OutlinedButton.icon(
+                    onPressed: onSearch,
+                    icon: const Icon(Icons.search),
+                    label: const Text('Search all pages'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.navText,
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  tooltip: 'Search all pages',
                   onPressed: onSearch,
                   icon: const Icon(Icons.search),
-                  label: const Text('Search all pages'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.navText,
-                  ),
+                  color: AppColors.navText,
                 ),
-              )
-            else
+              const Spacer(),
               IconButton(
-                tooltip: 'Search all pages',
-                onPressed: onSearch,
-                icon: const Icon(Icons.search),
+                key: const ValueKey('quick-add'),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Quick add',
+                onPressed: onQuickAdd,
+                isSelected: quickAddOpen,
+                icon: const Icon(Icons.add_circle_outline),
+                selectedIcon: const Icon(Icons.add_circle),
                 color: AppColors.navText,
               ),
-            const Spacer(),
-            IconButton(
-              key: const ValueKey('quick-add'),
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Quick add',
-              onPressed: onQuickAdd,
-              isSelected: quickAddOpen,
-              icon: const Icon(Icons.add_circle_outline),
-              selectedIcon: const Icon(Icons.add_circle),
-              color: AppColors.navText,
-            ),
-            IconButton(
-              key: const ValueKey('messages-button'),
-              visualDensity: VisualDensity.compact,
-              tooltip: unreadMessages > 0
-                  ? 'Messages ($unreadMessages unread)'
-                  : 'Messages',
-              onPressed: onMessages,
-              color: AppColors.navText,
-              icon: Badge(
-                key: const ValueKey('messages-badge'),
-                isLabelVisible: unreadMessages > 0,
-                label: Text(unreadMessages > 99 ? '99+' : '$unreadMessages'),
-                child: const Icon(Icons.chat_bubble_outline),
-              ),
-            ),
-            if (MediaQuery.sizeOf(context).width < 560) ...[
-              // A narrow screen has room for the picture and an icon only.
               IconButton(
-                key: const ValueKey('account-settings'),
-                tooltip: username,
+                key: const ValueKey('messages-button'),
                 visualDensity: VisualDensity.compact,
-                onPressed: onSettings,
-                icon: ProfileAvatar(picture: picture, radius: 15),
-              ),
-            ] else ...[
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.sizeOf(context).width < 700 ? 150 : 280,
+                tooltip: unreadMessages > 0
+                    ? 'Messages ($unreadMessages unread)'
+                    : 'Messages',
+                onPressed: onMessages,
+                color: AppColors.navText,
+                icon: Badge(
+                  key: const ValueKey('messages-badge'),
+                  isLabelVisible: unreadMessages > 0,
+                  label: Text(unreadMessages > 99 ? '99+' : '$unreadMessages'),
+                  child: const Icon(Icons.chat_bubble_outline),
                 ),
-                child: TextButton.icon(
-                  key: const ValueKey('account-settings'),
-                  onPressed: onSettings,
-                  icon: ProfileAvatar(picture: picture, radius: 15),
-                  label: Text(
-                    username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.navText,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w300,
+              ),
+              ...[
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width < 700
+                        ? 150
+                        : 280,
+                  ),
+                  child: TextButton.icon(
+                    key: const ValueKey('account-settings'),
+                    onPressed: onSettings,
+                    icon: ProfileAvatar(picture: picture, radius: 15),
+                    label: Text(
+                      username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.navText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w300,
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
+              if (hasCustomTitleBar) ...[
+                const SizedBox(width: 16),
+                WindowControls(height: _topBarHeight(context)),
+              ],
             ],
-            if (hasCustomTitleBar) ...[
-              const SizedBox(width: 16),
-              WindowControls(height: _topBarHeight(context)),
-            ],
-          ],
+          ),
         ),
       ),
     );

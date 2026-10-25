@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/sheet_model.dart';
 import 'colour_picker.dart';
+import 'fixed_width.dart';
 
 /// Ready-made looks for a rule: a fill and a text colour that go together.
 const cfPresets = <({String name, String bg, String fg})>[
@@ -100,7 +101,7 @@ class _RulesDialogState extends State<_RulesDialog> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('cf-dialog'),
     title: const Text('Conditional formatting'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 560,
       child: SingleChildScrollView(
         child: Column(
@@ -295,7 +296,7 @@ class _RuleDialogState extends State<_RuleDialog> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('cf-rule-dialog'),
     title: Text(widget.rule == null ? 'New rule' : 'Edit rule'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 460,
       child: SingleChildScrollView(
         child: Column(

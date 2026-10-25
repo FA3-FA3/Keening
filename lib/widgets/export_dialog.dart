@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../utils/file_export.dart';
+import 'fixed_width.dart';
 
 /// One file type a document can be exported as.
 class ExportFormat {
@@ -132,7 +133,7 @@ class _ExportDialogState extends State<_ExportDialog> {
     return AlertDialog(
       key: const ValueKey('export-dialog'),
       title: const Text('Export'),
-      content: SizedBox(
+      content: FixedWidth(
         width: 440,
         child: done != null
             ? Row(

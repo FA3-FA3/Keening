@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../utils/image_crop.dart';
+import 'fixed_width.dart';
 
 /// Opens the crop menu for a picture. Returns the cropped picture, or null if
 /// cancelled or nothing was cropped away.
@@ -99,8 +100,8 @@ class _ImageCropperState extends State<_ImageCropper> {
     final ready = _image != null && _geometry != null;
     // A plain Dialog: an AlertDialog measures its contents' natural width.
     return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 580),
+      child: FixedWidth(
+        width: 580,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

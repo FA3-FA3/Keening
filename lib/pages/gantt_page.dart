@@ -9,6 +9,7 @@ import '../utils/gantt_service.dart';
 import '../widgets/calendar_dependency_arrows.dart';
 import '../widgets/collapsible_toolbar.dart';
 import '../widgets/item_links.dart';
+import '../widgets/fixed_width.dart';
 
 String _iso(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 int _daysBetween(DateTime start, DateTime end) => DateTime.utc(
@@ -88,8 +89,8 @@ class _DateRangePickerPopupState extends State<_DateRangePickerPopup> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 700),
+      child: FixedWidth(
+        width: 700,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
           child: Column(
@@ -305,7 +306,7 @@ class _GanttPageState extends State<GanttPage> {
           canPop: !saving,
           child: AlertDialog(
             title: Text(rename ? 'Rename calendar' : 'Create calendar'),
-            content: SizedBox(
+            content: FixedWidth(
               width: 360,
               child: SingleChildScrollView(
                 child: Column(
@@ -547,7 +548,7 @@ class _GanttPageState extends State<GanttPage> {
             canPop: !saving,
             child: AlertDialog(
               title: Text(item == null ? 'New phase' : 'Phase details'),
-              content: SizedBox(
+              content: FixedWidth(
                 width: 420,
                 child: SingleChildScrollView(
                   child: Column(
@@ -1203,6 +1204,7 @@ class _GanttTimelineState extends State<_GanttTimeline> {
                             key: const ValueKey('gantt-horizontal-scroll'),
                             controller: _horizontal,
                             scrollDirection: Axis.horizontal,
+                            physics: pageChainPhysics(context),
                             child: Row(
                               children: List.generate(days, (index) {
                                 final date = _addDays(start, index);

@@ -5,6 +5,7 @@ import '../utils/pad_model.dart';
 import '../utils/sheet_model.dart';
 import 'document_settings_dialogs.dart';
 import 'pad_page_dialog.dart';
+import 'fixed_width.dart';
 
 /// Where the settings new documents start with are chosen, for each kind of
 /// document. Each change is remembered at once; it applies to documents
@@ -80,7 +81,7 @@ class _DocumentDefaultsDialogState extends State<_DocumentDefaultsDialog> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('document-defaults-dialog'),
     title: const Text('Default document settings'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 560,
       child: SingleChildScrollView(
         child: Column(

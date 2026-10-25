@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/pad_model.dart';
 import 'colour_picker.dart';
+import 'fixed_width.dart';
 
 /// Background colours offered in the page settings (any colour can be picked).
 const padBackgrounds = [
@@ -255,7 +256,7 @@ class _PadPageDialogState extends State<_PadPageDialog> {
     return AlertDialog(
       key: const ValueKey('page-dialog'),
       title: const Text('Page setup'),
-      content: SizedBox(
+      content: FixedWidth(
         width: 480,
         child: SingleChildScrollView(
           child: Column(

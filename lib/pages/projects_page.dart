@@ -3,6 +3,7 @@ import 'package:intl/intl.dart' show DateFormat;
 import '../utils/projects_service.dart';
 import '../widgets/project_timeline.dart';
 import 'documents_page.dart' show documentTypeOf;
+import '../widgets/fixed_width.dart';
 
 /// Colours offered for a project.
 const projectColors = [
@@ -240,7 +241,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         builder: (ctx, update) => AlertDialog(
           key: const ValueKey('project-form'),
           title: Text(existing == null ? 'New project' : 'Edit project'),
-          content: SizedBox(
+          content: FixedWidth(
             width: 420,
             child: SingleChildScrollView(
               child: Column(
@@ -1150,6 +1151,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
             else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                physics: pageChainPhysics(context),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1572,7 +1574,7 @@ class _LinkDialogState extends State<_LinkDialog> {
     return AlertDialog(
       key: const ValueKey('link-dialog'),
       title: const Text('Link items'),
-      content: SizedBox(
+      content: FixedWidth(
         width: 480,
         height: 480,
         child: _error != null

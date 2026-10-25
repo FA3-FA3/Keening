@@ -5,6 +5,7 @@ import 'package:intl/intl.dart' show DateFormat;
 import '../utils/messages_service.dart';
 import '../utils/people_service.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/fixed_width.dart';
 
 List<Map<String, dynamic>> _list(Object? v) => [
   for (final e in (v as List? ?? const [])) Map<String, dynamic>.from(e as Map),
@@ -565,7 +566,7 @@ class _FriendPickerState extends State<_FriendPicker> {
   Widget build(BuildContext context) => AlertDialog(
     key: const ValueKey('friend-picker'),
     title: const Text('New message'),
-    content: SizedBox(
+    content: FixedWidth(
       width: 360,
       height: 320,
       child: _error != null

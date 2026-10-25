@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/colour_library.dart';
 import '../utils/rich_text.dart' show hexColor;
+import 'fixed_width.dart';
 
 /// What the picker returns: a colour, or null [hex] for "no colour" (the
 /// document's default text colour, or no highlight).
@@ -139,7 +140,7 @@ class _ColourPickerState extends State<_ColourPicker> {
     return AlertDialog(
       title: Text(widget.title),
       scrollable: true,
-      content: SizedBox(
+      content: FixedWidth(
         width: 300,
         child: ListenableBuilder(
           listenable: library,
