@@ -320,6 +320,8 @@ class RichField extends StatefulWidget {
     this.buildCounter,
     this.scrollController,
     this.scrollPhysics,
+    this.scrollBehavior,
+    this.extraScrollExtent,
     this.autofillHints = const <String>[],
     this.contentInsertionConfiguration,
     this.clipBehavior = Clip.hardEdge,
@@ -837,6 +839,13 @@ class RichField extends StatefulWidget {
 
   /// {@macro flutter.widgets.editableText.scrollController}
   final ScrollController? scrollController;
+
+  /// How the field scrolls and whether it draws a scroll bar of its own.
+  final ScrollBehavior? scrollBehavior;
+
+  /// Extra room to scroll past the end of the text, worked out from the text's
+  /// height (null: none). The Notepad uses it to let a page be seen whole.
+  final double Function(double textHeight)? extraScrollExtent;
 
   /// {@macro flutter.widgets.editableText.autofillHints}
   /// {@macro flutter.services.AutofillConfiguration.autofillHints}
@@ -1852,6 +1861,8 @@ class _RichFieldState extends State<RichField>
           dragStartBehavior: widget.dragStartBehavior,
           scrollController: widget.scrollController,
           scrollPhysics: widget.scrollPhysics,
+          scrollBehavior: widget.scrollBehavior,
+          extraScrollExtent: widget.extraScrollExtent,
           autofillHints: widget.autofillHints,
           autofillClient: this,
           autocorrectionTextRectColor: autocorrectionTextRectColor,

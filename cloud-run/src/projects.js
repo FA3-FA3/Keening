@@ -76,7 +76,7 @@ export function projectsHandler(pool) {
     const b = request.body || {}, owner = request.userProfile.id;
     let db;
     try {
-      const actions = ['listProjects', 'createProject', 'updateProject', 'deleteProject', 'getProject', 'listLinkable', 'linkItems', 'unlinkItem'];
+      const actions = ['listProjects', 'createProject', 'updateProject', 'deleteProject', 'getProject', 'listLinkable', 'linkItems', 'unlinkItem', 'syncProject'];
       if (!actions.includes(b.action)) fail('Unknown project action.');
       db = await pool.connect();
       await db.query('BEGIN');
@@ -104,6 +104,43 @@ export function projectsHandler(pool) {
         const count = await db.query('SELECT count(*)::int AS count FROM public.projects WHERE owner_id=$1', [owner]);
         if (count.rows[0].count >= LIMITS.projects) fail(`You can create up to ${LIMITS.projects} projects.`);
         result = { project: (await db.query(`INSERT INTO public.projects(owner_id,name,description,color) VALUES($1,$2,$3,$4) RETURNING ${PROJECT_COLUMNS}`, [owner, name, description, color])).rows[0] };
+      } else if (b.action === 'syncProject') {
+        // After working offline the desktop app sends a project and what it links,
+        // and they replace the ones here (a project made offline is added). A link
+        // to something that no longer exists is left out.
+        const given = b.project;
+        if (!given || typeof given !== 'object' || !uuid(given.id)) fail('Invalid project.');
+        const name = projectName(given.name);
+        const description = given.description === undefined ? '' : projectDescription(given.description);
+        const color = given.color === undefined ? '#2563EB' : projectColour(given.color);
+        if (!Array.isArray(b.links) || b.links.length > LIMITS.links) fail(`A project can link up to ${LIMITS.links} things.`);
+        const wanted = new Map();
+        for (const link of b.links) {
+          if (!link || typeof link !== 'object' || !LINK_KINDS.includes(link.kind) || !uuid(link.id)) fail('Invalid item.');
+          wanted.set(`${link.kind}:${link.id}`, link);
+        }
+        await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE', [owner]);
+        const existing = (await db.query('SELECT owner_id FROM public.projects WHERE id=$1', [given.id])).rows[0];
+        if (existing && existing.owner_id !== owner) fail('Project not found.', 404);
+        if (existing) {
+          await db.query('UPDATE public.projects SET name=$1,description=$2,color=$3,updated_at=now() WHERE id=$4', [name, description, color, given.id]);
+        } else {
+          const count = await db.query('SELECT count(*)::int AS count FROM public.projects WHERE owner_id=$1', [owner]);
+          if (count.rows[0].count >= LIMITS.projects) fail(`You can create up to ${LIMITS.projects} projects.`);
+          await db.query('INSERT INTO public.projects(id,owner_id,name,description,color) VALUES($1,$2,$3,$4,$5)', [given.id, owner, name, description, color]);
+        }
+        const keep = [];
+        for (const kind of LINK_KINDS) {
+          const ids = [...wanted.values()].filter(l => l.kind === kind).map(l => l.id);
+          if (!ids.length) continue;
+          const found = (await db.query(`SELECT id FROM ${TARGETS[kind]} WHERE owner_id=$1 AND id=ANY($2::uuid[])`, [owner, ids])).rows.map(r => r.id);
+          for (const id of found) keep.push({ kind, id });
+        }
+        await db.query('DELETE FROM public.project_links WHERE project_id=$1', [given.id]);
+        for (const link of keep) {
+          await db.query('INSERT INTO public.project_links(project_id,owner_id,kind,target_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [given.id, owner, link.kind, link.id]);
+        }
+        result = { saved: true, linked: keep.length };
       } else if (b.action === 'listLinkable') {
         const [gantt, boards, folders, documents] = await Promise.all([
           db.query('SELECT id,name,color FROM public.gantt_calendars WHERE owner_id=$1 ORDER BY lower(name),id', [owner]),

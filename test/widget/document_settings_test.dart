@@ -181,8 +181,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('settings-apply')));
       await settle(tester);
       expect(pageColour(tester), const Color(0xFF1F2937));
-      expect(field(tester).style!.color, const Color(0xFFF3F4F6));
-      expect(field(tester).cursorColor, const Color(0xFFF3F4F6));
+      expect(field(tester).style!.color, const Color(0xFFFFFFFF));
+      expect(field(tester).cursorColor, const Color(0xFFFFFFFF));
     });
 
     testWidgets('any colour can be picked', (tester) async {
@@ -248,7 +248,7 @@ void main() {
       await open(tester, api, 'Dark');
       expect(breaks(), findsNothing);
       expect(pageColour(tester), Colors.black);
-      expect(field(tester).style!.color, const Color(0xFFF3F4F6));
+      expect(field(tester).style!.color, const Color(0xFFFFFFFF));
     });
 
     testWidgets('editing the text keeps the settings in what is saved', (

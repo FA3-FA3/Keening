@@ -81,7 +81,13 @@ export function cleanRuns(value, length, max, text = null) {
       if (text === null || !e || typeof e !== 'object') fail('Invalid text formatting.');
       if (e.type === 'image') {
         if (!uuid(e.imageId)) fail('Invalid image.');
-        run.embed = { type: 'image', imageId: e.imageId };
+        // How wide the picture is shown, if it has been resized.
+        let width;
+        if (e.width !== undefined) {
+          if (typeof e.width !== 'number' || !Number.isFinite(e.width) || e.width < 16 || e.width > 4000) fail('Invalid image size.');
+          width = Math.round(e.width * 10) / 10;
+        }
+        run.embed = { type: 'image', imageId: e.imageId, ...(width === undefined ? {} : { width }) };
       } else if (e.type === 'equation') {
         if (typeof e.latex !== 'string' || !e.latex.trim() || e.latex.length > LIMITS.latex) fail(`Equations can be up to ${LIMITS.latex} characters.`);
         run.embed = { type: 'equation', latex: e.latex };
@@ -100,7 +106,11 @@ export const noteImageIds = runs => [...new Set((runs ?? []).filter(r => r.embed
 function cleanNoteSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) fail('Invalid note settings.');
   if (typeof settings.pages !== 'boolean') fail('Invalid note settings.');
-  return { pages: settings.pages, background: colour(settings.background) };
+  const clean = { pages: settings.pages, background: colour(settings.background) };
+  // The text colour (none means automatic) and size, when they are not the usual.
+  if (settings.textColour !== undefined && settings.textColour !== null) clean.textColour = colour(settings.textColour);
+  if (settings.textSize !== undefined) clean.textSize = num(settings.textSize, 8, 72, 'text size');
+  return clean;
 }
 
 // A spreadsheet's own settings: gridlines, headers and the usual column width.

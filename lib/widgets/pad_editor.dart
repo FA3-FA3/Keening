@@ -19,6 +19,7 @@ import 'collapsible_toolbar.dart';
 import 'insert_tool.dart';
 import 'pad_page_dialog.dart';
 import 'text_format_bar.dart';
+import '../utils/spell/autocorrect.dart';
 
 enum PadTool { select, text, line, pen }
 
@@ -557,6 +558,7 @@ class _PadEditorState extends State<PadEditor> {
             maxLength: 10000,
           )
           ..selection = TextSelection.collapsed(offset: el.text.length)
+          ..spellcheck = true
           ..addListener(_textToolChanged);
     if (el.text.isNotEmpty) _push(); // one undo step for the whole edit
     setState(() {
@@ -571,10 +573,24 @@ class _PadEditorState extends State<PadEditor> {
   void _textChanged(String value) {
     final el = _find(_editing);
     if (el is! TextEl) return;
+    final before = el.text;
     setState(
       () => _replace(el.copyWith(text: value, runs: _textController!.runs)),
     );
     _changed();
+    // A word just finished that is clearly a slip is put right.
+    final controller = _textController!;
+    final caret = controller.selection.baseOffset;
+    scheduleMicrotask(() {
+      if (!mounted || _textController != controller) return;
+      if (controller.text != value ||
+          controller.selection.baseOffset != caret) {
+        return;
+      }
+      if (autocorrectJustTyped(controller, before)) {
+        _textChanged(controller.text);
+      }
+    });
   }
 
   /// The text tool changed formatting without changing the text.
@@ -1723,6 +1739,20 @@ class _PadEditorState extends State<PadEditor> {
                       contentPadding: EdgeInsets.all(padTextPadding),
                     ),
                     onChanged: _textChanged,
+                    // Mistakes: corrections, and adding the word to the dictionary.
+                    contextMenuBuilder: (context, state) =>
+                        AdaptiveTextSelectionToolbar.buttonItems(
+                          anchors: state.contextMenuAnchors,
+                          buttonItems: [
+                            ...spellMenuItems(
+                              _textController!,
+                              state.textEditingValue.selection.start,
+                              onChanged: () =>
+                                  _textChanged(_textController!.text),
+                            ),
+                            ...state.contextMenuButtonItems,
+                          ],
+                        ),
                   ),
                 ),
               ),

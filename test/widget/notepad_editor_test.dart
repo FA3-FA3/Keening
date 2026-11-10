@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'rich_field_helpers.dart';
 import 'package:keening/forked/text_field.dart';
 import 'package:keening/utils/rich_text.dart';
+import 'package:keening/widgets/note_embeds.dart';
 import 'package:keening/widgets/notepad_editor.dart';
 
 class Notes {
@@ -59,6 +61,7 @@ Future<void> settle(WidgetTester tester) async {
 }
 
 void main() {
+  ctrlTabTests();
   testWidgets('shows existing text and counts words and characters', (
     tester,
   ) async {
@@ -291,4 +294,71 @@ void main() {
     expect(child.style!.fontWeight, FontWeight.bold);
     expect(child.style!.fontSize, 32);
   });
+
+  testWidgets('an equation takes the colour chosen for it', (tester) async {
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await mount(tester, text: 'x');
+    final c = controller(tester);
+    c.selection = const TextSelection.collapsed(offset: 1);
+    c.insertEmbed(const Embed.equation('a^2'));
+    await tester.pumpAndSettle();
+    Color? colourOfEquation() =>
+        tester.widget<NoteEquationEmbed>(find.byType(NoteEquationEmbed)).color;
+    // Without a colour chosen it has the text's own.
+    expect(colourOfEquation(), isNot(const Color(0xFF2563EB)));
+    // Select the equation and colour it.
+    c.selection = const TextSelection(baseOffset: 1, extentOffset: 2);
+    await tester.pump();
+    await pickColour(tester, 'text-color', '#2563EB');
+    expect(colourOfEquation(), const Color(0xFF2563EB));
+    final run = c.runs.singleWhere((r) => r.format.embed != null);
+    expect(run.format.color, '#2563EB');
+  });
+}
+
+void ctrlTabTests() {
+  testWidgets(
+    'Ctrl+Tab in a note reaches the tabs round it, and types nothing',
+    (tester) async {
+      var presses = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(
+                LogicalKeyboardKey.tab,
+                control: true,
+              ): () =>
+                  presses++,
+            },
+            child: Scaffold(
+              body: NotepadEditor(
+                initialText: 'hello',
+                autosaveDelay: const Duration(milliseconds: 50),
+                onSave: (_, _) async {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(presses, 1);
+      expect(
+        tester
+            .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
+            .controller!
+            .text,
+        'hello',
+      );
+    },
+  );
 }

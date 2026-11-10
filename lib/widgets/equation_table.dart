@@ -66,8 +66,11 @@ String tableLatex(
 }
 
 /// Opens the table builder; returns the LaTeX to insert, or null if cancelled.
-Future<String?> showTableBuilder(BuildContext context) =>
-    showDialog<String>(context: context, builder: (_) => const _TableBuilder());
+Future<String?> showTableBuilder(BuildContext context) => showDialog<String>(
+  context: context,
+  useRootNavigator: false,
+  builder: (_) => const _TableBuilder(),
+);
 
 class _TableBuilder extends StatefulWidget {
   const _TableBuilder();

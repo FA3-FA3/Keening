@@ -1,5 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'api_client.dart';
+import 'offline/gateway.dart';
 
 /// Talks to the server's /projects route.
 class ProjectsService {
@@ -8,9 +8,12 @@ class ProjectsService {
     String action, [
     Map<String, dynamic> data = const {},
   ]) async {
-    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-    if (token == null) throw StateError('Please sign in again.');
-    return _api.projects(token, {'action': action, ...data});
+    return OfflineGateway.instance.workspaceCall(
+      path: 'projects',
+      action: action,
+      data: data,
+      send: (token) => _api.projects(token, {'action': action, ...data}),
+    );
   }
 
   void close() => _api.close();

@@ -347,6 +347,41 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a page break goes at the caret, not where it was after an '
+        'earlier equation edit', (tester) async {
+      final c = await mount(
+        tester,
+        text:
+            'x $embedChar y${String.fromCharCode(10)}last line${String.fromCharCode(10)}',
+        runs: const [StyleRun(2, 3, TextFormat(embed: Embed.equation('x^2')))],
+      );
+      // An equation is edited and the editor closed; the caret was held by it.
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      c.selection = const TextSelection.collapsed(offset: 0);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('note-equation-2')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('equation-cancel')));
+      await tester.tap(find.byKey(const ValueKey('equation-cancel')));
+      await settle(tester);
+      // The caret is then put somewhere else: on the empty last line.
+      await tester.tap(find.byKey(const ValueKey('notepad-field')));
+      await tester.pump();
+      final end = c.text.length;
+      c.selection = TextSelection.collapsed(offset: end);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('insert-page-break')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        c.text,
+        'x $embedChar y${String.fromCharCode(10)}last line${String.fromCharCode(10)}$pageBreakChar${String.fromCharCode(10)}',
+        reason: 'the break is at the end, where the caret was',
+      );
+    });
+
     testWidgets('clicking an equation edits it, and the edit can be undone', (
       tester,
     ) async {

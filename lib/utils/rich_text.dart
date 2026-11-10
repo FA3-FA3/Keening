@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'spell/spell_dictionary.dart';
 
 /// Text sizes the format bar steps through.
 const textSizes = [
@@ -58,24 +59,39 @@ const pageBreakChar = '\f';
 /// ([embedChar]) so it moves, copies and deletes with the text around it.
 @immutable
 class Embed {
-  const Embed.image(String this.imageId) : type = 'image', latex = null;
-  const Embed.equation(String this.latex) : type = 'equation', imageId = null;
+  const Embed.image(String this.imageId, {this.width})
+    : type = 'image',
+      latex = null;
+  const Embed.equation(String this.latex)
+    : type = 'equation',
+      imageId = null,
+      width = null;
 
   final String type;
   final String? imageId, latex;
+
+  /// How wide a picture is shown, if it has been resized (its height follows).
+  final double? width;
 
   bool get isImage => type == 'image';
 
   Map<String, dynamic> toJson() => {
     'type': type,
     if (imageId != null) 'imageId': imageId,
+    if (width != null) 'width': width,
     if (latex != null) 'latex': latex,
   };
 
   static Embed? fromJson(Object? json) {
     if (json is! Map) return null;
     if (json['type'] == 'image' && json['imageId'] is String) {
-      return Embed.image(json['imageId'] as String);
+      final width = json['width'];
+      return Embed.image(
+        json['imageId'] as String,
+        width: width is num && width.isFinite && width > 0
+            ? width.toDouble()
+            : null,
+      );
     }
     if (json['type'] == 'equation' && json['latex'] is String) {
       return Embed.equation(json['latex'] as String);
@@ -88,10 +104,11 @@ class Embed {
       other is Embed &&
       other.type == type &&
       other.imageId == imageId &&
-      other.latex == latex;
+      other.latex == latex &&
+      other.width == width;
 
   @override
-  int get hashCode => Object.hash(type, imageId, latex);
+  int get hashCode => Object.hash(type, imageId, latex, width);
 }
 
 /// How a stretch of text looks. A null size or colour means "the document's
@@ -709,6 +726,71 @@ class RichTextController extends TextEditingController {
 
   late List<TextFormat> _formats;
   final TextFormat Function() _fallback;
+
+  // ---- spelling
+
+  bool _spellcheck = false;
+
+  /// Whether words not in the dictionary are underlined as they are written.
+  bool get spellcheck => _spellcheck;
+  set spellcheck(bool on) {
+    if (on == _spellcheck) return;
+    _spellcheck = on;
+    if (on) {
+      SpellDictionary.instance.revision.addListener(notifyListeners);
+      spellSettings.addListener(notifyListeners);
+      SpellDictionary.instance.load();
+    } else {
+      SpellDictionary.instance.revision.removeListener(notifyListeners);
+      spellSettings.removeListener(notifyListeners);
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_spellcheck) {
+      SpellDictionary.instance.revision.removeListener(notifyListeners);
+      spellSettings.removeListener(notifyListeners);
+    }
+    super.dispose();
+  }
+
+  String? _checkedText;
+  int _checkedRevision = -1, _checkedCaret = -2;
+  List<WordSpan> _wrong = const [];
+
+  /// The words in the text that are not spelt right (not the one being typed).
+  List<WordSpan> get misspellings {
+    if (!_spellcheck || !spellSettings.value.underline) return const [];
+    final dictionary = SpellDictionary.instance;
+    final caret = selection.isValid && selection.isCollapsed
+        ? selection.baseOffset
+        : -1;
+    if (!identical(_checkedText, text) ||
+        _checkedRevision != dictionary.revision.value ||
+        _checkedCaret != caret) {
+      _checkedText = text;
+      _checkedRevision = dictionary.revision.value;
+      _checkedCaret = caret;
+      _wrong = dictionary.misspellings(
+        text,
+        skipCaret: caret < 0 ? null : caret,
+      );
+    }
+    return _wrong;
+  }
+
+  /// Puts [replacement] in place of the text from [start] to [end] as its own
+  /// undo step, with the caret afterwards at [caret] (after the replacement
+  /// if not given). The new text takes the format of the text it replaces.
+  bool replaceWord(int start, int end, String replacement, {int? caret}) {
+    if (start < 0 || end > text.length || start >= end) return false;
+    selection = TextSelection(baseOffset: start, extentOffset: end);
+    if (!insertText(replacement)) return false;
+    if (caret != null) selection = TextSelection.collapsed(offset: caret);
+    return true;
+  }
 
   /// Called after a change made through the text tool (formatting, indenting,
   /// undo or redo) rather than by typing.
@@ -1414,6 +1496,21 @@ class RichTextController extends TextEditingController {
     return distance;
   }
 
+  /// Changes how wide a picture is shown. A drag makes many of these, so only
+  /// the first ([checkpoint]) is a step of its own to undo.
+  bool setImageWidth(int index, double width, {bool checkpoint = true}) {
+    final embed = embedAt(index);
+    if (embed == null || !embed.isImage) return false;
+    if (embed.width == width) return true;
+    if (checkpoint) _checkpoint(typing: false);
+    _formats[index] = _formats[index].copyWith(
+      embed: Embed.image(embed.imageId!, width: width),
+    );
+    notifyListeners();
+    onFormatEdited?.call();
+    return true;
+  }
+
   /// Changes an equation already in the text (as one undo step).
   void replaceEmbedAt(int index, Embed embed) {
     if (embedAt(index) == null) return;
@@ -1451,6 +1548,37 @@ class RichTextController extends TextEditingController {
     return target;
   }
 
+  /// The text from [from] to [to] as spans, with the misspelt words underlined
+  /// with a red wavy line.
+  List<InlineSpan> _checkedSpans(int from, int to) {
+    final base = _formats[from].style;
+    final wrong = misspellings;
+    if (wrong.isEmpty) {
+      return [TextSpan(text: text.substring(from, to), style: base)];
+    }
+    final mark = TextStyle(
+      decoration: TextDecoration.underline,
+      decorationStyle: TextDecorationStyle.wavy,
+      decorationColor: Colors.red,
+    );
+    final marked = base == null ? mark : base.merge(mark);
+    final spans = <InlineSpan>[];
+    var at = from;
+    for (final w in wrong) {
+      if (w.end <= from) continue;
+      if (w.start >= to) break;
+      final start = w.start < from ? from : w.start;
+      final end = w.end > to ? to : w.end;
+      if (start > at) {
+        spans.add(TextSpan(text: text.substring(at, start), style: base));
+      }
+      spans.add(TextSpan(text: text.substring(start, end), style: marked));
+      at = end;
+    }
+    if (at < to) spans.add(TextSpan(text: text.substring(at, to), style: base));
+    return spans;
+  }
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
@@ -1467,7 +1595,10 @@ class RichTextController extends TextEditingController {
       }
       final embed = _formats[i].embed;
       if (embed != null && embedBuilder != null) {
-        // One widget for each placeholder character.
+        // One widget for each placeholder character. An equation takes the
+        // colour chosen for it, like the text round it.
+        final own = _formats[i].style;
+        final embedStyle = own == null ? style : style?.merge(own) ?? own;
         for (var k = i; k < j; k++) {
           children.add(
             embed.isImage
@@ -1485,7 +1616,7 @@ class RichTextController extends TextEditingController {
                 // An equation sits in the middle of the line.
                 : WidgetSpan(
                     alignment: PlaceholderAlignment.middle,
-                    child: embedBuilder!(context, embed, k, style),
+                    child: embedBuilder!(context, embed, k, embedStyle),
                   ),
           );
         }
@@ -1521,9 +1652,7 @@ class RichTextController extends TextEditingController {
           );
         }
       } else {
-        children.add(
-          TextSpan(text: text.substring(i, j), style: _formats[i].style),
-        );
+        children.addAll(_checkedSpans(i, j));
       }
       i = j;
     }

@@ -1,6 +1,8 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../forked/editable_text.dart' show HangEditableTextState;
 import '../forked/render_editable.dart' show HangRenderEditable;
 import 'collapsible_toolbar.dart';
 import '../forked/text_field.dart';
@@ -19,6 +21,7 @@ import 'equation_editor.dart';
 import 'insert_tool.dart';
 import 'note_embeds.dart';
 import 'text_format_bar.dart';
+import '../utils/spell/autocorrect.dart';
 
 const notepadMaxCharacters = 200000;
 
@@ -29,6 +32,14 @@ const notepadPageMargin = 96.0;
 
 /// How much text fits on a page (the page less its top and bottom margins).
 const notepadPageContent = notepadPageHeight - 2 * notepadPageMargin;
+
+/// How much further a note's text is scrolled so that its last page can be seen
+/// whole: the room left on that page below the text, for text that is
+/// [textHeight] tall.
+double notepadPageFill(double textHeight) {
+  final pages = math.max(1, (textHeight / notepadPageContent).ceil());
+  return pages * notepadPageContent - textHeight;
+}
 
 /// Where page breaks fall in a note whose scrolled content is [extent] tall
 /// (text, and a margin above and below): a break after every page of text, but
@@ -160,6 +171,18 @@ class _NotepadEditorState extends State<NotepadEditor> {
   );
   final _imageBytes = <String, Future<Uint8List>>{};
 
+  /// The pictures already loaded, so one that is rebuilt (the text round it
+  /// changes while typing) is drawn at once instead of flashing a placeholder
+  /// while its future answers again.
+  final _imageNow = <String, Uint8List>{};
+
+  void _setImage(String id, Uint8List bytes) {
+    _imageNow[id] = bytes;
+    _imageBytes[id] = Future.value(bytes);
+  }
+
+  var _lastText = '';
+
   /// The pictures that belong to this note (a picture copied from another note
   /// has to be added to this one when pasted).
   late final _ownedImages = <String>{
@@ -189,11 +212,29 @@ class _NotepadEditorState extends State<NotepadEditor> {
       ..replace = (text, runs, images) {
         images.forEach((id, bytes) {
           _ownedImages.add(id);
-          _imageBytes[id] = Future.value(bytes);
+          _setImage(id, bytes);
         });
         _controller.replaceAll(text, runs);
       };
     _scroll.addListener(_queueSync);
+    // Text changed by code (a new bullet, a paste, an undo, an indent) does not
+    // scroll to the caret by itself, so the page follows it here.
+    _controller.spellcheck = true;
+    _lastText = _controller.text;
+    _controller.addListener(() {
+      if (_controller.text == _lastText) return;
+      final before = _lastText;
+      _lastText = _controller.text;
+      _showCaret();
+      // A word just finished that is clearly a slip is put right. (After this
+      // change is done with, not in the middle of it.)
+      final text = _controller.text, caret = _controller.selection.baseOffset;
+      scheduleMicrotask(() {
+        if (!mounted || _controller.text != text) return;
+        if (_controller.selection.baseOffset != caret) return;
+        if (autocorrectJustTyped(_controller, before)) _changed('');
+      });
+    });
   }
 
   Widget _buildEmbed(
@@ -205,8 +246,13 @@ class _NotepadEditorState extends State<NotepadEditor> {
     if (embed.isImage) {
       // Keyed, so the picture's real position can be found for its handle.
       return KeyedSubtree(
-        key: _pictureKeys.putIfAbsent(index, GlobalKey.new),
-        child: NoteImageEmbed(imageId: embed.imageId!, load: _loadImage),
+        key: _pictureKeys.putIfAbsent(_pictureName(index), GlobalKey.new),
+        child: NoteImageEmbed(
+          imageId: embed.imageId!,
+          load: _loadImage,
+          known: _imageNow[embed.imageId!],
+          width: embed.width,
+        ),
       );
     }
     return _movable(
@@ -248,7 +294,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
   }
 
   void _insertPageBreak() {
-    _releaseSelection();
+    // A button, not a menu: nothing was held, and the caret is where it was left.
+    _focus.requestFocus();
     if (!_controller.insertPageBreak()) {
       ScaffoldMessenger.of(
         context,
@@ -280,7 +327,37 @@ class _NotepadEditorState extends State<NotepadEditor> {
 
   final _fieldArea = GlobalKey();
   final _scroll = ScrollController();
-  final _pictureKeys = <int, GlobalKey>{};
+  final _pictureKeys = <String, GlobalKey>{};
+
+  /// The picture clicked on (by name, so it stays selected as text is typed
+  /// round it); its corners show handles for resizing it.
+  String? _selectedPicture;
+
+  /// A picture is at least this wide when resized.
+  static const _minPictureWidth = 24.0;
+  double _resizeFrom = 0, _resizeDx = 0;
+  bool _resizeStarted = false;
+
+  /// Names each picture in the text by its id and which copy of that picture it
+  /// is, so a picture keeps its widget (and its state) as typing moves it along.
+  String? _pictureText;
+  final _pictureNames = <int, String>{};
+
+  String _pictureName(int index) {
+    final text = _controller.text;
+    if (!identical(_pictureText, text)) {
+      _pictureText = text;
+      _pictureNames.clear();
+      final seen = <String, int>{};
+      for (var i = 0; i < text.length; i++) {
+        final id = _controller.embedAt(i)?.imageId;
+        if (id == null) continue;
+        _pictureNames[i] = '$id#${seen[id] = (seen[id] ?? 0) + 1}';
+      }
+    }
+    return _pictureNames[index] ?? 'picture#$index';
+  }
+
   final _breakKeys = <int, GlobalKey>{};
 
   /// How tall each page break (by its place in the text) is, worked out from
@@ -294,6 +371,21 @@ class _NotepadEditorState extends State<NotepadEditor> {
   /// them whole.
   List<({int index, Rect rect})> _pictures = [];
   var _syncQueued = false;
+
+  /// Scrolls the page to the caret, when the note is being written in.
+  void _showCaret() {
+    if (!_focus.hasFocus) return;
+    void visit(Element element) {
+      if (element is StatefulElement &&
+          element.state is HangEditableTextState) {
+        (element.state as HangEditableTextState).showCaretOnScreen();
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    (_fieldArea.currentContext as Element?)?.visitChildren(visit);
+  }
 
   void _queueSync() {
     if (_syncQueued) return;
@@ -316,7 +408,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
       final text = _controller.text;
       for (var i = 0; i < text.length; i++) {
         if (!(_controller.embedAt(i)?.isImage ?? false)) continue;
-        final box = _pictureKeys[i]?.currentContext?.findRenderObject();
+        final box = _pictureKeys[_pictureName(i)]?.currentContext
+            ?.findRenderObject();
         if (box is! RenderBox || !box.attached || !box.hasSize) continue;
         final origin = area
             .globalToLocal(box.localToGlobal(Offset.zero))
@@ -380,8 +473,12 @@ class _NotepadEditorState extends State<NotepadEditor> {
           }
           want = heightFor(boundary);
         }
-        if (((_breakHeights[i] ?? _breakMinHeight) - want).abs() > 0.5) {
-          _breakHeights[i] = want;
+        // Text is placed to whole pixels, so the height asked for can come out a
+        // pixel either side of itself; a change that small is left alone, or the
+        // break would go back and forth a pixel every frame (and the text below
+        // it would shake).
+        if (((_breakHeights[i] ?? _breakMinHeight) - want).abs() > 1.5) {
+          _breakHeights[i] = want.roundToDouble();
           breaksChanged = true;
         }
       }
@@ -417,6 +514,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
                     child: NoteImageEmbed(
                       imageId: id(p.index)!,
                       load: _loadImage,
+                      width: _controller.embedAt(p.index)?.width,
                     ),
                   ),
                 ),
@@ -433,6 +531,8 @@ class _NotepadEditorState extends State<NotepadEditor> {
                 onDoubleTap: () => _cropPicture(p.index),
                 onTapUp: (details) {
                   _focus.requestFocus();
+                  // It is selected, and its corners can be dragged to resize it.
+                  setState(() => _selectedPicture = _pictureName(p.index));
                   _controller.selection = TextSelection.collapsed(
                     offset: details.localPosition.dx < p.rect.width / 2
                         ? p.index
@@ -443,6 +543,107 @@ class _NotepadEditorState extends State<NotepadEditor> {
               ),
             ),
           ),
+    ];
+  }
+
+  /// The frame and corner handles of the selected picture. Dragging a corner
+  /// changes the picture's width, and its height follows, so its proportions
+  /// stay as they are.
+  List<Widget> _resizeHandles() {
+    final name = _selectedPicture;
+    if (name == null) return const [];
+    final p = _pictures.where((p) => _pictureName(p.index) == name).firstOrNull;
+    if (p == null || _controller.embedAt(p.index)?.isImage != true) {
+      return const [];
+    }
+    // (The picture has a little room round it in the text.)
+    final shown = Rect.fromLTRB(
+      p.rect.left + 2,
+      p.rect.top + 4,
+      p.rect.right - 2,
+      p.rect.bottom - 4,
+    );
+    final colour = Theme.of(context).colorScheme.primary;
+    const size = 12.0;
+    Widget corner(String id, Offset at, bool right, MouseCursor cursor) =>
+        Positioned(
+          key: ValueKey('note-picture-resize-$id'),
+          left: at.dx - size / 2,
+          top: at.dy - size / 2,
+          width: size,
+          height: size,
+          child: MouseRegion(
+            cursor: cursor,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (_) {
+                _resizeFrom = shown.width;
+                _resizeDx = 0;
+                _resizeStarted = false;
+              },
+              onPanUpdate: (d) {
+                _resizeDx += d.delta.dx;
+                // The most it can be: the width of the page it is on.
+                final room = (_renderEditable()?.size.width ?? 800) - 8;
+                final width = (_resizeFrom + (right ? _resizeDx : -_resizeDx))
+                    .clamp(
+                      _minPictureWidth,
+                      room < _minPictureWidth ? _minPictureWidth : room,
+                    )
+                    .toDouble();
+                if (_controller.setImageWidth(
+                  p.index,
+                  width,
+                  checkpoint: !_resizeStarted,
+                )) {
+                  _resizeStarted = true;
+                }
+              },
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  border: Border.all(color: colour, width: 2),
+                ),
+              ),
+            ),
+          ),
+        );
+    return [
+      Positioned.fromRect(
+        key: const ValueKey('note-picture-frame'),
+        rect: shown,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: colour, width: 2),
+            ),
+          ),
+        ),
+      ),
+      corner(
+        'tl',
+        shown.topLeft,
+        false,
+        SystemMouseCursors.resizeUpLeftDownRight,
+      ),
+      corner(
+        'tr',
+        shown.topRight,
+        true,
+        SystemMouseCursors.resizeUpRightDownLeft,
+      ),
+      corner(
+        'bl',
+        shown.bottomLeft,
+        false,
+        SystemMouseCursors.resizeUpRightDownLeft,
+      ),
+      corner(
+        'br',
+        shown.bottomRight,
+        true,
+        SystemMouseCursors.resizeUpLeftDownRight,
+      ),
     ];
   }
 
@@ -468,7 +669,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
   Future<Uint8List> _loadImage(String id) => _imageBytes.putIfAbsent(id, () {
     final load = widget.onLoadImage;
     if (load == null) return Future.error(StateError('No pictures here.'));
-    return load(id);
+    return load(id).then((bytes) => _imageNow[id] = bytes);
   });
 
   void _snack(String text) {
@@ -483,6 +684,9 @@ class _NotepadEditorState extends State<NotepadEditor> {
 
   void _releaseSelection() {
     final held = _heldSelection;
+    // (Used once: a selection held for an earlier menu or dialog must not come
+    // back later, over wherever the caret has been put since.)
+    _heldSelection = null;
     if (held != null && held.isValid) _controller.selection = held;
     _focus.requestFocus();
   }
@@ -495,7 +699,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
       final prepared = await preparePadImage(bytes);
       final id = await upload(prepared.png);
       _ownedImages.add(id);
-      _imageBytes[id] = Future.value(prepared.png);
+      _setImage(id, prepared.png);
       if (!mounted) return;
       if (!_controller.insertEmbed(Embed.image(id))) {
         _snack('A note can hold up to $notepadMaxCharacters characters.');
@@ -648,7 +852,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
       try {
         final fresh = await upload(bytes);
         _ownedImages.add(fresh);
-        _imageBytes[fresh] = Future.value(bytes);
+        _setImage(fresh, bytes);
         added[id] = fresh;
       } catch (_) {
         added[id] = null;
@@ -669,7 +873,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
           dropped++;
           continue;
         }
-        format = format.copyWith(embed: Embed.image(fresh));
+        format = format.copyWith(embed: Embed.image(fresh, width: embed.width));
       }
       text.write(clip.text[i]);
       formats.add(format);
@@ -705,7 +909,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
     try {
       final id = await upload(result.png);
       _ownedImages.add(id);
-      _imageBytes[id] = Future.value(result.png);
+      _setImage(id, result.png);
       if (!mounted) return;
       if (_controller.embedAt(index)?.imageId == embed.imageId) {
         _controller.replaceEmbedAt(index, Embed.image(id));
@@ -1058,7 +1262,28 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                         context,
                                       ).copyWith(scrollbars: false),
                                       child: RichField(
+                                        // The window's bar at the edge of the desk is
+                                        // the only one: the field adds none of its own.
+                                        // With pages on, the last page can be scrolled to its
+                                        // bottom, so the whole page shows.
+                                        extraScrollExtent: pages
+                                            ? notepadPageFill
+                                            : null,
+                                        scrollBehavior:
+                                            ScrollConfiguration.of(
+                                              context,
+                                            ).copyWith(
+                                              scrollbars: false,
+                                              overscroll: false,
+                                            ),
                                         key: const ValueKey('notepad-field'),
+                                        onTap: () {
+                                          if (_selectedPicture != null) {
+                                            setState(
+                                              () => _selectedPicture = null,
+                                            );
+                                          }
+                                        },
                                         controller: _controller,
                                         focusNode: _focus,
                                         scrollController: _scroll,
@@ -1080,7 +1305,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                         // Dark text on a light background and light text on
                                         // a dark one, in light and dark themes.
                                         style: TextStyle(
-                                          fontSize: 16,
+                                          fontSize: settings.textSize,
                                           height: 1.5,
                                           color: settings.textColour,
                                         ),
@@ -1112,6 +1337,16 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                             AdaptiveTextSelectionToolbar.buttonItems(
                                               anchors: state.contextMenuAnchors,
                                               buttonItems: [
+                                                // Mistakes: corrections, and adding the word to the
+                                                // dictionary.
+                                                ...spellMenuItems(
+                                                  _controller,
+                                                  state
+                                                      .textEditingValue
+                                                      .selection
+                                                      .start,
+                                                  onChanged: () => _changed(''),
+                                                ),
                                                 for (final item
                                                     in state
                                                         .contextMenuButtonItems)
@@ -1167,6 +1402,7 @@ class _NotepadEditorState extends State<NotepadEditor> {
                                     ),
                                   ),
                                 ..._pictureHandles(),
+                                ..._resizeHandles(),
                               ],
                             ),
                           ),

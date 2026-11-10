@@ -9,8 +9,20 @@ const noteImageMaxHeight = 300.0;
 /// A picture placed in a Notepad. [load] fetches the bytes (cached by the
 /// editor), so the same picture is only requested once.
 class NoteImageEmbed extends StatelessWidget {
-  const NoteImageEmbed({super.key, required this.imageId, required this.load});
+  const NoteImageEmbed({
+    super.key,
+    required this.imageId,
+    required this.load,
+    this.known,
+    this.width,
+  });
   final String imageId;
+
+  /// The picture's bytes if they are already loaded, so it shows at once.
+  final Uint8List? known;
+
+  /// How wide to show it (its height follows); null for the usual size.
+  final double? width;
   final Future<Uint8List> Function(String imageId) load;
 
   @override
@@ -18,6 +30,7 @@ class NoteImageEmbed extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
     child: FutureBuilder<Uint8List>(
       future: load(imageId),
+      initialData: known,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Tooltip(
@@ -50,10 +63,12 @@ class NoteImageEmbed extends StatelessWidget {
           );
         }
         return ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: noteImageMaxWidth,
-            maxHeight: noteImageMaxHeight,
-          ),
+          constraints: width == null
+              ? const BoxConstraints(
+                  maxWidth: noteImageMaxWidth,
+                  maxHeight: noteImageMaxHeight,
+                )
+              : BoxConstraints.tightFor(width: width),
           child: Image.memory(
             bytes,
             key: ValueKey('note-image-$imageId'),

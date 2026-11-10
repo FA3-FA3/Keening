@@ -25,6 +25,8 @@ import '../widgets/notepad_editor.dart';
 import '../widgets/pad_editor.dart';
 import '../widgets/sheet_editor.dart';
 import '../widgets/app_dialog.dart';
+import '../utils/offline/gateway.dart';
+import '../utils/mobile_layout.dart';
 
 /// A kind of document that can be created.
 class DocumentType {
@@ -160,6 +162,21 @@ class _Chosen {
   final Object? payload;
 }
 
+/// A folder or document being dragged to a new place.
+class _DragItem {
+  const _DragItem({
+    required this.isFolder,
+    required this.id,
+    required this.name,
+    required this.parentId,
+  });
+  final bool isFolder;
+  final String id, name;
+
+  /// The folder it is in now (null = top level).
+  final String? parentId;
+}
+
 /// A destination chosen in the Move dialog (null folder = top level).
 class _Target {
   const _Target(this.folderId);
@@ -182,6 +199,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
   void initState() {
     super.initState();
     _service = widget.service ?? PadsService();
+    OfflineGateway.instance.documentsVersion.addListener(_synced);
     if (widget.searchTarget != null) {
       _openSearchTarget();
     } else {
@@ -215,8 +233,14 @@ class _DocumentsPageState extends State<DocumentsPage> {
     await _showDetails(id!);
   }
 
+  /// Changes made offline have been sent: show the server's version.
+  void _synced() {
+    if (mounted && _openDoc == null && !_loading) _load();
+  }
+
   @override
   void dispose() {
+    OfflineGateway.instance.documentsVersion.removeListener(_synced);
     if (widget.service == null) _service.close();
     super.dispose();
   }
@@ -455,9 +479,9 @@ class _DocumentsPageState extends State<DocumentsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  /// True in the mobile layout: the app is taller than it is wide.
-  bool _portrait(BuildContext context) =>
-      MediaQuery.orientationOf(context) == Orientation.portrait;
+  /// True in the mobile layout: the web app, taller than it is wide (never the
+  /// desktop app).
+  bool _portrait(BuildContext context) => useMobileLayout(context);
 
   // -------------------------------------------------------------- documents
 
@@ -659,6 +683,151 @@ class _DocumentsPageState extends State<DocumentsPage> {
     _load();
   }
 
+  // ------------------------------------------------------ drag and context menu
+
+  /// Whether [item] can be dropped into the folder [folderId] (null = top level):
+  /// not where it already is, and a folder never into itself or its own
+  /// sub-folders.
+  bool _canDrop(_DragItem item, String? folderId) {
+    if (item.parentId == folderId) return false;
+    return !item.isFolder || !_folderTree(item.id).contains(folderId);
+  }
+
+  Future<void> _drop(_DragItem item, String? folderId) async {
+    if (!_canDrop(item, folderId)) return;
+    try {
+      if (item.isFolder) {
+        await _service.call('moveFolder', {
+          'folderId': item.id,
+          'parentId': folderId,
+        });
+      } else {
+        await _service.call('movePad', {
+          'padId': item.id,
+          'folderId': folderId,
+        });
+      }
+      if (mounted) await _load();
+    } catch (e) {
+      _snack(
+        _message(
+          e,
+          item.isFolder
+              ? 'Unable to move the folder.'
+              : 'Unable to move the document.',
+        ),
+      );
+    }
+  }
+
+  /// A place things can be dropped on; [builder] says whether one is being
+  /// held over it (and could land there).
+  Widget _dropZone(
+    String? folderId,
+    Widget Function(BuildContext context, bool hovering) builder,
+  ) => DragTarget<_DragItem>(
+    onWillAcceptWithDetails: (d) => _canDrop(d.data, folderId),
+    onAcceptWithDetails: (d) => _drop(d.data, folderId),
+    builder: (context, candidates, _) =>
+        builder(context, candidates.isNotEmpty),
+  );
+
+  /// The little grip in the top left of a tile; dragging it moves the tile.
+  Widget _dragHandle(_DragItem item, IconData icon, Color color) {
+    final scheme = Theme.of(context).colorScheme;
+    return Positioned(
+      top: 0,
+      left: 0,
+      child: Draggable<_DragItem>(
+        key: ValueKey('drag-${item.isFolder ? 'folder' : 'doc'}-${item.id}'),
+        data: item,
+        dragAnchorStrategy: pointerDragAnchorStrategy,
+        feedback: Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(12),
+          color: scheme.surfaceContainerHigh,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color),
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 160),
+                  child: Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: Tooltip(
+            message: 'Drag to move',
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(
+                Icons.drag_indicator,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The menu a right click opens: a new folder, or a new document of any type,
+  /// in the folder being viewed.
+  Future<void> _showContextMenu(Offset at) async {
+    if (_loading || _error != null) return;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(at.dx, at.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(
+          key: ValueKey('context-new-folder'),
+          value: 'folder',
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.create_new_folder_outlined),
+            title: Text('New folder'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        for (final type in documentTypes)
+          PopupMenuItem(
+            key: ValueKey('context-new-${type.kind}'),
+            value: type.kind,
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(type.icon),
+              title: Text('New ${type.label}'),
+            ),
+          ),
+      ],
+    );
+    if (choice == null || !mounted) return;
+    if (choice == 'folder') {
+      await _newFolder();
+    } else {
+      await _newDocument(choice);
+    }
+  }
+
   // ------------------------------------------------------------------ build
 
   Widget _folderTile(Map<String, dynamic> folder) {
@@ -671,38 +840,68 @@ class _DocumentsPageState extends State<DocumentsPage> {
       width: 140,
       child: Stack(
         children: [
-          InkWell(
-            key: ValueKey('folder-tile-$id'),
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => setState(() => _current = id),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: SizedBox(
-                width: 124,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.folder,
-                      size: _tileIconSize,
-                      color: _folderColor,
+          _dropZone(
+            id,
+            (context, hovering) => DecoratedBox(
+              key: ValueKey('folder-drop-$id'),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: hovering
+                    ? Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.16)
+                    : null,
+                border: hovering
+                    ? Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 2,
+                      )
+                    : null,
+              ),
+              child: InkWell(
+                key: ValueKey('folder-tile-$id'),
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => setState(() => _current = id),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: 124,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.folder,
+                          size: _tileIconSize,
+                          color: _folderColor,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          folder['name'] as String,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        Text(
+                          '$items ${items == 1 ? 'item' : 'items'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      folder['name'] as String,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    Text(
-                      '$items ${items == 1 ? 'item' : 'items'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
+          ),
+          _dragHandle(
+            _DragItem(
+              isFolder: true,
+              id: id,
+              name: folder['name'] as String,
+              parentId: folder['parent_id'] as String?,
+            ),
+            Icons.folder,
+            _folderColor,
           ),
           Positioned(
             top: 0,
@@ -752,39 +951,70 @@ class _DocumentsPageState extends State<DocumentsPage> {
     final edited = DateTime.tryParse(doc['updated_at'] as String? ?? '');
     return SizedBox(
       width: 140,
-      child: InkWell(
-        key: ValueKey('doc-tile-${doc['id']}'),
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _showDetails(doc['id'] as String),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(type.icon, size: _tileIconSize, color: scheme.primary),
-              const SizedBox(height: 8),
-              Text(
-                doc['name'] as String,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleSmall,
+      child: Stack(
+        children: [
+          InkWell(
+            key: ValueKey('doc-tile-${doc['id']}'),
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _showDetails(doc['id'] as String),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(type.icon, size: _tileIconSize, color: scheme.primary),
+                  const SizedBox(height: 8),
+                  Text(
+                    doc['name'] as String,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  Text(
+                    [
+                      type.label,
+                      if (edited != null)
+                        DateFormat.MMMd().format(edited.toLocal()),
+                    ].join(' · '),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              Text(
-                [
-                  type.label,
-                  if (edited != null)
-                    DateFormat.MMMd().format(edited.toLocal()),
-                ].join(' · '),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
-        ),
+          _dragHandle(
+            _DragItem(
+              isFolder: false,
+              id: doc['id'] as String,
+              name: doc['name'] as String,
+              parentId: doc['folder_id'] as String?,
+            ),
+            type.icon,
+            scheme.primary,
+          ),
+        ],
       ),
     );
   }
+
+  /// A breadcrumb that things can be dropped on, to move them to that folder.
+  Widget _crumbDrop(String? folderId, Widget crumb) => _dropZone(
+    folderId,
+    (context, hovering) => DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: hovering
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.16)
+            : null,
+        border: hovering
+            ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
+            : null,
+      ),
+      child: crumb,
+    ),
+  );
 
   Widget _breadcrumbs() {
     final path = _path;
@@ -794,31 +1024,40 @@ class _DocumentsPageState extends State<DocumentsPage> {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           if (_current != null)
-            IconButton(
-              key: const ValueKey('folder-up'),
-              tooltip: 'Up one level',
-              onPressed: () => setState(
-                () => _current = path.length > 1
-                    ? path[path.length - 2]['id'] as String
-                    : null,
+            _crumbDrop(
+              path.length > 1 ? path[path.length - 2]['id'] as String : null,
+              IconButton(
+                key: const ValueKey('folder-up'),
+                tooltip: 'Up one level',
+                onPressed: () => setState(
+                  () => _current = path.length > 1
+                      ? path[path.length - 2]['id'] as String
+                      : null,
+                ),
+                icon: const Icon(Icons.arrow_upward),
               ),
-              icon: const Icon(Icons.arrow_upward),
             ),
-          TextButton(
-            key: const ValueKey('crumb-root'),
-            onPressed: _current == null
-                ? null
-                : () => setState(() => _current = null),
-            child: const Text('Documents'),
+          _crumbDrop(
+            null,
+            TextButton(
+              key: const ValueKey('crumb-root'),
+              onPressed: _current == null
+                  ? null
+                  : () => setState(() => _current = null),
+              child: const Text('Documents'),
+            ),
           ),
           for (final folder in path) ...[
             const Icon(Icons.chevron_right, size: 18),
-            TextButton(
-              key: ValueKey('crumb-${folder['id']}'),
-              onPressed: folder['id'] == _current
-                  ? null
-                  : () => setState(() => _current = folder['id'] as String),
-              child: Text(folder['name'] as String),
+            _crumbDrop(
+              folder['id'] as String,
+              TextButton(
+                key: ValueKey('crumb-${folder['id']}'),
+                onPressed: folder['id'] == _current
+                    ? null
+                    : () => setState(() => _current = folder['id'] as String),
+                child: Text(folder['name'] as String),
+              ),
             ),
           ],
         ],
@@ -928,37 +1167,45 @@ class _DocumentsPageState extends State<DocumentsPage> {
         ),
         _breadcrumbs(),
         Expanded(
-          child: _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_error!),
-                      TextButton(onPressed: _load, child: const Text('Retry')),
-                    ],
+          child: GestureDetector(
+            key: const ValueKey('documents-area'),
+            behavior: HitTestBehavior.opaque,
+            onSecondaryTapUp: (d) => _showContextMenu(d.globalPosition),
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _loading && _documents.isEmpty && _folders.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : empty
+                ? Center(
+                    child: Text(
+                      _current == null
+                          ? 'Create your first document to get started.'
+                          : 'This folder is empty.',
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final folder in folders) _folderTile(folder),
+                        for (final doc in documents) _documentTile(doc),
+                      ],
+                    ),
                   ),
-                )
-              : _loading && _documents.isEmpty && _folders.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : empty
-              ? Center(
-                  child: Text(
-                    _current == null
-                        ? 'Create your first document to get started.'
-                        : 'This folder is empty.',
-                  ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final folder in folders) _folderTile(folder),
-                      for (final doc in documents) _documentTile(doc),
-                    ],
-                  ),
-                ),
+          ),
         ),
       ],
     );

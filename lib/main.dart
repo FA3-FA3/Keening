@@ -14,14 +14,18 @@ import 'utils/retro_theme.dart';
 import 'utils/clipboard_image.dart';
 import 'utils/file_drop.dart';
 import 'utils/remembered_login.dart';
+import 'utils/offline/gateway.dart';
 import 'utils/window_chrome.dart';
 import 'widgets/app_logo.dart';
+import 'utils/spell/spell_dictionary.dart';
 
 const useAuthEmulator =
     kDebugMode && bool.fromEnvironment('USE_EMULATOR', defaultValue: true);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The word list for spelling, read in the background.
+  SpellDictionary.instance.load();
   listenForPastedImages();
   await initWindowChrome();
   try {
@@ -40,13 +44,14 @@ Future<void> main() async {
     }
     // The desktop app signs in again by itself with the login remembered on
     // this device, so it does not ask every time it starts.
-    await restoreRememberedLogin(
+    final signedIn = await restoreRememberedLogin(
       signedIn: FirebaseAuth.instance.currentUser != null,
       store: loginStore,
       signIn: (email, password) => FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password),
       codeOf: (e) => e is FirebaseAuthException ? e.code : '',
     );
+    await _startOfflineIfNeeded(signedIn);
     runApp(const KeeningApp());
   } catch (error) {
     debugPrint('Keening authentication startup failed: $error');
@@ -60,6 +65,28 @@ Future<void> main() async {
         ),
       ),
     );
+  }
+}
+
+/// The desktop app works without a connection. If signing in again failed for
+/// want of one, it opens as the person who last signed in on this computer (with
+/// the documents kept here), and signs in for real once the connection is back.
+Future<void> _startOfflineIfNeeded(bool signedIn) async {
+  final gateway = OfflineGateway.instance;
+  if (!gateway.supported) return;
+  gateway.start();
+  if (signedIn) return;
+  try {
+    final saved = await loginStore?.read();
+    final account = readOfflineAccount();
+    if (saved != null &&
+        account != null &&
+        account.email.toLowerCase() == saved.email.toLowerCase()) {
+      gateway.account.value = account;
+      gateway.markOffline();
+    }
+  } catch (_) {
+    // Without a remembered login the sign-in page is shown, as usual.
   }
 }
 

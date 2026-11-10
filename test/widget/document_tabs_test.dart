@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/pages/dashboard_page.dart';
 import 'rich_field_helpers.dart';
@@ -229,6 +230,89 @@ void main() {
     expect(
       find.byKey(const ValueKey('workspace-page-Documents')),
       findsOneWidget,
+    );
+  });
+
+  group('the equation popup', () {
+    Future<void> openEquation(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('note-tool-insert')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('insert-equation')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('equation-field')), findsOneWidget);
+    }
+
+    testWidgets('greys out only the document, so the tabs stay usable', (
+      tester,
+    ) async {
+      final api = docs();
+      await mount(tester, api);
+      await openDoc(tester, api, 'Shopping');
+      await openEquation(tester);
+      // The tab strip and the sidebar can still be pressed: the popup's
+      // barrier is only over the document.
+      final barrier = find.byType(ModalBarrier).last;
+      final area = tester.getRect(page(api, 'Shopping'));
+      final shaded = tester.getRect(barrier);
+      expect(shaded.left, greaterThanOrEqualTo(area.left - 1));
+      expect(shaded.top, greaterThanOrEqualTo(area.top - 1));
+      expect(shaded.width, lessThanOrEqualTo(area.width + 1));
+      expect(shaded.height, lessThanOrEqualTo(area.height + 1));
+      // Another tab can be chosen while it is open.
+      await tester.tap(find.byKey(const ValueKey('workspace-tab-Documents')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('doc-tile-${idOf(api, 'Shopping')}')),
+        findsOneWidget,
+      );
+      // And it is still there when the tab is gone back to.
+      await tester.tap(tab(api, 'Shopping'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('equation-field')), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+Tab still goes round the tabs with it open', (
+      tester,
+    ) async {
+      final api = docs();
+      await mount(tester, api);
+      await openDoc(tester, api, 'Shopping');
+      await openEquation(tester);
+      Future<void> ctrlTab({bool shift = false}) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      int showing() =>
+          tester.widget<IndexedStack>(find.byType(IndexedStack).first).index!;
+      final here = showing();
+      await ctrlTab();
+      expect(showing(), isNot(here));
+      await ctrlTab(shift: true);
+      expect(showing(), here);
+      // Its text is untouched by the keys.
+      expect(find.byKey(const ValueKey('equation-field')), findsOneWidget);
+    });
+
+    testWidgets(
+      'closes with Cancel, and the table builder opens over the document too',
+      (tester) async {
+        final api = docs();
+        await mount(tester, api);
+        await openDoc(tester, api, 'Shopping');
+        await openEquation(tester);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('equation-cancel')),
+        );
+        await tester.tap(find.byKey(const ValueKey('equation-cancel')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('equation-field')), findsNothing);
+        expect(find.byKey(const ValueKey('notepad-field')), findsOneWidget);
+      },
     );
   });
 }

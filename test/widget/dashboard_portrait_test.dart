@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/pages/dashboard_page.dart';
+import 'package:keening/utils/desktop_platform.dart';
+import 'package:keening/utils/mobile_layout.dart';
+import 'package:keening/widgets/fixed_width.dart';
 
 Future<void> mount(WidgetTester tester, Size size) async {
   tester.view.physicalSize = size;
@@ -48,10 +51,8 @@ void main() {
     expect(sidebar(tester), 52);
     await mount(tester, tablet);
     expect(sidebar(tester), 52);
-    // Folded away, it is the same thin bar.
-    await tester.tap(find.byTooltip('Collapse sidebar'));
-    await tester.pumpAndSettle();
-    expect(sidebar(tester), 52);
+    // Its icons are all there (nothing folds away).
+    expect(find.byKey(const ValueKey('nav-People')), findsOneWidget);
   });
 
   testWidgets('in landscape the sidebar keeps its icons and names', (
@@ -101,10 +102,69 @@ void main() {
       'messages-button',
       'quick-add',
       'account-settings',
-      'toggle-sidebar',
       'workspace-tab-Dashboard',
     ]) {
       expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
     }
+  });
+
+  testWidgets('there is no button to collapse the sidebar on a phone', (
+    tester,
+  ) async {
+    await mount(tester, phone);
+    expect(find.byKey(const ValueKey('toggle-sidebar')), findsNothing);
+    expect(sidebar(tester), 52);
+    // Wider than tall, the button is back.
+    tester.view.physicalSize = const Size(860, 420);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('toggle-sidebar')), findsOneWidget);
+  });
+
+  group('the desktop app', () {
+    setUp(() => desktopAppForTest = true);
+    tearDown(() => desktopAppForTest = null);
+
+    testWidgets('keeps the full layout however tall its window is', (
+      tester,
+    ) async {
+      for (final size in [phone, tablet]) {
+        await mount(tester, size);
+        expect(topBar(tester), 64, reason: '$size');
+        expect(sidebar(tester), isNot(52), reason: '$size');
+        expect(tab(tester), 36, reason: '$size');
+        expect(tabStrip(tester), 36 + 12, reason: '$size');
+        expect(tester.takeException(), isNull, reason: '$size');
+      }
+    });
+
+    testWidgets('does not use the phone top bar or hide the sidebar button', (
+      tester,
+    ) async {
+      await mount(tester, phone);
+      expect(find.byKey(const ValueKey('toggle-sidebar')), findsOneWidget);
+    });
+
+    testWidgets('popups are windows, not full screen', (tester) async {
+      tester.view.physicalSize = const Size(420, 860);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late BuildContext context;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (c) {
+              context = c;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      expect(useMobileLayout(context), isFalse);
+      expect(dialogIsFullscreen(context), isFalse);
+      desktopAppForTest = false;
+      expect(useMobileLayout(context), isTrue);
+      expect(dialogIsFullscreen(context), isTrue);
+    });
   });
 }

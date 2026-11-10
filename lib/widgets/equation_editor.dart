@@ -296,6 +296,9 @@ Future<EquationResult?> showEquationEditor(
   String initial = '',
 }) => showDialog<EquationResult>(
   context: context,
+  // Over the document it is for, when it is in a DialogScope (so the tabs
+  // stay usable); over the window otherwise.
+  useRootNavigator: false,
   builder: (_) => _EquationEditor(initial: initial),
 );
 

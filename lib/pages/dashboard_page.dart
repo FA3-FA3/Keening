@@ -17,6 +17,9 @@ import 'settings_page.dart';
 import 'boards_page.dart';
 import '../utils/local_store.dart';
 import '../utils/pads_service.dart';
+import '../utils/offline/gateway.dart';
+import '../utils/offline/network_error.dart';
+import '../widgets/offline_banner.dart';
 import 'documents_page.dart';
 import 'projects_page.dart';
 import '../utils/window_chrome.dart';
@@ -35,6 +38,8 @@ import 'people_page.dart';
 import 'schedule_page.dart';
 import 'overview_page.dart';
 import '../utils/time_settings.dart';
+import '../utils/mobile_layout.dart';
+import '../widgets/dialog_scope.dart';
 
 const _dashboardTabs = [
   'Dashboard',
@@ -70,9 +75,9 @@ IconData _tabIcon(String tab) => switch (tab) {
 const _navigationRadius = BorderRadius.all(Radius.circular(22));
 const _navigationHeight = 36.0;
 
-/// True in the mobile layout: the app is taller than it is wide.
-bool _portrait(BuildContext context) =>
-    MediaQuery.orientationOf(context) == Orientation.portrait;
+/// True in the mobile layout: the web app, taller than it is wide (never the
+/// desktop app).
+bool _portrait(BuildContext context) => useMobileLayout(context);
 
 /// The mobile layout is more compact: the top bar is 25% shorter and the strip
 /// of open tabs 10% shorter.
@@ -244,8 +249,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String? get _viewStoreKey {
     if (widget.viewKey != null) return widget.viewKey;
-    if (Firebase.apps.isEmpty) return null;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = OfflineGateway.instance.uid;
     return uid == null ? null : 'keening.view.$uid';
   }
 
@@ -350,11 +354,41 @@ class _DashboardPageState extends State<DashboardPage> {
       Map<String, dynamic> profile;
       if (widget.loadProfile != null) {
         profile = await widget.loadProfile!();
+      } else if (FirebaseAuth.instance.currentUser == null &&
+          OfflineGateway.instance.account.value != null) {
+        // Working offline as the person who last signed in.
+        profile = OfflineGateway.instance.account.value!.profile;
       } else {
-        await FirebaseAuth.instance.currentUser?.reload();
-        final token = await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        if (token == null) throw StateError('Please sign in again.');
-        profile = await _api.whoami(token);
+        try {
+          await FirebaseAuth.instance.currentUser?.reload();
+          final token = await FirebaseAuth.instance.currentUser?.getIdToken(
+            true,
+          );
+          if (token == null) throw StateError('Please sign in again.');
+          profile = await _api.whoami(token);
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            // Kept so the app can start without a connection another time.
+            rememberOfflineAccount(
+              OfflineAccount(
+                uid: user.uid,
+                email: user.email ?? '',
+                profile: profile,
+              ),
+            );
+          }
+        } catch (e) {
+          // Without a connection, the profile from the last time is used.
+          final cached = readOfflineAccount();
+          if (isNetworkError(e) &&
+              cached != null &&
+              cached.uid == FirebaseAuth.instance.currentUser?.uid) {
+            OfflineGateway.instance.markOffline();
+            profile = cached.profile;
+          } else {
+            rethrow;
+          }
+        }
       }
       if (mounted) setState(() => _profile = profile);
     } catch (_) {
@@ -447,6 +481,15 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   final Map<String, GlobalKey> _tabKeys = {'Dashboard': GlobalKey()};
+
+  /// Moves to the open tab [step] places along (1 next, -1 before), going round
+  /// from the last to the first and back.
+  void _cycleTab(int step) {
+    if (_openTabs.length < 2) return;
+    final at = _openTabs.indexOf(_selectedTab ?? '');
+    final next = ((at < 0 ? 0 : at) + step) % _openTabs.length;
+    _openTab(_openTabs[next < 0 ? next + _openTabs.length : next]);
+  }
 
   void _openTab(String tab) {
     setState(() {
@@ -575,6 +618,9 @@ class _DashboardPageState extends State<DashboardPage> {
         // Nothing more can be done about storage that will not clear.
       }
       await FirebaseAuth.instance.signOut();
+      // Nothing is kept for working offline as this person.
+      forgetOfflineAccount();
+      OfflineGateway.instance.reset();
       if (mounted) context.go('/');
     } catch (_) {
       if (mounted) {
@@ -594,6 +640,15 @@ class _DashboardPageState extends State<DashboardPage> {
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_fullscreen) setState(() => _fullscreen = false);
         },
+        // Ctrl+Tab goes to the next open tab and Ctrl+Shift+Tab to the one before.
+        const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
+            _cycleTab(1),
+        const SingleActivator(
+          LogicalKeyboardKey.tab,
+          control: true,
+          shift: true,
+        ): () =>
+            _cycleTab(-1),
       },
       child: Focus(
         autofocus: true,
@@ -617,6 +672,12 @@ class _DashboardPageState extends State<DashboardPage> {
                       quickAddOpen: _quickAddOpen,
                       onSearch: _search,
                     ),
+                  ),
+                  // Says when the app is working without a connection.
+                  Visibility(
+                    visible: !_fullscreen,
+                    maintainState: true,
+                    child: const OfflineBanner(),
                   ),
                   Expanded(
                     child: Row(
@@ -859,20 +920,26 @@ class _DashboardPageState extends State<DashboardPage> {
                                           children: [
                                             for (final tab in _openTabs)
                                               tab.startsWith('doc:')
-                                                  ? DocumentTab(
-                                                      service:
-                                                          widget.padsService,
-                                                      key: _pageKey(tab),
-                                                      ganttService:
-                                                          widget.ganttService,
-                                                      searchTarget:
-                                                          _docTargets[tab],
-                                                      closeIfMissing:
-                                                          _restoredDocTabs
-                                                              .contains(tab),
-                                                      document: _docTabs[tab]!,
-                                                      onClose: () =>
-                                                          _closeTab(tab),
+                                                  ? DialogScope(
+                                                      key: ValueKey(
+                                                        'dialog-scope-$tab',
+                                                      ),
+                                                      child: DocumentTab(
+                                                        service:
+                                                            widget.padsService,
+                                                        key: _pageKey(tab),
+                                                        ganttService:
+                                                            widget.ganttService,
+                                                        searchTarget:
+                                                            _docTargets[tab],
+                                                        closeIfMissing:
+                                                            _restoredDocTabs
+                                                                .contains(tab),
+                                                        document:
+                                                            _docTabs[tab]!,
+                                                        onClose: () =>
+                                                            _closeTab(tab),
+                                                      ),
                                                     )
                                                   : tab == 'Dashboard'
                                                   ? OverviewPage(
@@ -1044,8 +1111,123 @@ class _TopBar extends StatelessWidget {
   final bool quickAddOpen;
   final VoidCallback onSearch;
 
+  /// The bar on a phone (portrait): everything fits the width of the screen, so
+  /// it never scrolls sideways. The brand is on the left; search, quick add,
+  /// messages and the profile are on the right, the profile's name shortening
+  /// to fit the room that is left.
+  Widget _phoneBar(BuildContext context) {
+    final tint = AppColors.navTextOf(context);
+    return Container(
+      key: const ValueKey('workspace-top-bar'),
+      height: _topBarHeight(context),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.navBackgroundOf(context),
+        border: isRetro(context)
+            ? Border(
+                bottom: BorderSide(color: retroPalette(context).lo, width: 2),
+              )
+            : null,
+      ),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      child: Row(
+        children: [
+          Text(
+            'Keening',
+            maxLines: 1,
+            style: TextStyle(
+              color: AppColors.navBrandOf(context),
+              fontSize: 18,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.5,
+            ),
+          ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    key: const ValueKey('search-all'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Search all pages',
+                    onPressed: onSearch,
+                    icon: const Icon(Icons.search),
+                    color: tint,
+                  ),
+                  IconButton(
+                    key: const ValueKey('quick-add'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Quick add',
+                    onPressed: onQuickAdd,
+                    isSelected: quickAddOpen,
+                    icon: const Icon(Icons.add_circle_outline),
+                    selectedIcon: const Icon(Icons.add_circle),
+                    color: tint,
+                  ),
+                  IconButton(
+                    key: const ValueKey('messages-button'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: unreadMessages > 0
+                        ? 'Messages ($unreadMessages unread)'
+                        : 'Messages',
+                    onPressed: onMessages,
+                    color: tint,
+                    icon: Badge(
+                      key: const ValueKey('messages-badge'),
+                      isLabelVisible: unreadMessages > 0,
+                      label: Text(
+                        unreadMessages > 99 ? '99+' : '$unreadMessages',
+                      ),
+                      child: const Icon(Icons.chat_bubble_outline),
+                    ),
+                  ),
+                  Flexible(
+                    child: TextButton.icon(
+                      key: const ValueKey('account-settings'),
+                      onPressed: onSettings,
+                      style: ButtonStyle(
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 6),
+                        ),
+                        minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+                        overlayColor: WidgetStateProperty.resolveWith((states) {
+                          if (states.contains(WidgetState.pressed)) {
+                            return tint.withValues(alpha: 0.24);
+                          }
+                          if (states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.focused)) {
+                            return tint.withValues(alpha: 0.14);
+                          }
+                          return null;
+                        }),
+                      ),
+                      icon: ProfileAvatar(picture: picture, radius: 15),
+                      label: Text(
+                        username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tint,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w300,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_portrait(context)) return _phoneBar(context);
     return MinWidthScroll(
       minWidth: isRetro(context) ? _topBarMinWidthRetro : _topBarMinWidth,
       child: Container(
@@ -1313,48 +1495,57 @@ class _Sidebar extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedContainer(
-    key: const ValueKey('workspace-sidebar'),
-    duration: MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 200),
-    curve: Curves.easeInOut,
-    width: _portrait(context)
-        ? _iconBarWidth
-        : collapsed
-        ? 48
-        : MediaQuery.sizeOf(context).width < 600
-        ? 124
-        : 190,
-    color: AppColors.navBackgroundOf(context),
-    child: Column(
-      children: [
-        Expanded(
-          child: collapsed
-              ? const SizedBox.expand()
-              : ListView(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  children: [
-                    for (final tab in _dashboardTabs) _item(context, tab),
-                  ],
-                ),
-        ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: IconButton(
-              key: const ValueKey('toggle-sidebar'),
-              tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
-              onPressed: onToggle,
-              color: AppColors.navTextOf(context),
-              icon: Icon(collapsed ? Icons.chevron_right : Icons.chevron_left),
-            ),
+  Widget build(BuildContext context) {
+    // On a phone (portrait) the bar is always the thin strip of icons, with no
+    // button to collapse it.
+    final phone = _portrait(context);
+    final collapsed = this.collapsed && !phone;
+    return AnimatedContainer(
+      key: const ValueKey('workspace-sidebar'),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      width: phone
+          ? _iconBarWidth
+          : collapsed
+          ? 48
+          : MediaQuery.sizeOf(context).width < 600
+          ? 124
+          : 190,
+      color: AppColors.navBackgroundOf(context),
+      child: Column(
+        children: [
+          Expanded(
+            child: collapsed
+                ? const SizedBox.expand()
+                : ListView(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    children: [
+                      for (final tab in _dashboardTabs) _item(context, tab),
+                    ],
+                  ),
           ),
-        ),
-      ],
-    ),
-  );
+          if (!phone)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: IconButton(
+                  key: const ValueKey('toggle-sidebar'),
+                  tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+                  onPressed: onToggle,
+                  color: AppColors.navTextOf(context),
+                  icon: Icon(
+                    collapsed ? Icons.chevron_right : Icons.chevron_left,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// One of the cells of the retro look's status bar: the name, the time, the

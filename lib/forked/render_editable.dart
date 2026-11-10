@@ -308,6 +308,7 @@ class HangRenderEditable extends RenderBox
     TextRange? promptRectRange,
     Color? promptRectColor,
     Clip clipBehavior = Clip.hardEdge,
+    double Function(double textHeight)? extraScrollExtent,
     required this.textSelectionDelegate,
     HangRenderEditablePainter? painter,
     HangRenderEditablePainter? foregroundPainter,
@@ -360,6 +361,7 @@ class HangRenderEditable extends RenderBox
        _readOnly = readOnly,
        _forceLine = forceLine,
        _clipBehavior = clipBehavior,
+       _extraScrollExtent = extraScrollExtent,
        _hasFocus = hasFocus ?? false,
        _disposeShowCursor = showCursor == null {
     assert(!_showCursor.value || cursorColor != null);
@@ -1289,6 +1291,18 @@ class HangRenderEditable extends RenderBox
   /// {@macro flutter.material.Material.clipBehavior}
   ///
   /// Defaults to [Clip.hardEdge].
+  /// Extra room to scroll past the end of the text, worked out from the text's
+  /// height (null: none). The Notepad uses it to let a page be seen whole.
+  double Function(double textHeight)? get extraScrollExtent =>
+      _extraScrollExtent;
+  double Function(double textHeight)? _extraScrollExtent;
+  set extraScrollExtent(double Function(double textHeight)? value) {
+    if (value != _extraScrollExtent) {
+      _extraScrollExtent = value;
+      markNeedsLayout();
+    }
+  }
+
   Clip get clipBehavior => _clipBehavior;
   Clip _clipBehavior = Clip.hardEdge;
   set clipBehavior(Clip value) {
@@ -1766,7 +1780,12 @@ class HangRenderEditable extends RenderBox
     assert(hasSize);
     return switch (_viewportAxis) {
       Axis.horizontal => math.max(0.0, contentSize.width - size.width),
-      Axis.vertical => math.max(0.0, contentSize.height - size.height),
+      Axis.vertical => math.max(
+        0.0,
+        contentSize.height +
+            (_extraScrollExtent?.call(contentSize.height) ?? 0.0) -
+            size.height,
+      ),
     };
   }
 
@@ -2544,8 +2563,11 @@ class HangRenderEditable extends RenderBox
         : constraints.constrainWidth(_textPainter.width + _caretMargin);
     assert(maxLines != 1 || _textPainter.maxLines == 1);
     final double preferredHeight = switch (maxLines) {
+      // (The room to scroll past the end of the text counts as part of the
+      // field, so a short note's field is a whole page tall, not a line.)
       null => math.max(
-        _textPainter.height,
+        _textPainter.height +
+            (_extraScrollExtent?.call(_textPainter.height) ?? 0.0),
         preferredLineHeight * (minLines ?? 0),
       ),
       1 => _textPainter.height,

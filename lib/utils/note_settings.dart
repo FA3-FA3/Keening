@@ -13,13 +13,39 @@ const noteBackgrounds = [
   '#000000',
 ];
 
+/// The text colours offered for a Notepad (any colour can be picked).
+const noteTextColours = [
+  '#FFFFFF',
+  '#F3F4F6',
+  '#9CA3AF',
+  '#111111',
+  '#000000',
+  '#FDE047',
+  '#93C5FD',
+  '#86EFAC',
+  '#FCA5A5',
+];
+
+/// The text size a Notepad starts with, and the sizes it can be set to.
+const noteTextSizeStandard = 16.0;
+const noteTextSizeMin = 8.0;
+const noteTextSizeMax = 72.0;
+
+const _keepColour = Object();
+
 /// Settings that belong to a Notepad itself, saved with it: whether it is laid
-/// out on A4 pages (with page breaks), and its background colour.
+/// out on A4 pages (with page breaks), its background colour, and the colour and
+/// size its text has (before any formatting given to parts of the text).
 @immutable
 class NoteSettings {
-  const NoteSettings({this.pages = true, this.background = '#FFFFFF'});
+  const NoteSettings({
+    this.pages = true,
+    this.background = '#FFFFFF',
+    this.textColourChoice,
+    this.textSize = noteTextSizeStandard,
+  });
 
-  /// A new note: A4 pages on a white background.
+  /// A new note: A4 pages on a white background, text 16 and automatic colour.
   static const standard = NoteSettings();
 
   /// True: a page-width sheet with margins and dotted page breaks. False: the
@@ -27,38 +53,72 @@ class NoteSettings {
   final bool pages;
   final String background;
 
+  /// The colour chosen for the text, or null for the automatic one: white
+  /// (#FFFFFF), or near-black on a light background so it can still be read.
+  final String? textColourChoice;
+
+  /// How big the text is (before the size given to parts of it).
+  final double textSize;
+
   Color get backgroundColour =>
       Color(0xFF000000 | int.parse(background.substring(1), radix: 16));
 
   /// Dark backgrounds get light text, so the text stays readable.
   bool get dark => backgroundColour.computeLuminance() < 0.4;
 
-  Color get textColour =>
-      dark ? const Color(0xFFF3F4F6) : const Color(0xFF111111);
+  /// The colour the text is: the one chosen, or the automatic one.
+  Color get textColour => textColourChoice != null
+      ? Color(0xFF000000 | int.parse(textColourChoice!.substring(1), radix: 16))
+      : (dark ? const Color(0xFFFFFFFF) : const Color(0xFF111111));
+
+  /// [textColour] as "#RRGGBB".
+  String get textColourHex =>
+      '#${(textColour.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
 
   /// Placeholder text, page break lines and their labels.
   Color get mutedColour =>
       dark ? const Color(0xFF9CA3AF) : const Color(0xFF9CA3AF);
 
-  NoteSettings copyWith({bool? pages, String? background}) => NoteSettings(
+  NoteSettings copyWith({
+    bool? pages,
+    String? background,
+    Object? textColourChoice = _keepColour,
+    double? textSize,
+  }) => NoteSettings(
     pages: pages ?? this.pages,
     background: background ?? this.background,
+    textColourChoice: identical(textColourChoice, _keepColour)
+        ? this.textColourChoice
+        : textColourChoice as String?,
+    textSize: textSize ?? this.textSize,
   );
 
   Map<String, dynamic> toJson() => {
     'pages': pages,
     'background': background.toUpperCase(),
+    if (textColourChoice != null) 'textColour': textColourChoice!.toUpperCase(),
+    if (textSize != noteTextSizeStandard) 'textSize': textSize,
   };
 
   /// Reads stored settings; anything missing or invalid is the standard value.
   static NoteSettings fromJson(Object? json) {
     if (json is! Map) return standard;
     final bg = json['background'];
+    final text = json['textColour'];
+    final size = json['textSize'];
+    final hex = RegExp(r'^#[0-9a-fA-F]{6}$');
     return NoteSettings(
       pages: json['pages'] is bool ? json['pages'] as bool : true,
-      background: bg is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(bg)
+      background: bg is String && hex.hasMatch(bg)
           ? bg.toUpperCase()
           : standard.background,
+      textColourChoice: text is String && hex.hasMatch(text)
+          ? text.toUpperCase()
+          : null,
+      textSize:
+          size is num && size >= noteTextSizeMin && size <= noteTextSizeMax
+          ? size.toDouble()
+          : noteTextSizeStandard,
     );
   }
 
@@ -66,10 +126,18 @@ class NoteSettings {
   bool operator ==(Object other) =>
       other is NoteSettings &&
       other.pages == pages &&
-      other.background.toUpperCase() == background.toUpperCase();
+      other.background.toUpperCase() == background.toUpperCase() &&
+      other.textColourChoice?.toUpperCase() ==
+          textColourChoice?.toUpperCase() &&
+      other.textSize == textSize;
 
   @override
-  int get hashCode => Object.hash(pages, background.toUpperCase());
+  int get hashCode => Object.hash(
+    pages,
+    background.toUpperCase(),
+    textColourChoice?.toUpperCase(),
+    textSize,
+  );
 }
 
 /// A Notepad's saved document. The settings are only written when they differ

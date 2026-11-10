@@ -27,11 +27,96 @@ async function panelOptions(db, owner, b) {
   }
 }
 
+
+// Every link the owner has, for the desktop app to keep a copy it can change offline.
+async function allLinks(db, owner) {
+  const rows = async sql => (await db.query(sql, [owner])).rows;
+  const viaEvents = (table, cols) => `SELECT ${cols} FROM public.${table} l JOIN public.gantt_items i ON i.id=l.event_id JOIN public.gantt_calendars c ON c.id=i.calendar_id WHERE c.owner_id=$1`;
+  const viaCalendar = (table, cols) => `SELECT ${cols} FROM public.${table} l JOIN public.calendar_events i ON i.id=l.calendar_event_id JOIN public.calendar_collections c ON c.id=i.calendar_id WHERE c.owner_id=$1`;
+  return {
+    eventTask: await rows(viaEvents('event_task_links', 'l.event_id,l.workplace_id,l.task_id')),
+    calendarTask: await rows(viaCalendar('calendar_task_links', 'l.calendar_event_id,l.workplace_id,l.task_id')),
+    calendarGantt: await rows(viaCalendar('calendar_gantt_links', 'l.calendar_event_id,l.event_id')),
+    session: await rows('SELECT session_id,event_id,calendar_event_id,workplace_id,task_id FROM public.session_links WHERE owner_id=$1'),
+    eventPanel: await rows(viaEvents('event_panel_links', 'l.event_id,l.workplace_id,l.panel_id')),
+    calendarPanel: await rows(viaCalendar('calendar_panel_links', 'l.calendar_event_id,l.workplace_id,l.panel_id')),
+    sessionPanel: await rows('SELECT session_id,workplace_id,panel_id FROM public.session_panel_links WHERE owner_id=$1'),
+  };
+}
+
+// After working offline the desktop app sends all of its links, and they replace
+// the ones here. A link to something that no longer exists is left out.
+async function replaceLinks(db, owner, given) {
+  const kinds = ['eventTask', 'calendarTask', 'calendarGantt', 'session', 'eventPanel', 'calendarPanel', 'sessionPanel'];
+  if (!given || typeof given !== 'object' || kinds.some(k => given[k] !== undefined && !Array.isArray(given[k]))) fail('Invalid links.');
+  const list = k => given[k] ?? [];
+  if (kinds.reduce((n, k) => n + list(k).length, 0) > 20000) fail('There are too many links.');
+  const isUuid = v => uuid(v);
+  const clean = (k, fields) => list(k).map(l => {
+    if (!l || typeof l !== 'object' || fields.some(f => !isUuid(l[f]))) fail('Invalid links.');
+    return l;
+  });
+  const eventTask = clean('eventTask', ['event_id', 'workplace_id', 'task_id']);
+  const calendarTask = clean('calendarTask', ['calendar_event_id', 'workplace_id', 'task_id']);
+  const calendarGantt = clean('calendarGantt', ['calendar_event_id', 'event_id']);
+  const eventPanel = clean('eventPanel', ['event_id', 'workplace_id', 'panel_id']);
+  const calendarPanel = clean('calendarPanel', ['calendar_event_id', 'workplace_id', 'panel_id']);
+  const sessionPanel = clean('sessionPanel', ['session_id', 'workplace_id', 'panel_id']);
+  const session = list('session').map(l => {
+    const set = ['event_id', 'calendar_event_id', 'workplace_id'].filter(f => l?.[f] != null);
+    if (!l || typeof l !== 'object' || !isUuid(l.session_id) || set.length !== 1 || !isUuid(l[set[0]]) || ((l.workplace_id != null) !== (l.task_id != null)) || (l.task_id != null && !isUuid(l.task_id))) fail('Invalid links.');
+    return l;
+  });
+
+  await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE', [owner]);
+  const events = new Set((await db.query('SELECT i.id FROM public.gantt_items i JOIN public.gantt_calendars c ON c.id=i.calendar_id WHERE c.owner_id=$1', [owner])).rows.map(r => r.id));
+  const calendarEvents = new Set((await db.query('SELECT i.id FROM public.calendar_events i JOIN public.calendar_collections c ON c.id=i.calendar_id WHERE c.owner_id=$1', [owner])).rows.map(r => r.id));
+  const boards = new Map((await db.query('SELECT id,board FROM public.board_workplaces WHERE owner_id=$1', [owner])).rows.map(r => [r.id, r.board]));
+  const hasTask = (w, t) => !!boards.get(w)?.tasks?.some(x => x.id === t);
+  const hasPanel = (w, p) => !!boards.get(w)?.columns?.some(x => x.id === p);
+  await db.query('INSERT INTO public.schedules(owner_id) VALUES($1) ON CONFLICT DO NOTHING', [owner]);
+  const blocks = (await db.query('SELECT data FROM public.schedules WHERE owner_id=$1', [owner])).rows[0].data.blocks ?? [];
+  const sessions = new Set(blocks.map(b => b.id));
+
+  const ownedEvents = `(SELECT i.id FROM public.gantt_items i JOIN public.gantt_calendars c ON c.id=i.calendar_id WHERE c.owner_id=$1)`;
+  const ownedCalendarEvents = `(SELECT i.id FROM public.calendar_events i JOIN public.calendar_collections c ON c.id=i.calendar_id WHERE c.owner_id=$1)`;
+  for (const t of ['event_task_links', 'event_panel_links']) await db.query(`DELETE FROM public.${t} WHERE event_id IN ${ownedEvents}`, [owner]);
+  for (const t of ['calendar_task_links', 'calendar_gantt_links', 'calendar_panel_links']) await db.query(`DELETE FROM public.${t} WHERE calendar_event_id IN ${ownedCalendarEvents}`, [owner]);
+  await db.query('DELETE FROM public.session_links WHERE owner_id=$1', [owner]);
+  await db.query('DELETE FROM public.session_panel_links WHERE owner_id=$1', [owner]);
+
+  let count = 0;
+  const add = async (table, columns, values) => {
+    await db.query(`INSERT INTO public.${table}(${columns.join(',')}) VALUES(${values.map((_, i) => `$${i + 1}`).join(',')}) ON CONFLICT DO NOTHING`, values);
+    count++;
+  };
+  for (const l of eventTask) if (events.has(l.event_id) && hasTask(l.workplace_id, l.task_id)) await add('event_task_links', ['event_id', 'workplace_id', 'task_id'], [l.event_id, l.workplace_id, l.task_id]);
+  for (const l of calendarTask) if (calendarEvents.has(l.calendar_event_id) && hasTask(l.workplace_id, l.task_id)) await add('calendar_task_links', ['calendar_event_id', 'workplace_id', 'task_id'], [l.calendar_event_id, l.workplace_id, l.task_id]);
+  for (const l of calendarGantt) if (calendarEvents.has(l.calendar_event_id) && events.has(l.event_id)) await add('calendar_gantt_links', ['calendar_event_id', 'event_id'], [l.calendar_event_id, l.event_id]);
+  for (const l of eventPanel) if (events.has(l.event_id) && hasPanel(l.workplace_id, l.panel_id)) await add('event_panel_links', ['event_id', 'workplace_id', 'panel_id'], [l.event_id, l.workplace_id, l.panel_id]);
+  for (const l of calendarPanel) if (calendarEvents.has(l.calendar_event_id) && hasPanel(l.workplace_id, l.panel_id)) await add('calendar_panel_links', ['calendar_event_id', 'workplace_id', 'panel_id'], [l.calendar_event_id, l.workplace_id, l.panel_id]);
+  for (const l of sessionPanel) if (sessions.has(l.session_id) && hasPanel(l.workplace_id, l.panel_id)) await add('session_panel_links', ['owner_id', 'session_id', 'workplace_id', 'panel_id'], [owner, l.session_id, l.workplace_id, l.panel_id]);
+  for (const l of session) {
+    if (!sessions.has(l.session_id)) continue;
+    if (l.event_id != null && events.has(l.event_id)) await add('session_links', ['owner_id', 'session_id', 'event_id'], [owner, l.session_id, l.event_id]);
+    else if (l.calendar_event_id != null && calendarEvents.has(l.calendar_event_id)) await add('session_links', ['owner_id', 'session_id', 'calendar_event_id'], [owner, l.session_id, l.calendar_event_id]);
+    else if (l.workplace_id != null && hasTask(l.workplace_id, l.task_id)) await add('session_links', ['owner_id', 'session_id', 'workplace_id', 'task_id'], [owner, l.session_id, l.workplace_id, l.task_id]);
+  }
+  return { saved: true, linked: count };
+}
+
 export function linksHandler(pool) {
   return async (request, reply) => {
     const b = request.body || {}, owner = request.userProfile.id;
     let db;
     try {
+      if (b.action === 'listAll' || b.action === 'syncLinks') {
+        db = await pool.connect();
+        await db.query('BEGIN');
+        const everything = b.action === 'listAll' ? await allLinks(db, owner) : await replaceLinks(db, owner, b.links);
+        await db.query('COMMIT');
+        return everything;
+      }
       if (!['list', 'link', 'unlink'].includes(b.action)) fail('Unknown link action.');
       if (!['event', 'task', 'calendar', 'session'].includes(b.source)) fail('Invalid link source.');
       const mutation = b.action !== 'list';

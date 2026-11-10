@@ -6,6 +6,7 @@ import '../utils/app_colors.dart';
 import '../utils/app_look.dart';
 import '../utils/app_mode.dart';
 import '../utils/retro_theme.dart';
+import '../utils/spell/spell_dictionary.dart';
 import '../utils/time_settings.dart';
 import '../utils/ui_colours.dart';
 import '../widgets/colour_picker.dart';
@@ -42,7 +43,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage>
     with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 3, vsync: this);
+  late final _tabs = TabController(length: 4, vsync: this);
 
   @override
   void dispose() {
@@ -552,6 +553,7 @@ class _SettingsPageState extends State<SettingsPage>
                 Tab(key: ValueKey('settings-tab-account'), text: 'Account'),
                 Tab(key: ValueKey('settings-tab-display'), text: 'Display'),
                 Tab(key: ValueKey('settings-tab-time'), text: 'Time'),
+                Tab(key: ValueKey('settings-tab-writing'), text: 'Writing'),
               ],
             ),
             const SizedBox(height: 16),
@@ -560,7 +562,8 @@ class _SettingsPageState extends State<SettingsPage>
               builder: (context, _) => switch (_tabs.index) {
                 0 => _account(context),
                 1 => _display(context),
-                _ => _time(context),
+                2 => _time(context),
+                _ => const _WritingSettings(),
               },
             ),
           ],
@@ -568,4 +571,141 @@ class _SettingsPageState extends State<SettingsPage>
       ),
     ),
   );
+}
+
+/// The writing settings: whether mistakes are underlined and corrected as you
+/// type in documents, and the words you have added to the dictionary.
+class _WritingSettings extends StatefulWidget {
+  const _WritingSettings();
+
+  @override
+  State<_WritingSettings> createState() => _WritingSettingsState();
+}
+
+class _WritingSettingsState extends State<_WritingSettings> {
+  final _word = TextEditingController();
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    SpellDictionary.instance.load();
+  }
+
+  @override
+  void dispose() {
+    _word.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final text = _word.text.trim();
+    if (!RegExp(r"^\p{L}+(?:['’]\p{L}+)*$", unicode: true).hasMatch(text)) {
+      setState(() => _error = 'Enter one word (letters only).');
+      return;
+    }
+    SpellDictionary.instance.add(text);
+    _word.clear();
+    setState(() => _error = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dictionary = SpellDictionary.instance;
+    return AppWindow(
+      title: 'Writing',
+      child: ListenableBuilder(
+        listenable: Listenable.merge([spellSettings, dictionary.revision]),
+        builder: (context, _) {
+          final settings = spellSettings.value;
+          final words = dictionary.myWords;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SwitchListTile(
+                key: const ValueKey('spell-autocorrect'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Autocorrect'),
+                subtitle: const Text(
+                  'In documents, put a word right when you finish typing it if '
+                  'it is clearly a slip (like "teh" for "the"). Names are left '
+                  'alone, and Ctrl+Z gives the word back as you typed it.',
+                ),
+                value: settings.autocorrect,
+                onChanged: (v) =>
+                    spellSettings.value = settings.copyWith(autocorrect: v),
+              ),
+              SwitchListTile(
+                key: const ValueKey('spell-underline'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Underline mistakes'),
+                subtitle: const Text(
+                  'Draw a red wavy line under words that are not in the '
+                  'dictionary. Right-click one to correct it or add it to your '
+                  'dictionary.',
+                ),
+                value: settings.underline,
+                onChanged: (v) =>
+                    spellSettings.value = settings.copyWith(underline: v),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Your dictionary',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Words you have added are never marked wrong or changed. They '
+                'are kept on this device.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('dictionary-add-field'),
+                      controller: _word,
+                      decoration: InputDecoration(
+                        labelText: 'Add a word',
+                        errorText: _error,
+                      ),
+                      onSubmitted: (_) => _add(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const ValueKey('dictionary-add'),
+                    onPressed: _add,
+                    child: const Text('Add'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (words.isEmpty)
+                const Text(
+                  'No words added yet.',
+                  key: ValueKey('dictionary-empty'),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final w in words)
+                      InputChip(
+                        key: ValueKey('dictionary-word-$w'),
+                        label: Text(w),
+                        deleteButtonTooltipMessage: 'Remove from dictionary',
+                        onDeleted: () => dictionary.remove(w),
+                      ),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }

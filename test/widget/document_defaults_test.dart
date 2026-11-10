@@ -80,6 +80,11 @@ void main() {
   testWidgets('the dialog changes, remembers and resets each default', (
     tester,
   ) async {
+    // A popup is one page that scrolls, so a tall window keeps its buttons in view.
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(

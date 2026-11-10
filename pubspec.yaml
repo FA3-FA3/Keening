@@ -36,6 +36,7 @@ flutter:
   assets:
     - assets/fonts/
     - assets/images/
+    - assets/dictionary/
   fonts:
     # The same Roboto on the web and the desktop app (otherwise the desktop app
     # would use Windows' own Segoe UI).

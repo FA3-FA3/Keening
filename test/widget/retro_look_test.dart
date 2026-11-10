@@ -384,12 +384,12 @@ void main() {
       expect(material.shape, isA<RoundedRectangleBorder>());
     });
 
-    testWidgets('on a phone the wider status bar scrolls sideways', (
+    testWidgets('on a phone the top bar fits the screen, with no scrolling', (
       tester,
     ) async {
       await mount(tester, retroTheme(), const Size(420, 860));
       final bar = find.byKey(const ValueKey('workspace-top-bar'));
-      expect(tester.getSize(bar).width, 1000);
+      expect(tester.getSize(bar).width, 420);
       expect(tester.takeException(), isNull);
     });
   });

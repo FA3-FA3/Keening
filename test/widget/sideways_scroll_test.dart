@@ -365,31 +365,63 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('the top bar keeps its width and scrolls on a phone', (
+    testWidgets('the top bar fits a phone, with no sideways scrolling', (
       tester,
     ) async {
-      await mount(tester, const Size(400, 860));
-      final bar = find.byKey(const ValueKey('workspace-top-bar'));
-      expect(tester.getSize(bar).width, 600);
-      expect(tester.takeException(), isNull);
-      // The profile button is off the screen until the bar is scrolled.
-      final profile = find.byKey(const ValueKey('account-settings'));
-      expect(tester.getTopLeft(profile).dx + 20, greaterThan(400));
-      await tester.drag(bar, const Offset(-400, 0));
+      for (final width in [320.0, 360.0, 400.0]) {
+        await mount(tester, Size(width, 860));
+        final bar = find.byKey(const ValueKey('workspace-top-bar'));
+        expect(tester.getSize(bar).width, width, reason: '$width');
+        expect(tester.takeException(), isNull, reason: '$width');
+        expect(
+          find.descendant(of: bar, matching: sideways),
+          findsNothing,
+          reason: '$width',
+        );
+        // Search, quick add, messages and the profile are all on screen.
+        for (final key in [
+          'quick-add',
+          'messages-button',
+          'account-settings',
+        ]) {
+          final box = tester.getRect(find.byKey(ValueKey(key)));
+          expect(box.left, greaterThanOrEqualTo(0), reason: '$key $width');
+          expect(box.right, lessThanOrEqualTo(width), reason: '$key $width');
+        }
+      }
+    });
+
+    testWidgets('a long username shortens to fit the phone bar', (
+      tester,
+    ) async {
+      await screen(tester, const Size(320, 860));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DashboardPage(
+            padsService: NoPads(),
+            loadProfile: () async => {
+              'username': 'a_very_long_user_name_indeed_yes',
+              'email': 'long@example.com',
+            },
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(tester.getTopLeft(profile).dx, lessThan(400));
-      // Its text is not cut down to fit: the username shows in full.
-      expect(find.byKey(const ValueKey('messages-button')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final profile = tester.getRect(
+        find.byKey(const ValueKey('account-settings')),
+      );
+      expect(profile.right, lessThanOrEqualTo(320));
     });
 
     testWidgets('the retro top bar has no time or date on a phone', (
       tester,
     ) async {
       await mount(tester, const Size(400, 860), theme: retroTheme());
-      expect(find.byKey(const ValueKey('status-username')), findsOneWidget);
       expect(find.byKey(const ValueKey('status-time')), findsNothing);
       expect(find.byKey(const ValueKey('status-date')), findsNothing);
       await mount(tester, const Size(1300, 800), theme: retroTheme());
+      expect(find.byKey(const ValueKey('status-username')), findsOneWidget);
       expect(find.byKey(const ValueKey('status-time')), findsOneWidget);
       expect(find.byKey(const ValueKey('status-date')), findsOneWidget);
     });
@@ -398,11 +430,6 @@ void main() {
       tester,
     ) async {
       await mount(tester, const Size(400, 860));
-      await tester.drag(
-        find.byKey(const ValueKey('workspace-top-bar')),
-        const Offset(-400, 0),
-      );
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('account-settings')));
       await tester.pumpAndSettle();
       final page = find.byKey(const ValueKey('workspace-page-Settings'));

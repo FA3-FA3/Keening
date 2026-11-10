@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:keening/forked/editable_text.dart';
 import 'package:keening/forked/text_field.dart';
 import 'package:keening/widgets/notepad_editor.dart';
+import 'package:keening/utils/note_settings.dart';
 import 'rich_field_helpers.dart';
 
 Future<void> mount(
@@ -104,6 +105,24 @@ void main() {
       expect(scrollbar.controller!.position.maxScrollExtent, greaterThan(0));
     });
 
+    testWidgets('on desktop the page has no scroll bar of its own', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      await mount(tester, text: lines(200));
+      // Only the window's bar, at the edge of the desk.
+      final desk = find.byKey(const ValueKey('notepad-desk'));
+      expect(
+        find.descendant(
+          of: desk,
+          matching: find.byWidgetPredicate((w) => w is RawScrollbar),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('notepad-scrollbar')), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets('text is dark on the white page, with one-inch margins', (
       tester,
     ) async {
@@ -142,6 +161,79 @@ void main() {
         );
       },
     );
+
+    group('scrolling to the bottom of a page', () {
+      ScrollPosition scrollOf(WidgetTester tester) => tester
+          .widget<RichField>(find.byKey(const ValueKey('notepad-field')))
+          .scrollController!
+          .position;
+
+      testWidgets('a short note can be scrolled down to the end of its page', (
+        tester,
+      ) async {
+        await mount(tester, text: lines(5), size: const Size(1400, 700));
+        final position = scrollOf(tester);
+        // The text is far shorter than a page, but the whole page is reachable.
+        expect(
+          position.maxScrollExtent + position.viewportDimension,
+          closeTo(notepadPageContent, 0.5),
+        );
+        expect(position.maxScrollExtent, greaterThan(0));
+        // The field fills the page, not just the line of text in it.
+        expect(position.viewportDimension, greaterThan(300));
+      });
+
+      testWidgets('a window taller than a page needs no scrolling', (
+        tester,
+      ) async {
+        await mount(tester, text: lines(5), size: const Size(1400, 2400));
+        expect(scrollOf(tester).maxScrollExtent, 0);
+      });
+
+      testWidgets('a long note ends on a whole page', (tester) async {
+        await mount(tester, text: lines(70), size: const Size(1400, 700));
+        final position = scrollOf(tester);
+        final total = position.maxScrollExtent + position.viewportDimension;
+        expect(total / notepadPageContent, closeTo(2, 0.001));
+        // At the bottom, the page break above is on screen and nothing is
+        // painted past the last page.
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        expect(breaks(tester), [1027]);
+      });
+
+      testWidgets('with pages off the note ends where its text does', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(1400, 700);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: NotepadEditor(
+                initialText: lines(5),
+                settings: const NoteSettings(pages: false),
+                autosaveDelay: const Duration(milliseconds: 50),
+                onSave: (_, _) async {},
+                onUploadImage: (_) async => '',
+                onLoadImage: (_) async => Uint8List(0),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(scrollOf(tester).maxScrollExtent, 0);
+      });
+
+      test('the room left on the last page', () {
+        expect(notepadPageFill(0), notepadPageContent);
+        expect(notepadPageFill(100), notepadPageContent - 100);
+        expect(notepadPageFill(notepadPageContent), 0);
+        expect(notepadPageFill(notepadPageContent + 1), notepadPageContent - 1);
+      });
+    });
 
     testWidgets('a short note has no page breaks', (tester) async {
       await mount(tester, text: lines(5));

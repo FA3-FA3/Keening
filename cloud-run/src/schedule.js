@@ -9,7 +9,7 @@ export function scheduleHandler(pool){
   const b=request.body||{},owner=request.userProfile.id;
   let db;
   try{
-   const actions=['getWeek','saveTagDefinitions','saveTags','createGroup','updateGroup','deleteGroup','createRow','updateRow','deleteRow','saveBlock','deleteBlock'];
+   const actions=['getAll','putAll','getWeek','saveTagDefinitions','saveTags','createGroup','updateGroup','deleteGroup','createRow','updateRow','deleteRow','saveBlock','deleteBlock'];
    if(!actions.includes(b.action))fail('Unknown schedule action.');
    db=await pool.connect();await db.query('BEGIN');
    await db.query('INSERT INTO public.schedules(owner_id) VALUES($1) ON CONFLICT DO NOTHING',[owner]);
@@ -20,7 +20,30 @@ export function scheduleHandler(pool){
     for(const block of data.blocks){if(data.tags?.[block.color])block.tagId=block.color;}
    }
    let result={saved:true};
-   if(b.action==='getWeek'){
+   if(b.action==='getAll'){
+    // Everything, for the desktop app to keep a copy it can change offline.
+    result={groups:data.groups,rows:data.rows,tags:data.tags??{},tagDefinitions:data.tagDefinitions,blocks:data.blocks};
+   }else if(b.action==='putAll'){
+    // After working offline the desktop app sends its copy, which replaces this one.
+    const d=b.data;
+    if(!d||typeof d!=='object'||![d.groups,d.rows,d.blocks,d.tagDefinitions].every(Array.isArray))fail('Invalid schedule.');
+    if(d.groups.length>50||d.rows.length>200||d.blocks.length>5000||d.tagDefinitions.length>50)fail('The schedule is too large.');
+    if(Buffer.byteLength(JSON.stringify(d))>4_000_000)fail('The schedule is too large.');
+    const unique=list=>new Set(list.map(e=>e?.id)).size===list.length&&list.every(e=>e&&typeof e==='object'&&typeof e.id==='string');
+    if(![d.groups,d.rows,d.blocks,d.tagDefinitions].every(unique))fail('Invalid schedule.');
+    for(const g of d.groups)text(g.name,100);
+    for(const r of d.rows){text(r.name,100);if(!d.groups.some(g=>g.id===r.group_id))fail('Invalid schedule.');}
+    for(const t of d.tagDefinitions){text(t.name,40);if(typeof t.color!=='string'||!/^#[0-9a-f]{6}$/i.test(t.color))fail('Invalid colour.');}
+    for(const e of d.blocks){
+     date(e.date);time(e.start);if(e.end!=='24:00')time(e.end);if(e.end<=e.start)fail('Invalid schedule.');
+     text(e.title,200);if(typeof e.color!=='string'||!/^#[0-9a-f]{6}$/i.test(e.color))fail('Invalid colour.');
+     if(e.note!==undefined&&(typeof e.note!=='string'||e.note.length>2000))fail('Invalid schedule.');
+     if(e.location!==undefined&&(typeof e.location!=='string'||e.location.length>500))fail('Invalid schedule.');
+    }
+    const tags=d.tags&&typeof d.tags==='object'&&!Array.isArray(d.tags)?d.tags:{};
+    data.groups=d.groups;data.rows=d.rows;data.blocks=d.blocks;data.tagDefinitions=d.tagDefinitions;data.tags=tags;
+    result={saved:true};
+   }else if(b.action==='getWeek'){
     const start=date(b.startDate),endDate=new Date(start+'T00:00:00Z');endDate.setUTCDate(endDate.getUTCDate()+6);
     const end=endDate.toISOString().slice(0,10);
     result={groups:data.groups,rows:data.rows,tags:data.tags??{},tagDefinitions:data.tagDefinitions,blocks:data.blocks.filter(e=>e.date>=start&&e.date<=end)};
@@ -97,7 +120,7 @@ export function scheduleHandler(pool){
      data.blocks.push(block,...copies);result={block,created:1+copies.length};
     }
    }
-   if(b.action!=='getWeek')await db.query('UPDATE public.schedules SET data=$1::jsonb,updated_at=now() WHERE owner_id=$2',[JSON.stringify(data),owner]);
+   if(b.action!=='getWeek'&&b.action!=='getAll')await db.query('UPDATE public.schedules SET data=$1::jsonb,updated_at=now() WHERE owner_id=$2',[JSON.stringify(data),owner]);
    await db.query('COMMIT');return result;
   }catch(error){
    if(db)await db.query('ROLLBACK').catch(()=>{});

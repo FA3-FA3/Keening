@@ -280,4 +280,67 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  group('Ctrl+Tab', () {
+    Future<void> mount(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
+      await tester.pumpAndSettle();
+    }
+
+    /// The place of the tab showing, among the open ones.
+    int showing(WidgetTester tester) =>
+        tester.widget<IndexedStack>(find.byType(IndexedStack).first).index!;
+
+    Future<void> press(WidgetTester tester, {bool shift = false}) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('go round the open tabs, forwards and backwards', (
+      tester,
+    ) async {
+      await mount(tester);
+      await tester.tap(find.byKey(const ValueKey('nav-Projects')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-Calendar')));
+      await tester.pumpAndSettle();
+      expect(showing(tester), 2);
+      await press(tester); // last to first
+      expect(showing(tester), 0);
+      await press(tester);
+      expect(showing(tester), 1);
+      await press(tester, shift: true);
+      expect(showing(tester), 0);
+      await press(tester, shift: true); // first to last
+      expect(showing(tester), 2);
+      await press(tester, shift: true);
+      expect(showing(tester), 1);
+    });
+
+    testWidgets('do nothing with only one tab open', (tester) async {
+      await mount(tester);
+      expect(showing(tester), 0);
+      await press(tester);
+      await press(tester, shift: true);
+      expect(showing(tester), 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a plain Tab does not change tabs', (tester) async {
+      await mount(tester);
+      await tester.tap(find.byKey(const ValueKey('nav-Projects')));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      expect(showing(tester), 1);
+    });
+  });
 }

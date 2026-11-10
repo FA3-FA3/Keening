@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'rich_field_helpers.dart';
@@ -552,6 +553,187 @@ void main() {
     expect(api.documents.values.single['folder_id'], isNull);
     expect(docTile(api, 'Loose'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('right click and drag', () {
+    Finder grip(FakeDocs api, {String? doc, String? folder}) {
+      if (doc != null) {
+        final id = api.documents.values.firstWhere(
+          (d) => d['name'] == doc,
+        )['id'];
+        return find.byKey(ValueKey('drag-doc-$id'));
+      }
+      final id = api.folders.values.firstWhere(
+        (f) => f['name'] == folder,
+      )['id'];
+      return find.byKey(ValueKey('drag-folder-$id'));
+    }
+
+    Future<void> dragTo(WidgetTester tester, Finder from, Finder to) async {
+      final start = tester.getCenter(from);
+      final end = tester.getCenter(to);
+      final gesture = await tester.startGesture(start);
+      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.moveTo(start + const Offset(30, 30));
+      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.moveTo(end);
+      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> rightClick(WidgetTester tester, Offset at) async {
+      final gesture = await tester.startGesture(
+        at,
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('right click offers a new folder and every document type', (
+      tester,
+    ) async {
+      final api = FakeDocs()..addDoc('Existing');
+      await mount(tester, api);
+      await rightClick(tester, const Offset(700, 700));
+      expect(find.byKey(const ValueKey('context-new-folder')), findsOneWidget);
+      for (final type in documentTypes) {
+        expect(
+          find.byKey(ValueKey('context-new-${type.kind}')),
+          findsOneWidget,
+          reason: type.kind,
+        );
+      }
+    });
+
+    testWidgets('right click, New folder, creates a folder', (tester) async {
+      final api = FakeDocs();
+      await mount(tester, api);
+      await rightClick(tester, const Offset(700, 600));
+      await tester.tap(find.byKey(const ValueKey('context-new-folder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, 'From menu');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await settle(tester);
+      expect(api.folders.values.single['name'], 'From menu');
+    });
+
+    testWidgets('right click, New Notepad, creates a Notepad', (tester) async {
+      final api = FakeDocs();
+      await mount(tester, api);
+      await rightClick(tester, const Offset(700, 600));
+      await tester.tap(find.byKey(const ValueKey('context-new-notepad')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, 'Quick note');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await settle(tester);
+      final doc = api.documents.values.single;
+      expect(doc['name'], 'Quick note');
+      expect(doc['kind'], 'notepad');
+    });
+
+    testWidgets('a new item from the menu goes in the open folder', (
+      tester,
+    ) async {
+      final api = FakeDocs();
+      final work = api.addFolder('Work');
+      await mount(tester, api);
+      await tester.tap(folderTile(api, 'Work'));
+      await tester.pumpAndSettle();
+      await rightClick(tester, const Offset(700, 600));
+      await tester.tap(find.byKey(const ValueKey('context-new-folder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, 'Inner');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await settle(tester);
+      expect(
+        api.folders.values.firstWhere((f) => f['name'] == 'Inner')['parent_id'],
+        work['id'],
+      );
+    });
+
+    testWidgets('every tile has a grip in its top left corner', (tester) async {
+      final api = FakeDocs()
+        ..addFolder('Work')
+        ..addDoc('Loose');
+      await mount(tester, api);
+      for (final (g, tile) in [
+        (grip(api, doc: 'Loose'), docTile(api, 'Loose')),
+        (grip(api, folder: 'Work'), folderTile(api, 'Work')),
+      ]) {
+        expect(g, findsOneWidget);
+        final offset = tester.getTopLeft(g) - tester.getTopLeft(tile);
+        expect(offset.dx, lessThan(12));
+        expect(offset.dy, lessThan(12));
+      }
+    });
+
+    testWidgets('dragging a document by its grip onto a folder moves it', (
+      tester,
+    ) async {
+      final api = FakeDocs();
+      final work = api.addFolder('Work');
+      api.addDoc('Loose');
+      await mount(tester, api);
+      await dragTo(tester, grip(api, doc: 'Loose'), folderTile(api, 'Work'));
+      expect(api.documents.values.single['folder_id'], work['id']);
+      expect(docTile(api, 'Loose'), findsNothing);
+    });
+
+    testWidgets('dragging a folder onto another folder moves it inside', (
+      tester,
+    ) async {
+      final api = FakeDocs();
+      final a = api.addFolder('Alpha');
+      final b = api.addFolder('Beta');
+      await mount(tester, api);
+      await dragTo(tester, grip(api, folder: 'Beta'), folderTile(api, 'Alpha'));
+      expect(b['parent_id'], a['id']);
+      expect(api.calls, contains('moveFolder'));
+    });
+
+    testWidgets('a folder cannot be dropped into itself', (tester) async {
+      final api = FakeDocs();
+      final a = api.addFolder('Alpha');
+      api.addFolder('Inner', parent: a['id'] as String);
+      await mount(tester, api);
+      await dragTo(
+        tester,
+        grip(api, folder: 'Alpha'),
+        folderTile(api, 'Alpha'),
+      );
+      expect(api.calls.contains('moveFolder'), isFalse);
+      expect(a['parent_id'], isNull);
+    });
+
+    testWidgets('a document can be dragged up onto a breadcrumb', (
+      tester,
+    ) async {
+      final api = FakeDocs();
+      final work = api.addFolder('Work');
+      api.addDoc('Inside', folder: work['id'] as String);
+      await mount(tester, api);
+      await tester.tap(folderTile(api, 'Work'));
+      await tester.pumpAndSettle();
+      await dragTo(
+        tester,
+        grip(api, doc: 'Inside'),
+        find.byKey(const ValueKey('crumb-root')),
+      );
+      expect(api.documents.values.single['folder_id'], isNull);
+      expect(docTile(api, 'Inside'), findsNothing);
+    });
+
+    testWidgets('dropping a document where it already is does nothing', (
+      tester,
+    ) async {
+      final api = FakeDocs()..addDoc('Loose');
+      await mount(tester, api);
+      await dragTo(tester, grip(api, doc: 'Loose'), docTile(api, 'Loose'));
+      expect(api.calls.contains('movePad'), isFalse);
+    });
   });
 
   testWidgets('cancelling a move returns to the details', (tester) async {

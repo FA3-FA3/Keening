@@ -35,7 +35,9 @@ class NoteExporter {
 
   static String _key(ExportPiece p) {
     final e = p.embed!;
-    return e.isImage ? 'i:${e.imageId}' : 'e:${e.latex}|${p.format.color}';
+    return e.isImage
+        ? 'i:${e.imageId}:${e.width ?? ''}'
+        : 'e:${e.latex}|${p.format.color}';
   }
 
   /// Every picture and equation in the note, ready to embed; null for one that
@@ -49,22 +51,22 @@ class NoteExporter {
         final key = _key(piece);
         if (out.containsKey(key)) continue;
         out[key] = embed.isImage
-            ? await _loadPicture(embed.imageId!)
+            ? await _loadPicture(embed.imageId!, embed.width)
             : await _drawEquation(embed.latex!, piece.format.color);
       }
     }
     return out;
   }
 
-  Future<ExportPicture?> _loadPicture(String id) async {
+  Future<ExportPicture?> _loadPicture(String id, double? width) async {
     try {
       final bytes = await loadImage(id);
       final size = await pictureSize(bytes);
       if (size == null) return null;
-      final shown = notePictureSize(
-        size.width.toDouble(),
-        size.height.toDouble(),
-      );
+      // (A picture that was resized keeps the width it was given.)
+      final shown = width == null
+          ? notePictureSize(size.width.toDouble(), size.height.toDouble())
+          : (width: width, height: width * size.height / size.width);
       return ExportPicture(
         bytes,
         size.width,

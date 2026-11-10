@@ -1,15 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../utils/mobile_layout.dart';
 
 /// Room a dialog takes for itself on each side of its content: the gap to the
 /// edge of the screen and its own padding.
 const _dialogChrome = 128.0;
 
-/// Whether popups fill the whole screen: they do when the app is in portrait
-/// (taller than wide), the phone layout.
-bool dialogIsFullscreen(BuildContext context) =>
-    MediaQuery.orientationOf(context) == Orientation.portrait;
+/// Whether popups fill the whole screen: they do in the mobile layout (the web
+/// app when it is in portrait, taller than wide).
+bool dialogIsFullscreen(BuildContext context) => useMobileLayout(context);
 
 /// A box up to [width] wide for the content of a dialog. When the screen is too
 /// narrow for that the box is as wide as the screen allows and everything in it

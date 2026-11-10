@@ -25,6 +25,35 @@ function ids(value, allowed) {
   return value;
 }
 
+// The board the desktop app sends after working offline, checked as strictly as
+// the same changes made one at a time would have been.
+function cleanBoard(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Invalid board.');
+  const {columns, tags, tasks} = value;
+  if (![columns, tags, tasks].every(Array.isArray)) fail('Invalid board.');
+  if (columns.length > 50) fail('A board can have up to 50 panels.');
+  if (tags.length > 100) fail('A board can have up to 100 tags.');
+  if (tasks.length > 500) fail('A workplace can have up to 500 tasks, including archived tasks.');
+  const unique = (list, label_) => { if (new Set(list.map(e => e.id)).size !== list.length) fail(`Duplicate ${label_}.`); };
+  const stamp = v => typeof v === 'string' && v.length <= 40 ? v : new Date().toISOString();
+  const cleanColumns = columns.map(c => {
+    if (!c || !idValid(c.id) || typeof c.archived !== 'boolean') fail('Invalid panel.');
+    return {id: c.id, name: label(c.name), color: colour(c.color), archived: c.archived, created_at: stamp(c.created_at), updated_at: stamp(c.updated_at)};
+  });
+  const cleanTags = tags.map(t => {
+    if (!t || !idValid(t.id)) fail('Invalid tag.');
+    return {id: t.id, name: label(t.name, 50), color: colour(t.color)};
+  });
+  unique(cleanColumns, 'panel'); unique(cleanTags, 'tag');
+  const cleanTasks = tasks.map(t => {
+    if (!t || !idValid(t.id) || !cleanColumns.some(c => c.id === t.column_id)) fail('Invalid task.');
+    if (typeof t.completed !== 'boolean' || typeof t.archived !== 'boolean') fail('Invalid task status.');
+    return {id: t.id, column_id: t.column_id, title: label(t.title, 200), description: description(t.description ?? ''), color: colour(t.color), tag_ids: ids(t.tag_ids ?? [], cleanTags), completed: t.completed, archived: t.archived, created_at: stamp(t.created_at), updated_at: stamp(t.updated_at)};
+  });
+  unique(cleanTasks, 'task');
+  return {columns: cleanColumns, tags: cleanTags, tasks: cleanTasks};
+}
+
 export function boardsHandler(pool) {
   return async (request, reply) => {
     const b = request.body || {}, owner = request.userProfile.id;
@@ -48,6 +77,23 @@ export function boardsHandler(pool) {
         const count = await db.query('SELECT count(*)::int AS count FROM public.board_workplaces WHERE owner_id=$1',[owner]);
         if (count.rows[0].count >= 100) fail('You can create up to 100 boards.');
         result = { workplace: (await db.query('INSERT INTO public.board_workplaces(owner_id,name,position) SELECT $1,$2,COALESCE(MAX(position),0)+1 FROM public.board_workplaces WHERE owner_id=$1 RETURNING id,name',[owner,name])).rows[0] };
+      } else if (b.action === 'syncWorkplace') {
+        // After working offline the desktop app sends the board it holds, and it
+        // replaces the one here (or is added, if it was made offline).
+        if (!idValid(b.id)) fail('Invalid workplace.');
+        const name = label(b.name);
+        const board = cleanBoard(b.board);
+        await db.query('SELECT id FROM public.users WHERE id=$1 FOR UPDATE',[owner]);
+        const existing = (await db.query('SELECT owner_id FROM public.board_workplaces WHERE id=$1',[b.id])).rows[0];
+        if (existing && existing.owner_id !== owner) fail('Board not found.',404);
+        if (existing) {
+          await db.query('UPDATE public.board_workplaces SET name=$1,board=$2::jsonb,updated_at=now() WHERE id=$3',[name,JSON.stringify(board),b.id]);
+        } else {
+          const count = await db.query('SELECT count(*)::int AS count FROM public.board_workplaces WHERE owner_id=$1',[owner]);
+          if (count.rows[0].count >= 100) fail('You can create up to 100 boards.');
+          await db.query('INSERT INTO public.board_workplaces(id,owner_id,name,board,position) SELECT $1,$2,$3,$4::jsonb,COALESCE(MAX(position),0)+1 FROM public.board_workplaces WHERE owner_id=$2',[b.id,owner,name,JSON.stringify(board)]);
+        }
+        result = { workplace: { id: b.id, name } };
       } else {
         if (!idValid(b.workplaceId)) fail('Invalid workplace.');
         // Serialize changes to the board so concurrent independent edits are retained.

@@ -56,6 +56,21 @@ class _NoteSettingsDialog extends StatefulWidget {
 class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
   late bool _pages = widget.settings.pages;
   late String _background = widget.settings.background;
+  late String? _textColour = widget.settings.textColourChoice;
+  late double _textSize = widget.settings.textSize;
+
+  Future<void> _otherText() async {
+    final choice = await showColourPicker(
+      context,
+      title: 'Text colour',
+      initial:
+          _textColour ??
+          widget.settings.copyWith(background: _background).textColourHex,
+    );
+    if (choice?.hex != null && mounted) {
+      setState(() => _textColour = choice!.hex!);
+    }
+  }
 
   Future<void> _other() async {
     final choice = await showColourPicker(
@@ -116,10 +131,99 @@ class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          Text('Text colour', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ChoiceChip(
+                key: const ValueKey('note-text-auto'),
+                label: const Text('Automatic'),
+                selected: _textColour == null,
+                onSelected: (_) => setState(() => _textColour = null),
+              ),
+              for (final hex in noteTextColours)
+                _swatch(
+                  context,
+                  ValueKey('note-text-$hex'),
+                  hex,
+                  _textColour ?? '',
+                  () => setState(() => _textColour = hex),
+                ),
+              TextButton.icon(
+                key: const ValueKey('note-text-custom'),
+                onPressed: _otherText,
+                icon: const Icon(Icons.palette_outlined),
+                label: const Text('Other…'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           Text(
-            'Text turns light on a dark background so it stays readable. '
-            'Exported Word and PDF files stay white.',
+            'Automatic is white (#FFFFFF), or dark on a light background so the '
+            'text can still be read.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          Text('Text size', style: Theme.of(context).textTheme.labelLarge),
+          Row(
+            children: [
+              IconButton(
+                key: const ValueKey('note-size-down'),
+                tooltip: 'Smaller',
+                onPressed: _textSize <= noteTextSizeMin
+                    ? null
+                    : () => setState(
+                        () => _textSize = (_textSize - 1).clamp(
+                          noteTextSizeMin,
+                          noteTextSizeMax,
+                        ),
+                      ),
+                icon: const Icon(Icons.remove),
+              ),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  _textSize.round().toString(),
+                  key: const ValueKey('note-size-value'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('note-size-up'),
+                tooltip: 'Larger',
+                onPressed: _textSize >= noteTextSizeMax
+                    ? null
+                    : () => setState(
+                        () => _textSize = (_textSize + 1).clamp(
+                          noteTextSizeMin,
+                          noteTextSizeMax,
+                        ),
+                      ),
+                icon: const Icon(Icons.add),
+              ),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('note-size-slider'),
+                  min: noteTextSizeMin,
+                  max: noteTextSizeMax,
+                  divisions: (noteTextSizeMax - noteTextSizeMin).round(),
+                  value: _textSize,
+                  onChanged: (v) =>
+                      setState(() => _textSize = v.roundToDouble()),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'The size of text that has not been given a size of its own. Text '
+            'turns light on a dark background so it stays readable. Exported '
+            'Word and PDF files stay white.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -131,6 +235,8 @@ class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
         onPressed: () => setState(() {
           _pages = NoteSettings.standard.pages;
           _background = NoteSettings.standard.background;
+          _textColour = null;
+          _textSize = NoteSettings.standard.textSize;
         }),
         child: const Text('Reset'),
       ),
@@ -143,7 +249,12 @@ class _NoteSettingsDialogState extends State<_NoteSettingsDialog> {
         key: const ValueKey('settings-apply'),
         onPressed: () => Navigator.pop(
           context,
-          NoteSettings(pages: _pages, background: _background),
+          NoteSettings(
+            pages: _pages,
+            background: _background,
+            textColourChoice: _textColour,
+            textSize: _textSize,
+          ),
         ),
         child: const Text('Apply'),
       ),

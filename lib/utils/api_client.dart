@@ -168,5 +168,18 @@ class ApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  /// Whether the server answers at all (any reply counts), used to tell when
+  /// the connection is back.
+  Future<bool> reachable() async {
+    final base = Uri.tryParse(_baseUrl);
+    if (base == null || !base.hasAuthority) return false;
+    try {
+      await _client.get(base.resolve('/')).timeout(const Duration(seconds: 5));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void close() => _client.close();
 }

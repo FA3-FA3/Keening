@@ -570,6 +570,7 @@ class HangEditableText extends StatefulWidget {
     this.autofillHints = const <String>[],
     this.autofillClient,
     this.clipBehavior = Clip.hardEdge,
+    this.extraScrollExtent,
     this.restorationId,
     this.scrollBehavior,
     @Deprecated(
@@ -1598,6 +1599,10 @@ class HangEditableText extends StatefulWidget {
   ///
   /// Defaults to [Clip.hardEdge].
   final Clip clipBehavior;
+
+  /// Extra room to scroll past the end of the text, worked out from the text's
+  /// height (null: none). The Notepad uses it to let a page be seen whole.
+  final double Function(double textHeight)? extraScrollExtent;
 
   /// Restoration ID to save and restore the scroll offset of the
   /// [HangEditableText].
@@ -4095,6 +4100,11 @@ class HangEditableTextState extends State<HangEditableText>
   /// ask the focus system that it become focused. If successful in acquiring
   /// focus, the control will then attach to the keyboard and request that the
   /// keyboard become visible.
+  /// Scrolls the field so the caret is on screen, as typing does. (Changes made
+  /// to the text by code, such as a new bullet, a paste or an undo, do not do
+  /// this by themselves.)
+  void showCaretOnScreen() => _scheduleShowCaretOnScreen(withAnimation: true);
+
   void requestKeyboard() {
     if (_hasFocus) {
       _openInputConnection();
@@ -6007,6 +6017,7 @@ class HangEditableTextState extends State<HangEditableText>
                                     promptRectColor:
                                         widget.autocorrectionTextRectColor,
                                     clipBehavior: widget.clipBehavior,
+                                    extraScrollExtent: widget.extraScrollExtent,
                                   ),
                                 ),
                               ),
@@ -6157,6 +6168,7 @@ class _Editable extends MultiChildRenderObjectWidget {
     this.promptRectRange,
     this.promptRectColor,
     required this.clipBehavior,
+    this.extraScrollExtent,
   }) : selectionHeightStyle =
            selectionHeightStyle ?? HangEditableText.defaultSelectionHeightStyle,
        selectionWidthStyle =
@@ -6203,6 +6215,7 @@ class _Editable extends MultiChildRenderObjectWidget {
   final TextRange? promptRectRange;
   final Color? promptRectColor;
   final Clip clipBehavior;
+  final double Function(double textHeight)? extraScrollExtent;
 
   @override
   HangRenderEditable createRenderObject(BuildContext context) {
@@ -6245,6 +6258,7 @@ class _Editable extends MultiChildRenderObjectWidget {
       promptRectRange: promptRectRange,
       promptRectColor: promptRectColor,
       clipBehavior: clipBehavior,
+      extraScrollExtent: extraScrollExtent,
     );
   }
 
@@ -6291,6 +6305,7 @@ class _Editable extends MultiChildRenderObjectWidget {
       ..paintCursorAboveText = paintCursorAboveText
       ..promptRectColor = promptRectColor
       ..clipBehavior = clipBehavior
+      ..extraScrollExtent = extraScrollExtent
       ..setPromptRectRange(promptRectRange);
   }
 }

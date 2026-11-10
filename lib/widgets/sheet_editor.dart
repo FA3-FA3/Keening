@@ -7,6 +7,8 @@ import '../utils/export_handle.dart';
 import '../utils/sheet_model.dart';
 import 'collapsible_toolbar.dart';
 import 'conditional_format_dialog.dart';
+import '../utils/spell/autocorrect.dart';
+import '../utils/spell/spell_text_controller.dart';
 
 const _rowHeight = 28.0;
 const _headerHeight = 28.0;
@@ -59,7 +61,8 @@ class _SheetEditorState extends State<SheetEditor> {
   // active cell.
   CellKey _anchor = (0, 0), _cursor = (0, 0);
   CellKey? _editing;
-  final _editController = TextEditingController();
+  final _editController = SpellTextController();
+  var _editBefore = '';
   final _editFocus = FocusNode();
   final _barFocus = FocusNode();
   final _gridFocus = FocusNode();
@@ -355,6 +358,7 @@ class _SheetEditorState extends State<SheetEditor> {
         text: initial ?? raw,
         selection: TextSelection.collapsed(offset: (initial ?? raw).length),
       );
+      _editBefore = _editController.text;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -961,6 +965,7 @@ class _SheetEditorState extends State<SheetEditor> {
                   if (_editing == null) {
                     _beginEdit(initial: _editController.text, inBar: true);
                   }
+                  _spelling();
                 },
                 onSubmitted: (_) => _finishEdit(1, 0),
               ),
@@ -969,6 +974,15 @@ class _SheetEditorState extends State<SheetEditor> {
         ],
       ),
     );
+  }
+
+  /// A word just finished in a cell that is clearly a slip is put right.
+  void _spelling() {
+    final before = _editBefore;
+    _editBefore = _editController.text;
+    if (autocorrectPlainTyped(_editController, before)) {
+      _editBefore = _editController.text;
+    }
   }
 
   Widget _grid() {
@@ -1171,6 +1185,7 @@ class _SheetEditorState extends State<SheetEditor> {
                                                   vertical: 6,
                                                 ),
                                           ),
+                                          onChanged: (_) => _spelling(),
                                           onSubmitted: (_) => _finishEdit(1, 0),
                                         ),
                                       ),
