@@ -19,6 +19,13 @@ const _alphabet = "abcdefghijklmnopqrstuvwxyz'";
 
 const _wordsKey = 'keening.dictionary';
 const _settingsKey = 'keening.spelling';
+const _pendingKey = 'keening.dictionary.pending';
+const _ownerKey = 'keening.dictionary.owner';
+
+/// Sends the words added and taken away to the person's account and returns
+/// every word the account now has. Throws when the account cannot be reached.
+typedef DictionarySync =
+    Future<List<String>> Function(List<String> add, List<String> remove);
 
 /// What the person has chosen about spelling: whether mistakes are underlined,
 /// and whether the obvious ones are corrected as they type.
@@ -127,12 +134,118 @@ class SpellDictionary {
   void _readMine() {
     try {
       final raw = localRead(_wordsKey);
-      if (raw == null) return;
-      _mine
-        ..clear()
-        ..addAll((jsonDecode(raw) as List).cast<String>());
+      if (raw != null) {
+        _mine
+          ..clear()
+          ..addAll((jsonDecode(raw) as List).cast<String>());
+      }
     } catch (_) {
       _mine.clear();
+    }
+    _readPending();
+  }
+
+  // ------------------------------------------------- the person's account
+
+  // What was added or taken away here that the account has not heard yet
+  // (kept on the device so it is sent when the account can be reached).
+  final Set<String> _toAdd = {}, _toRemove = {};
+  DictionarySync? _remote;
+  var _syncing = false, _syncAgain = false;
+
+  void _readPending() {
+    try {
+      final raw = localRead(_pendingKey);
+      if (raw == null) return;
+      final json = jsonDecode(raw) as Map;
+      _toAdd
+        ..clear()
+        ..addAll((json['add'] as List).cast<String>());
+      _toRemove
+        ..clear()
+        ..addAll((json['remove'] as List).cast<String>());
+    } catch (_) {
+      _toAdd.clear();
+      _toRemove.clear();
+    }
+  }
+
+  void _savePending() {
+    try {
+      localWrite(
+        _pendingKey,
+        jsonEncode({'add': _toAdd.toList(), 'remove': _toRemove.toList()}),
+      );
+    } catch (_) {
+      // Sent next time the words change.
+    }
+  }
+
+  /// Keeps the words in the account of [uid]: [sync] talks to the account.
+  /// Words kept on this device before there was an account are added to it;
+  /// words from a different person's account are not carried over.
+  Future<void> attachAccount(String uid, DictionarySync sync) async {
+    _readMine();
+    final owner = localRead(_ownerKey);
+    if (owner != null && owner.isNotEmpty && owner != uid) {
+      _mine.clear();
+      _toAdd.clear();
+      _toRemove.clear();
+      _saveMine();
+      _savePending();
+      revision.value++;
+    } else if (owner == null || owner.isEmpty) {
+      _toAdd.addAll(_mine);
+      _savePending();
+    }
+    try {
+      localWrite(_ownerKey, uid);
+    } catch (_) {}
+    _remote = sync;
+    await syncNow();
+  }
+
+  /// Stops talking to the account (signed out).
+  void detachAccount() => _remote = null;
+
+  /// Sends what changed here to the account and takes back what it holds.
+  /// Without a connection the changes wait for the next try.
+  Future<void> syncNow() async {
+    final remote = _remote;
+    if (remote == null) return;
+    if (_syncing) {
+      _syncAgain = true;
+      return;
+    }
+    _syncing = true;
+    try {
+      do {
+        _syncAgain = false;
+        final add = _toAdd.toList(), remove = _toRemove.toList();
+        final List<String> theirs;
+        try {
+          theirs = await remote(add, remove);
+        } catch (_) {
+          return; // still waiting to be sent
+        }
+        // What was sent is now known to the account; what changed meanwhile
+        // is still to be sent, and still counts.
+        _toAdd.removeAll(add);
+        _toRemove.removeAll(remove);
+        final words = {...theirs.map(_normal), ..._toAdd}
+          ..removeAll(_toRemove)
+          ..remove('');
+        _savePending();
+        if (words.length != _mine.length || !words.containsAll(_mine)) {
+          _mine
+            ..clear()
+            ..addAll(words);
+          _saveMine();
+          revision.value++;
+        }
+      } while (_syncAgain);
+    } finally {
+      _syncing = false;
     }
   }
 
@@ -148,15 +261,24 @@ class SpellDictionary {
   void add(String word) {
     final w = _normal(word);
     if (w.isEmpty || !_mine.add(w)) return;
+    _toRemove.remove(w);
+    _toAdd.add(w);
     _saveMine();
+    _savePending();
     revision.value++;
+    syncNow();
   }
 
   /// Takes a word the person added out again.
   void remove(String word) {
-    if (_mine.remove(_normal(word))) {
+    final w = _normal(word);
+    if (_mine.remove(w)) {
+      _toAdd.remove(w);
+      _toRemove.add(w);
       _saveMine();
+      _savePending();
       revision.value++;
+      syncNow();
     }
   }
 

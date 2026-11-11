@@ -656,7 +656,7 @@ class _WritingSettingsState extends State<_WritingSettings> {
               const SizedBox(height: 4),
               Text(
                 'Words you have added are never marked wrong or changed. They '
-                'are kept on this device.',
+                'are kept in your account, so they are the same on every computer.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),

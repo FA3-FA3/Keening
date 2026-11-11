@@ -39,6 +39,7 @@ import 'schedule_page.dart';
 import 'overview_page.dart';
 import '../utils/time_settings.dart';
 import '../utils/mobile_layout.dart';
+import '../utils/spell/spell_dictionary.dart';
 import '../widgets/dialog_scope.dart';
 
 const _dashboardTabs = [
@@ -243,6 +244,25 @@ class _DashboardPageState extends State<DashboardPage> {
     _startUnreadPolling();
     _restoreView();
     _loadProfile();
+    _keepDictionaryInAccount();
+  }
+
+  /// The words added to the spelling dictionary belong to the account, so they
+  /// are the same on every computer.
+  void _keepDictionaryInAccount() {
+    if (Firebase.apps.isEmpty) return;
+    final uid = OfflineGateway.instance.uid;
+    if (uid == null) return;
+    SpellDictionary.instance.attachAccount(uid, (add, remove) async {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) throw StateError('Please sign in again.');
+      final result = await _api.dictionary(token, {
+        'action': 'sync',
+        'add': add,
+        'remove': remove,
+      });
+      return (result['words'] as List).cast<String>();
+    });
   }
 
   // ----------------------------------------------- remembering the view
@@ -617,6 +637,7 @@ class _DashboardPageState extends State<DashboardPage> {
       } catch (_) {
         // Nothing more can be done about storage that will not clear.
       }
+      SpellDictionary.instance.detachAccount();
       await FirebaseAuth.instance.signOut();
       // Nothing is kept for working offline as this person.
       forgetOfflineAccount();
